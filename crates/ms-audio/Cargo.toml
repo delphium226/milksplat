@@ -5,3 +5,5 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+rtrb.workspace = true
+ms-analysis = { version = "0.1.0", path = "../ms-analysis" }
