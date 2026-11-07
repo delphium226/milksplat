@@ -1,8 +1,12 @@
 //! EEL2-compatible expression language.
 
+mod ast;
 mod lexer;
+mod parser;
 
 pub use lexer::{lex, Tok, Token};
+pub use ast::{AssignOp, BinOp, Expr, UnOp};
+pub use parser::parse;
 
 use std::fmt;
 
