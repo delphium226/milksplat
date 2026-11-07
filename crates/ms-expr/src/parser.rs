@@ -12,7 +12,12 @@ const MAX_AST_HEIGHT: u32 = 1024;
 /// Parse source text into a top-level [`Expr::Block`].
 pub fn parse(src: &str) -> Result<Expr, CompileError> {
     let toks = lex(src)?;
-    let mut p = Parser { toks, pos: 0, depth: 0, height: 0 };
+    let mut p = Parser {
+        toks,
+        pos: 0,
+        depth: 0,
+        height: 0,
+    };
     let mut stmts = Vec::new();
     loop {
         while matches!(p.peek().tok, Tok::Semi) {
@@ -88,7 +93,11 @@ impl Parser {
     }
 
     fn err_at(&self, t: &Token, message: impl Into<String>) -> CompileError {
-        CompileError { line: t.line, col: t.col, message: message.into() }
+        CompileError {
+            line: t.line,
+            col: t.col,
+            message: message.into(),
+        }
     }
 
     fn unexpected(&self) -> CompileError {
@@ -137,11 +146,45 @@ impl Parser {
 
     fn assign_inner(&mut self) -> Result<Expr, CompileError> {
         let lhs = self.binary(1)?;
+        let lhs_h = self.height;
         let op_tok = self.peek().clone();
-        let Tok::Op(o) = op_tok.tok else { return Ok(lhs) };
-        let Some(op) = assign_op(o) else { return Ok(lhs) };
-        let Expr::Var(name) = lhs else {
-            return Err(self.err_at(&op_tok, "cannot assign to a non-variable"));
+        let Tok::Op(o) = op_tok.tok else {
+            return Ok(lhs);
+        };
+        let Some(op) = assign_op(o) else {
+            return Ok(lhs);
+        };
+        let name = match lhs {
+            Expr::Var(name) => name,
+            Expr::Call {
+                name,
+                mut args,
+                line,
+                col,
+            } => {
+                let lower = name.to_ascii_lowercase();
+                if lower != "megabuf" && lower != "gmegabuf" {
+                    return Err(self.err_at(&op_tok, "cannot assign to a non-variable"));
+                }
+                let (1, Some(index)) = (args.len(), args.pop()) else {
+                    return Err(CompileError {
+                        line,
+                        col,
+                        message: format!("'{name}' expects 1 argument(s)"),
+                    });
+                };
+                self.pos += 1;
+                let value = Box::new(self.assign()?);
+                let h = self.height.max(lhs_h) + 1;
+                self.set_height(&op_tok, h)?;
+                return Ok(Expr::MemAssign {
+                    global: lower == "gmegabuf",
+                    index: Box::new(index),
+                    op,
+                    value,
+                });
+            }
+            _ => return Err(self.err_at(&op_tok, "cannot assign to a non-variable")),
         };
         self.pos += 1;
         let value = Box::new(self.assign()?);
@@ -162,7 +205,9 @@ impl Parser {
         let mut lh = self.height;
         loop {
             let Tok::Op(o) = self.peek().tok else { break };
-            let Some((op, prec, right)) = binop(o) else { break };
+            let Some((op, prec, right)) = binop(o) else {
+                break;
+            };
             if prec < min_prec {
                 break;
             }
@@ -207,7 +252,12 @@ impl Parser {
                     let args = self.call_args()?;
                     let h = self.height + 1;
                     self.set_height(&t, h)?;
-                    Ok(Expr::Call { name, args, line: t.line, col: t.col })
+                    Ok(Expr::Call {
+                        name,
+                        args,
+                        line: t.line,
+                        col: t.col,
+                    })
                 } else {
                     self.height = 1;
                     Ok(Expr::Var(name))

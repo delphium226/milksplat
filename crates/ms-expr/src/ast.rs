@@ -45,11 +45,27 @@ pub enum BinOp {
 pub enum Expr {
     Num(f64),
     Var(String),
-    Assign { op: AssignOp, name: String, value: Box<Expr> },
+    Assign {
+        op: AssignOp,
+        name: String,
+        value: Box<Expr>,
+    },
     Unary(UnOp, Box<Expr>),
     Binary(BinOp, Box<Expr>, Box<Expr>),
     /// Function call; `line`/`col` locate the function name.
-    Call { name: String, args: Vec<Expr>, line: u32, col: u32 },
+    Call {
+        name: String,
+        args: Vec<Expr>,
+        line: u32,
+        col: u32,
+    },
+    /// `megabuf(index) op= value` / `gmegabuf(index) op= value`.
+    MemAssign {
+        global: bool,
+        index: Box<Expr>,
+        op: AssignOp,
+        value: Box<Expr>,
+    },
     /// A `;`-separated sequence; evaluates to its last statement.
     Block(Vec<Expr>),
 }

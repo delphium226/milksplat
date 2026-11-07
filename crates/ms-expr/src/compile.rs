@@ -1,6 +1,7 @@
 //! AST -> constant folding -> register bytecode.
 
-use crate::ast::{AssignOp, BinOp, Expr};
+use crate::ast::{AssignOp, BinOp, Expr, UnOp};
+use crate::builtins::{call1, call2, lookup, Builtin};
 use crate::bytecode::{Op, Reg};
 use crate::ops::{binary, truthy, unary};
 use crate::parser::parse;
@@ -30,14 +31,22 @@ pub fn compile(src: &str, vars: &mut VarTable) -> Result<Program, CompileError> 
     register_vars(&ast, vars)?;
     let mut folded = ast;
     fold(&mut folded);
-    let mut c = Compiler { ops: Vec::new(), max_reg: 0, vars };
+    let mut c = Compiler {
+        ops: Vec::new(),
+        max_reg: 0,
+        vars,
+    };
     c.expr(&folded, 0)?;
     let num_vars = c.vars.len();
-    Ok(Program { ops: c.ops, num_regs: c.max_reg as usize + 1, num_vars })
+    Ok(Program {
+        ops: c.ops,
+        num_regs: c.max_reg as usize + 1,
+        num_vars,
+    })
 }
 
-/// Registers every variable and rejects unsupported calls over the whole AST,
-/// before folding can discard dead branches.
+/// Registers every variable and checks every call's name and arity over the
+/// whole AST, before folding can discard dead branches.
 fn register_vars(e: &Expr, vars: &mut VarTable) -> Result<(), CompileError> {
     match e {
         Expr::Num(_) => {}
@@ -53,8 +62,20 @@ fn register_vars(e: &Expr, vars: &mut VarTable) -> Result<(), CompileError> {
             register_vars(a, vars)?;
             register_vars(b, vars)?;
         }
-        Expr::Call { name, line, col, .. } => {
-            return Err(unknown_call(name, *line, *col));
+        Expr::Call {
+            name,
+            args,
+            line,
+            col,
+        } => {
+            check_call(name, args.len(), *line, *col)?;
+            for a in args {
+                register_vars(a, vars)?;
+            }
+        }
+        Expr::MemAssign { index, value, .. } => {
+            register_vars(index, vars)?;
+            register_vars(value, vars)?;
         }
         Expr::Block(v) => {
             for a in v {
@@ -67,6 +88,9 @@ fn register_vars(e: &Expr, vars: &mut VarTable) -> Result<(), CompileError> {
 
 /// Constant folding, in place (small stack frames: depth can reach 1024).
 fn fold(e: &mut Expr) {
+    if matches!(e, Expr::Call { .. }) {
+        return fold_call(e);
+    }
     let replacement = match e {
         Expr::Unary(op, a) => {
             fold(a);
@@ -94,19 +118,66 @@ fn fold(e: &mut Expr) {
             fold(value);
             None
         }
-        Expr::Call { args, .. } => {
-            args.iter_mut().for_each(fold);
+        Expr::MemAssign { index, value, .. } => {
+            fold(index);
+            fold(value);
             None
         }
         Expr::Block(v) => {
             v.iter_mut().for_each(fold);
             None
         }
-        Expr::Num(_) | Expr::Var(_) => None,
+        Expr::Num(_) | Expr::Var(_) | Expr::Call { .. } => None,
     };
     if let Some(v) = replacement {
         *e = Expr::Num(v);
     }
+}
+
+/// Folds a call: operator-like builtins become operators, pure builtins with
+/// constant arguments evaluate, `if` with a constant condition becomes its
+/// chosen branch. `rand`, `megabuf`, `loop` and `while` are never evaluated.
+#[inline(never)]
+fn fold_call(e: &mut Expr) {
+    let Expr::Call { name, args, .. } = e else {
+        return;
+    };
+    let Some((builtin, _)) = lookup(name) else {
+        return;
+    };
+    match (builtin, args.len()) {
+        (Builtin::Op2(op), 2) => {
+            let b = args.pop().unwrap_or(Expr::Num(0.0));
+            let a = args.pop().unwrap_or(Expr::Num(0.0));
+            *e = Expr::Binary(op, Box::new(a), Box::new(b));
+            return fold(e);
+        }
+        (Builtin::Not, 1) => {
+            let a = args.pop().unwrap_or(Expr::Num(0.0));
+            *e = Expr::Unary(UnOp::Not, Box::new(a));
+            return fold(e);
+        }
+        (Builtin::If, 3) => {
+            fold(&mut args[0]);
+            if let Expr::Num(c) = args[0] {
+                let mut chosen =
+                    std::mem::replace(&mut args[if truthy(c) { 1 } else { 2 }], Expr::Num(0.0));
+                fold(&mut chosen);
+                *e = chosen;
+                return;
+            }
+            args.iter_mut().skip(1).for_each(fold);
+            return;
+        }
+        _ => {}
+    }
+    args.iter_mut().for_each(fold);
+    let value = match (builtin, args.as_slice()) {
+        (Builtin::F1(f), [Expr::Num(x)]) => call1(f, *x),
+        (Builtin::F2(f), [Expr::Num(x), Expr::Num(y)]) => call2(f, *x, *y),
+        _ => return,
+    };
+    *e = Expr::Num(value);
 }
 
 struct Compiler<'a> {
@@ -141,7 +212,11 @@ impl Compiler<'_> {
             Expr::Assign { op, name, value } => self.assign(*op, name, value, dst)?,
             Expr::Unary(op, a) => {
                 self.expr(a, dst)?;
-                self.ops.push(Op::Un { op: *op, dst: d, a: d });
+                self.ops.push(Op::Un {
+                    op: *op,
+                    dst: d,
+                    a: d,
+                });
             }
             Expr::Binary(op @ (BinOp::LogAnd | BinOp::LogOr), a, b) => {
                 self.logic(*op, a, b, dst)?
@@ -150,9 +225,25 @@ impl Compiler<'_> {
                 let t = self.reg(dst + 1)?;
                 self.expr(a, dst)?;
                 self.expr(b, dst + 1)?;
-                self.ops.push(Op::Bin { op: *op, dst: d, a: d, b: t });
+                self.ops.push(Op::Bin {
+                    op: *op,
+                    dst: d,
+                    a: d,
+                    b: t,
+                });
             }
-            Expr::Call { name, line, col, .. } => return Err(unknown_call(name, *line, *col)),
+            Expr::Call {
+                name,
+                args,
+                line,
+                col,
+            } => self.call(name, args, dst, *line, *col)?,
+            Expr::MemAssign {
+                global,
+                index,
+                op,
+                value,
+            } => self.mem_assign(*global, index, *op, value, dst)?,
             Expr::Block(stmts) => {
                 if stmts.is_empty() {
                     self.ops.push(Op::Const { dst: d, value: 0.0 });
@@ -181,24 +272,193 @@ impl Compiler<'_> {
     ) -> Result<(), CompileError> {
         let d = self.reg(dst)?;
         let var = self.var(name);
-        let bop = match op {
-            AssignOp::Set => None,
-            AssignOp::Add => Some(BinOp::Add),
-            AssignOp::Sub => Some(BinOp::Sub),
-            AssignOp::Mul => Some(BinOp::Mul),
-            AssignOp::Div => Some(BinOp::Div),
-            AssignOp::Mod => Some(BinOp::Mod),
-        };
-        match bop {
+        match compound_op(op) {
             None => self.expr(value, dst)?,
             Some(bop) => {
                 let t = self.reg(dst + 1)?;
                 self.ops.push(Op::LoadVar { dst: d, var });
                 self.expr(value, dst + 1)?;
-                self.ops.push(Op::Bin { op: bop, dst: d, a: d, b: t });
+                self.ops.push(Op::Bin {
+                    op: bop,
+                    dst: d,
+                    a: d,
+                    b: t,
+                });
             }
         }
         self.ops.push(Op::StoreVar { var, src: d });
+        Ok(())
+    }
+
+    /// `megabuf(i) op= v`. The index is evaluated once, before the value.
+    #[inline(never)]
+    fn mem_assign(
+        &mut self,
+        global: bool,
+        index: &Expr,
+        op: AssignOp,
+        value: &Expr,
+        dst: usize,
+    ) -> Result<(), CompileError> {
+        let d = self.reg(dst)?;
+        let v = self.reg(dst + 1)?;
+        self.expr(index, dst)?;
+        match compound_op(op) {
+            None => self.expr(value, dst + 1)?,
+            Some(bop) => {
+                let t = self.reg(dst + 2)?;
+                self.ops.push(Op::MegaGet {
+                    global,
+                    dst: v,
+                    idx: d,
+                });
+                self.expr(value, dst + 2)?;
+                self.ops.push(Op::Bin {
+                    op: bop,
+                    dst: v,
+                    a: v,
+                    b: t,
+                });
+            }
+        }
+        self.ops.push(Op::MegaSet {
+            global,
+            idx: d,
+            src: v,
+        });
+        self.ops.push(Op::Mov { dst: d, src: v });
+        Ok(())
+    }
+
+    #[inline(never)]
+    fn call(
+        &mut self,
+        name: &str,
+        args: &[Expr],
+        dst: usize,
+        line: u32,
+        col: u32,
+    ) -> Result<(), CompileError> {
+        let d = self.reg(dst)?;
+        let Some((builtin, arity)) = lookup(name) else {
+            return Err(unknown_call(name, line, col));
+        };
+        match (builtin, args) {
+            (Builtin::F1(f), [a]) => {
+                self.expr(a, dst)?;
+                self.ops.push(Op::Call1 { f, dst: d, a: d });
+            }
+            (Builtin::F2(f), [a, b]) => {
+                let t = self.reg(dst + 1)?;
+                self.expr(a, dst)?;
+                self.expr(b, dst + 1)?;
+                self.ops.push(Op::Call2 {
+                    f,
+                    dst: d,
+                    a: d,
+                    b: t,
+                });
+            }
+            (Builtin::Op2(op), [a, b]) => {
+                if matches!(op, BinOp::LogAnd | BinOp::LogOr) {
+                    self.logic(op, a, b, dst)?;
+                } else {
+                    let t = self.reg(dst + 1)?;
+                    self.expr(a, dst)?;
+                    self.expr(b, dst + 1)?;
+                    self.ops.push(Op::Bin {
+                        op,
+                        dst: d,
+                        a: d,
+                        b: t,
+                    });
+                }
+            }
+            (Builtin::Not, [a]) => {
+                self.expr(a, dst)?;
+                self.ops.push(Op::Un {
+                    op: UnOp::Not,
+                    dst: d,
+                    a: d,
+                });
+            }
+            (Builtin::Rand, [a]) => {
+                self.expr(a, dst)?;
+                self.ops.push(Op::Rand { dst: d, a: d });
+            }
+            (Builtin::Mega(global), [a]) => {
+                self.expr(a, dst)?;
+                self.ops.push(Op::MegaGet {
+                    global,
+                    dst: d,
+                    idx: d,
+                });
+            }
+            (Builtin::If, [c, a, b]) => self.if_(c, a, b, dst)?,
+            (Builtin::Loop, [n, body]) => self.loop_(n, body, dst)?,
+            (Builtin::While, [body]) => self.while_(body, dst)?,
+            _ => return Err(arity_error(name, arity, line, col)),
+        }
+        Ok(())
+    }
+
+    /// `if(c, a, b)`: only the chosen branch runs.
+    #[inline(never)]
+    fn if_(&mut self, c: &Expr, a: &Expr, b: &Expr, dst: usize) -> Result<(), CompileError> {
+        let d = self.reg(dst)?;
+        self.expr(c, dst)?;
+        let to_else = self.ops.len();
+        self.ops.push(Op::JumpIfFalse { cond: d, target: 0 });
+        self.expr(a, dst)?;
+        let to_end = self.ops.len();
+        self.ops.push(Op::Jump { target: 0 });
+        let else_at = self.ops.len() as u32;
+        self.expr(b, dst)?;
+        let end = self.ops.len() as u32;
+        self.ops[to_else] = Op::JumpIfFalse {
+            cond: d,
+            target: else_at,
+        };
+        self.ops[to_end] = Op::Jump { target: end };
+        Ok(())
+    }
+
+    /// `loop(n, body)`: `n` is evaluated once into `dst`, the trip counter
+    /// lives in `dst + 1` and the body runs from `dst + 2`. Value is 0.
+    #[inline(never)]
+    fn loop_(&mut self, n: &Expr, body: &Expr, dst: usize) -> Result<(), CompileError> {
+        let d = self.reg(dst)?;
+        let cnt = self.reg(dst + 1)?;
+        self.reg(dst + 2)?;
+        self.expr(n, dst)?;
+        self.ops.push(Op::LoopInit { cnt, n: d });
+        self.ops.push(Op::Const { dst: d, value: 0.0 });
+        let top = self.ops.len() as u32;
+        self.ops.push(Op::LoopNext { cnt, exit: 0 });
+        self.expr(body, dst + 2)?;
+        self.ops.push(Op::Jump { target: top });
+        let exit = self.ops.len() as u32;
+        self.ops[top as usize] = Op::LoopNext { cnt, exit };
+        Ok(())
+    }
+
+    /// `while(body)`: runs the body, repeating while its value is truthy.
+    #[inline(never)]
+    fn while_(&mut self, body: &Expr, dst: usize) -> Result<(), CompileError> {
+        let d = self.reg(dst)?;
+        self.ops.push(Op::Const { dst: d, value: 0.0 });
+        let top = self.ops.len() as u32;
+        self.ops.push(Op::LoopGuard { exit: 0 });
+        self.expr(body, dst)?;
+        let test = self.ops.len();
+        self.ops.push(Op::JumpIfFalse { cond: d, target: 0 });
+        self.ops.push(Op::Jump { target: top });
+        let exit = self.ops.len() as u32;
+        self.ops[top as usize] = Op::LoopGuard { exit };
+        self.ops[test] = Op::JumpIfFalse {
+            cond: d,
+            target: exit,
+        };
         Ok(())
     }
 
@@ -213,16 +473,56 @@ impl Compiler<'_> {
         self.ops.push(Op::Truthy { dst: d, a: d });
         let end = self.ops.len() as u32;
         self.ops[jump_at] = if op == BinOp::LogAnd {
-            Op::JumpIfFalse { cond: d, target: end }
+            Op::JumpIfFalse {
+                cond: d,
+                target: end,
+            }
         } else {
-            Op::JumpIfTrue { cond: d, target: end }
+            Op::JumpIfTrue {
+                cond: d,
+                target: end,
+            }
         };
         Ok(())
+    }
+}
+
+fn compound_op(op: AssignOp) -> Option<BinOp> {
+    match op {
+        AssignOp::Set => None,
+        AssignOp::Add => Some(BinOp::Add),
+        AssignOp::Sub => Some(BinOp::Sub),
+        AssignOp::Mul => Some(BinOp::Mul),
+        AssignOp::Div => Some(BinOp::Div),
+        AssignOp::Mod => Some(BinOp::Mod),
+    }
+}
+
+/// Checks a call's name and argument count.
+fn check_call(name: &str, nargs: usize, line: u32, col: u32) -> Result<(), CompileError> {
+    match lookup(name) {
+        None => Err(unknown_call(name, line, col)),
+        Some((_, arity)) if arity != nargs => Err(arity_error(name, arity, line, col)),
+        Some(_) => Ok(()),
+    }
+}
+
+#[cold]
+#[inline(never)]
+fn arity_error(name: &str, arity: usize, line: u32, col: u32) -> CompileError {
+    CompileError {
+        line,
+        col,
+        message: format!("'{name}' expects {arity} argument(s)"),
     }
 }
 
 #[cold]
 #[inline(never)]
 fn unknown_call(name: &str, line: u32, col: u32) -> CompileError {
-    CompileError { line, col, message: format!("unknown function '{name}'") }
+    CompileError {
+        line,
+        col,
+        message: format!("unknown function '{name}'"),
+    }
 }
