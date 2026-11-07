@@ -1,5 +1,6 @@
 //! Per-tick audio analysis: waveform, spectrum, band levels.
 
+use crate::beat::BeatDetector;
 use crate::history::{AudioHistory, Frame};
 use crate::spectrum::{Spectrum, FFT_SIZE, RFFT_BINS, SPECTRUM_BINS};
 
@@ -92,6 +93,7 @@ pub struct Analyzer {
     instant: [f64; 3],
     att: [f64; 3],
     raw: [f32; 3],
+    beat: BeatDetector,
     out: AudioFrame,
 }
 
@@ -110,6 +112,7 @@ impl Analyzer {
             instant: [0.0; 3],
             att: [0.0; 3],
             raw: [0.0; 3],
+            beat: BeatDetector::new(),
             out: AudioFrame::default(),
         }
     }
@@ -130,6 +133,7 @@ impl Analyzer {
         self.instant = [0.0; 3];
         self.att = [0.0; 3];
         self.raw = [0.0; 3];
+        self.beat.reset();
         self.out = AudioFrame::default();
     }
 
@@ -164,10 +168,9 @@ impl Analyzer {
         }
         self.raw = [finite(energy[0]), finite(energy[1]), finite(energy[2])];
 
-        // Beat detection (Task 8) slots in here, using `energy[0]`.
-
         let silent =
             energy.iter().sum::<f64>() < SILENT_SUM || hist.silent_for(now) > SILENT_SECONDS;
+        let (beat, strength) = self.beat.update(self.raw[0], now, dt, silent);
         if !silent {
             self.warm_ticks = self.warm_ticks.saturating_add(1);
             if !self.started {
@@ -202,8 +205,8 @@ impl Analyzer {
         self.out.bass_att = finite(self.att[0]);
         self.out.mid_att = finite(self.att[1]);
         self.out.treb_att = finite(self.att[2]);
-        self.out.beat = 0.0;
-        self.out.beat_strength = 0.0;
+        self.out.beat = beat;
+        self.out.beat_strength = strength;
         self.out.silent_for = finite(hist.silent_for(now));
         &self.out
     }

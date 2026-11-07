@@ -1,6 +1,7 @@
 //! ms-analysis: audio history and analysis.
 
 mod bands;
+mod beat;
 mod history;
 mod spectrum;
 
