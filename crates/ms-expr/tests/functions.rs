@@ -137,6 +137,9 @@ fn loop_cap_exact_and_global() {
     let r = run("x=0; loop(2000, loop(2000, x+=1)); x");
     assert!(r.loop_cap_hit);
     assert!(r.value <= LOOP_CAP as f64);
+    // The outer loop stops once the inner loop hits the cap.
+    let outer = var("x=0; o=0; loop(2000, o+=1; loop(2000, x+=1))", "o");
+    assert!(outer > 1.0 && outer < 1000.0, "outer ran {outer} times");
     // The cap is per run.
     let mut vt = VarTable::new();
     let p = compile("loop(2000000, 1)", &mut vt).unwrap();
@@ -335,6 +338,7 @@ fn fold_matches_vm() {
                 let folded = eval(&format!("{f}({x:?},{y:?})"));
                 let vm = eval(&format!("a={x:?}; b={y:?}; {f}(a,b)"));
                 assert!(same(folded, vm), "{f}({x},{y}): fold {folded} vm {vm}");
+                assert!(!folded.is_nan(), "{f}({x},{y}) is NaN");
             }
         }
     }
@@ -353,4 +357,41 @@ fn builtin_values() {
     assert_eq!(eval("a=0; exp(a)"), 1.0);
     assert_eq!(eval("a=1; log(a)"), 0.0);
     assert_eq!(eval("a=100; log10(a)"), 2.0);
+}
+
+#[test]
+fn nonfinite_inputs_never_give_nan() {
+    assert_eq!(eval("pow(-2.5, 0.3)"), 0.0);
+    assert_eq!(eval("a=-2.5; b=0.3; pow(a,b)"), 0.0);
+    assert_eq!(eval("pow(-2, 3)"), -8.0);
+    assert_eq!(eval("a=0; b=1/0; sigmoid(a,b)"), eval("0.5"));
+    assert_eq!(eval("sigmoid(0, 1e999)"), 0.5);
+    assert_eq!(eval("a=0; b=1e999; sigmoid(a,b)"), 0.5);
+    assert_eq!(eval("a=1e999; b=0; sigmoid(a,b)"), 0.5);
+    assert_eq!(eval("a=1e999; b=1e999; atan2(a,b)"), std::f64::consts::FRAC_PI_4);
+    assert!(!eval("a=1e999; sin(a)").is_nan());
+    assert!(!eval("a=-1e999; b=1e999; pow(a,b)").is_nan());
+}
+
+fn nested_sin(depth: usize) -> String {
+    format!("{}x{}", "sin(".repeat(depth), ")".repeat(depth))
+}
+
+#[test]
+fn deep_call_nesting() {
+    std::thread::Builder::new()
+        .stack_size(16 * 1024 * 1024)
+        .spawn(|| {
+            let mut vt = VarTable::new();
+            let p = compile(&nested_sin(120), &mut vt).unwrap();
+            let mut vars = vec![0.5; vt.len()];
+            let (mut mb, mut gm, mut rng) = (Megabuf::new(), Megabuf::new(), Rng::seeded(1));
+            let mut env =
+                ExecEnv { vars: &mut vars, megabuf: &mut mb, gmegabuf: &mut gm, rng: &mut rng };
+            assert!(p.run(&mut env).value.is_finite());
+            assert!(compile(&nested_sin(2000), &mut VarTable::new()).is_err());
+        })
+        .unwrap()
+        .join()
+        .unwrap();
 }
