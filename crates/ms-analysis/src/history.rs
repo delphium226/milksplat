@@ -26,9 +26,17 @@ pub struct AudioHistory {
 }
 
 fn capacity_for(rate: u32, seconds: f64) -> usize {
-    let secs = if seconds.is_finite() { seconds.max(0.0) } else { 0.0 };
+    let secs = if seconds.is_finite() {
+        seconds.max(0.0)
+    } else {
+        0.0
+    };
     let want = (secs * rate as f64).ceil();
-    let want = if want < 1.0e9 { want as usize } else { 1_000_000_000 };
+    let want = if want < 1.0e9 {
+        want as usize
+    } else {
+        1_000_000_000
+    };
     want.max(rate as usize).max(1)
 }
 

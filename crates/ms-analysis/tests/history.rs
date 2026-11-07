@@ -3,7 +3,9 @@ use ms_analysis::{AudioHistory, Frame};
 const R: u32 = 48_000;
 
 fn ramp(n: usize) -> Vec<Frame> {
-    (0..n).map(|i| [i as f32 + 1.0, -(i as f32) - 1.0]).collect()
+    (0..n)
+        .map(|i| [i as f32 + 1.0, -(i as f32) - 1.0])
+        .collect()
 }
 
 #[test]

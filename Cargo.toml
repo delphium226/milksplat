@@ -14,3 +14,4 @@ codegen-units = 1
 [workspace.dependencies]
 criterion = "0.8.2"
 proptest = "1.12.0"
+realfft = "3.5.1"
