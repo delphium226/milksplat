@@ -1,0 +1,82 @@
+version = 1
+
+[meta]
+name = "Ink Bloom"
+author = "Rhett"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.98
+zoom = 1.02
+warp = 0.5
+rot = 0
+wave_mode = 2
+wave_additive = true
+b1ed = 0.3
+Echo_Zoom = 1.5
+feedback_format = "fp16"
+mesh = [48, 36]
+sim_rate = 30
+
+[code]
+init = '''
+q1 = 0.5;
+t = 'quoted';
+'''
+frame = """
+zoom = 1 + 0.05 * bass;
+rot = rot + 0.01 * sin(time);
+q2 = mid; // \"tricky\" \\ backslash
+"""
+vertex = "zoom = zoom + 0.01 * rad;"
+
+[[wave]]
+enabled = true
+samples = 256
+r = 1.0
+g = 0.5
+b = 0.25
+a = 0.9
+init = "t1 = 0;"
+frame = "t1 = t1 + 1;"
+point = '''
+x = sample;
+y = 0.5 + 0.2 * value1;
+'''
+
+[[wave]]
+enabled = false
+samples = 64
+init = "x=0;"
+frame = ""
+point = "y = value2;"
+
+[[shape]]
+enabled = true
+sides = 6
+instances = 4
+x = 0.5
+y = 0.5
+rad = 0.2
+additive = 1
+init = "t1 = 0;"
+frame = "ang = ang + 0.01 * instance;"
+
+[[shape]]
+enabled = true
+sides = 3
+r = 1
+g = 0
+b = 0
+a = 1
+frame = "rad = 0.1 + 0.1 * bass;"
+
+[shader]
+warp = """
+// WGSL warp
+fn warp(uv: vec2<f32>) -> vec2<f32> { return uv; }
+"""
+comp = '''
+// WGSL comp
+fn comp(uv: vec2<f32>) -> vec4<f32> { return vec4<f32>(uv, 0.0, 1.0); }
+'''
