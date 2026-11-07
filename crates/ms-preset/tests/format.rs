@@ -7,6 +7,10 @@ fn ok(s: &[u8]) -> (Preset, Vec<Warning>) {
     parse(s).unwrap()
 }
 
+fn lf(s: &str) -> String {
+    s.chars().filter(|&c| c != char::from(13u8)).collect()
+}
+
 fn warned(ws: &[Warning], needle: &str) -> bool {
     ws.iter().any(|w| w.message.contains(needle))
 }
@@ -41,7 +45,7 @@ fn full_fixture_parses() {
     assert_eq!(p.params.values["echo_zoom"], 1.5);
     assert_eq!(p.params.values["wave_additive"], 1.0);
     assert_eq!(p.params.values["rot"], 0.0);
-    assert_eq!(p.code.init, "q1 = 0.5;\nt = 'quoted';\n");
+    assert_eq!(lf(&p.code.init), "q1 = 0.5;\nt = 'quoted';\n");
     assert_eq!(p.waves.len(), 2);
     assert!(!p.waves[1].enabled);
     assert_eq!(p.waves[0].samples, 256);
@@ -123,6 +127,94 @@ fn param_defaults_and_lookup() {
 }
 
 #[test]
+fn param_default_values() {
+    let want: &[(&str, f64)] = &[
+        ("zoom", 1.0),
+        ("zoomexp", 1.0),
+        ("rot", 0.0),
+        ("warp", 1.0),
+        ("cx", 0.5),
+        ("cy", 0.5),
+        ("dx", 0.0),
+        ("dy", 0.0),
+        ("sx", 1.0),
+        ("sy", 1.0),
+        ("decay", 0.98),
+        ("wave_mode", 0.0),
+        ("wave_r", 1.0),
+        ("wave_g", 1.0),
+        ("wave_b", 1.0),
+        ("wave_a", 0.8),
+        ("wave_x", 0.5),
+        ("wave_y", 0.5),
+        ("wave_mystery", 0.0),
+        ("wave_usedots", 0.0),
+        ("wave_thick", 0.0),
+        ("wave_additive", 0.0),
+        ("wave_brighten", 1.0),
+        ("ob_size", 0.01),
+        ("ob_r", 0.0),
+        ("ob_g", 0.0),
+        ("ob_b", 0.0),
+        ("ob_a", 0.0),
+        ("ib_size", 0.01),
+        ("ib_r", 0.25),
+        ("ib_g", 0.25),
+        ("ib_b", 0.25),
+        ("ib_a", 0.0),
+        ("mv_x", 12.0),
+        ("mv_y", 9.0),
+        ("mv_dx", 0.0),
+        ("mv_dy", 0.0),
+        ("mv_l", 0.9),
+        ("mv_r", 1.0),
+        ("mv_g", 1.0),
+        ("mv_b", 1.0),
+        ("mv_a", 0.0),
+        ("echo_zoom", 1.0),
+        ("echo_alpha", 0.0),
+        ("echo_orient", 0.0),
+        ("gamma", 1.0),
+        ("invert", 0.0),
+        ("solarize", 0.0),
+        ("brighten", 0.0),
+        ("darken", 0.0),
+        ("darken_center", 0.0),
+        ("texture_wrap", 1.0),
+        ("b1n", 0.0),
+        ("b2n", 0.0),
+        ("b3n", 0.0),
+        ("b1x", 1.0),
+        ("b2x", 1.0),
+        ("b3x", 1.0),
+        ("b1ed", 0.25),
+    ];
+    assert_eq!(want.len(), PARAM_DEFAULTS.len());
+    for &(n, v) in want {
+        assert_eq!(Params::default().param(n), v, "default of {n}");
+    }
+}
+
+#[test]
+fn sim_rate_clamped() {
+    let (p, w) = ok(b"[params]
+sim_rate = 1000
+");
+    assert_eq!(p.params.sim_rate, 240.0);
+    assert!(warned(&w, "sim_rate") && warned(&w, "240"));
+    let (p, w) = ok(b"[params]
+sim_rate = 0.5
+");
+    assert_eq!(p.params.sim_rate, 1.0);
+    assert!(warned(&w, "sim_rate"));
+    let (p, w) = ok(b"[params]
+sim_rate = 30
+");
+    assert_eq!(p.params.sim_rate, 30.0);
+    assert!(w.is_empty());
+}
+
+#[test]
 fn param_defaults_cover_spec() {
     let spec = "zoom zoomexp rot warp cx cy dx dy sx sy decay wave_mode wave_r wave_g wave_b wave_a wave_x wave_y wave_mystery wave_usedots wave_thick wave_additive wave_brighten ob_size ob_r ob_g ob_b ob_a ib_size ib_r ib_g ib_b ib_a mv_x mv_y mv_dx mv_dy mv_l mv_r mv_g mv_b mv_a echo_zoom echo_alpha echo_orient gamma invert solarize brighten darken darken_center texture_wrap b1n b2n b3n b1x b2x b3x b1ed";
     for n in spec.split(' ') {
@@ -140,8 +232,8 @@ fn extra_waves_dropped_with_warning() {
     let (p, w) = ok(s.as_bytes());
     assert_eq!(p.waves.len(), 4);
     assert_eq!(p.shapes.len(), 4);
-    assert!(warned(&w, "wave"));
-    assert!(warned(&w, "shape"));
+    assert!(warned(&w, "wave[4]"));
+    assert!(warned(&w, "shape[4]"));
 }
 
 #[test]
@@ -258,4 +350,12 @@ fn fuzz_never_panics() {
             assert_eq!(p, q);
         }
     }
+}
+
+#[test]
+fn invalid_utf8_column_counts_chars() {
+    let mut b = "name = \"é日".as_bytes().to_vec();
+    b.push(0xFF);
+    let e = parse(&b).unwrap_err();
+    assert_eq!((e.line, e.col), (1, 11));
 }

@@ -32,33 +32,33 @@ pub const PARAM_DEFAULTS: &[(&str, f64)] = &[
     ("wave_g", 1.0),
     ("wave_b", 1.0),
     ("wave_a", 0.8),
-    ("wave_x", 0.0),
-    ("wave_y", 0.0),
+    ("wave_x", 0.5),
+    ("wave_y", 0.5),
     ("wave_mystery", 0.0),
     ("wave_usedots", 0.0),
     ("wave_thick", 0.0),
     ("wave_additive", 0.0),
-    ("wave_brighten", 0.0),
+    ("wave_brighten", 1.0),
     // borders
-    ("ob_size", 0.0),
+    ("ob_size", 0.01),
     ("ob_r", 0.0),
     ("ob_g", 0.0),
     ("ob_b", 0.0),
     ("ob_a", 0.0),
-    ("ib_size", 0.0),
-    ("ib_r", 0.0),
-    ("ib_g", 0.0),
-    ("ib_b", 0.0),
+    ("ib_size", 0.01),
+    ("ib_r", 0.25),
+    ("ib_g", 0.25),
+    ("ib_b", 0.25),
     ("ib_a", 0.0),
     // motion vectors
-    ("mv_x", 0.0),
-    ("mv_y", 0.0),
+    ("mv_x", 12.0),
+    ("mv_y", 9.0),
     ("mv_dx", 0.0),
     ("mv_dy", 0.0),
-    ("mv_l", 0.0),
-    ("mv_r", 0.0),
-    ("mv_g", 0.0),
-    ("mv_b", 0.0),
+    ("mv_l", 0.9),
+    ("mv_r", 1.0),
+    ("mv_g", 1.0),
+    ("mv_b", 1.0),
     ("mv_a", 0.0),
     // composite effects
     ("echo_zoom", 1.0),
@@ -71,7 +71,7 @@ pub const PARAM_DEFAULTS: &[(&str, f64)] = &[
     ("darken", 0.0),
     ("darken_center", 0.0),
     // sampling and blur
-    ("texture_wrap", 0.0),
+    ("texture_wrap", 1.0),
     ("b1n", 0.0),
     ("b2n", 0.0),
     ("b3n", 0.0),
@@ -283,18 +283,10 @@ pub fn parse(bytes: &[u8]) -> Result<(Preset, Vec<Warning>), PresetError> {
     let text = match std::str::from_utf8(bytes) {
         Ok(t) => t,
         Err(e) => {
+            // The prefix is valid UTF-8, so columns can count chars.
             let at = e.valid_up_to();
-            let before = &bytes[..at];
-            let line = before.iter().filter(|&&b| b == b'\n').count();
-            let col = match before.iter().rposition(|&b| b == b'\n') {
-                Some(i) => at - (i + 1),
-                None => at,
-            };
-            return Err(err(
-                clamp_u32(line + 1),
-                clamp_u32(col + 1),
-                "file is not valid UTF-8",
-            ));
+            let (line, col) = std::str::from_utf8(&bytes[..at]).map_or((1, 1), |p| line_col(p, at));
+            return Err(err(line, col, "file is not valid UTF-8"));
         }
     };
     let table: Table = match text.parse() {
@@ -536,8 +528,14 @@ fn read_params(t: &Table, p: &mut Params, w: &mut Warnings) {
             },
             "mesh" => read_mesh(v, &path, p, w),
             "sim_rate" => match num(v) {
-                Some(r) if r > 0.0 => p.sim_rate = r,
-                _ => w.add(format!("`{path}` must be a positive number; using 60")),
+                Some(r) => {
+                    let c = r.clamp(1.0, 240.0);
+                    if c != r {
+                        w.add(format!("`{path}` = {r} is out of range; clamped to {c}"));
+                    }
+                    p.sim_rate = c;
+                }
+                None => w.add(format!("`{path}` must be a number; using 60")),
             },
             _ if param_default(&name).is_some() => match num(v) {
                 Some(x) => {
