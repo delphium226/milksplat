@@ -3,6 +3,8 @@ use ms_audio::{downmix, layout_for, ring};
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+// NOTE: the global counter counts allocations on ALL threads, so this file
+// must contain only this one test (the harness runs tests concurrently).
 struct Counting;
 static ALLOCS: AtomicUsize = AtomicUsize::new(0);
 

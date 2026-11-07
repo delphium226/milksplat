@@ -16,3 +16,9 @@ criterion = "0.8.2"
 proptest = "1.12.0"
 realfft = "3.5.1"
 rtrb = "0.4.1"
+ms-expr = { path = "crates/ms-expr", version = "0.1.0" }
+ms-analysis = { path = "crates/ms-analysis", version = "0.1.0" }
+ms-audio = { path = "crates/ms-audio", version = "0.1.0" }
+ms-preset = { path = "crates/ms-preset", version = "0.1.0" }
+ms-render = { path = "crates/ms-render", version = "0.1.0" }
+ms-engine = { path = "crates/ms-engine", version = "0.1.0" }

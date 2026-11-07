@@ -83,7 +83,10 @@ impl RingConsumer {
             let mut done = 0usize;
             while done < total {
                 let n = (total - done).min(self.scratch.len());
+                // Invariant: `push` wrote `stamp.frames` frames before publishing
+                // the stamp, so they are always available here.
                 let Ok(chunk) = self.frames.read_chunk(n) else {
+                    debug_assert!(false, "frame ring out of sync with stamp ring");
                     return;
                 };
                 let (a, b) = chunk.as_slices();
