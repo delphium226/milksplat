@@ -126,10 +126,25 @@ fn sine_8k_is_treb() {
 
 #[test]
 fn steady_signal_normalises_to_one() {
+    // Mean level over 6..10 s (single-tick bass noise is far wider than 0.8..1.25).
     let mut p = Pink::new(0x1234_5678_9abc_def1);
-    let (_, f) = run(48000, 10.0, |_| p.next(), |_, _, _| {});
-    for v in [f.bass, f.mid, f.treb] {
-        assert!((0.8..1.25).contains(&v), "{v}");
+    let (mut sum, mut n) = ([0.0f64; 3], 0);
+    run(
+        48000,
+        10.0,
+        |_| p.next(),
+        |t, _, f| {
+            if t >= 6.0 {
+                sum[0] += f.bass as f64;
+                sum[1] += f.mid as f64;
+                sum[2] += f.treb as f64;
+                n += 1;
+            }
+        },
+    );
+    eprintln!("steady mean {:?}", sum.map(|s| s / n as f64));
+    for s in sum {
+        assert!((0.8..1.25).contains(&(s / n as f64)), "{}", s / n as f64);
     }
 }
 
@@ -137,7 +152,6 @@ fn steady_signal_normalises_to_one() {
 fn loud_hit_above_one() {
     let mut p = Pink::new(42);
     let mut peak = 0.0f32;
-    let mut t0 = 0.0;
     let mut n = 0u64;
     run(
         48000,
@@ -151,7 +165,6 @@ fn loud_hit_above_one() {
             if (10.0..=10.2).contains(&t) {
                 peak = peak.max(f.bass);
             }
-            t0 = t;
         },
     );
     assert!(peak > 1.5, "peak {peak}");
@@ -239,8 +252,6 @@ fn silence_before_first_sound_is_zero() {
 fn rates_consistent() {
     // A single tick of noise is itself random (the bass band has only ~10-20
     // bins), so compare the mean level over the last 4 s of a 10 s run.
-    // Ticking starts after 0.5 s of audio so the FFT window is full at every
-    // rate when the long-term average is initialised.
     // Pink-noise bass varies slowly and the band holds few bins, so average
     // over several seeds as well.
     let measure_seed = |rate: u32, seed: u64| {
@@ -267,8 +278,8 @@ fn rates_consistent() {
         let mut acc = [0.0f64; 3];
         for seed in 1..=8u64 {
             let m = measure_seed(rate, seed * 7919);
-            for i in 0..3 {
-                acc[i] += m[i] / 8.0;
+            for (a, v) in acc.iter_mut().zip(m) {
+                *a += v / 8.0;
             }
         }
         eprintln!("rate {rate}: mean {acc:?}");
@@ -287,4 +298,107 @@ fn rates_consistent() {
             );
         }
     }
+}
+
+/// Instant pink-noise bass legitimately swings 0.45..2.7 (few FFT bins), so
+/// the 0.5..2.0 check applies to `_att` for all bands and to instant mid and
+/// treb; instant bass only has to stay clear of the old 10-20x inflation.
+fn check_band_window(from: f64, to: f64, rows: &[(f64, [f32; 6])]) -> f32 {
+    let mut max = 0.0f32;
+    let mut seen = 0;
+    for (t, b) in rows {
+        if *t >= from && *t <= to {
+            seen += 1;
+            for (i, v) in b.iter().enumerate() {
+                // `_att` (tau 0.4 s) is still rising from 0 just after onset.
+                let lo = if i >= 3 && *t < from + 0.75 { 0.0 } else { 0.5 };
+                let ok = if i == 0 {
+                    (0.0..4.0).contains(v)
+                } else {
+                    (lo..2.0).contains(v)
+                };
+                assert!(ok, "t={t}: {b:?}");
+                max = max.max(*v);
+            }
+        }
+    }
+    assert!(seen > 10);
+    max
+}
+
+#[test]
+fn onset_after_silence_not_inflated() {
+    let mut p = Pink::new(5);
+    let mut rows = Vec::new();
+    run(
+        48000,
+        6.0,
+        |t| if t < 1.0 { 0.0 } else { p.next() },
+        |t, _, f| {
+            rows.push((
+                t,
+                [f.bass, f.mid, f.treb, f.bass_att, f.mid_att, f.treb_att],
+            ))
+        },
+    );
+    let max = check_band_window(1.25, 6.0, &rows);
+    eprintln!("onset max {max}");
+}
+
+#[test]
+fn resume_after_long_gap_not_inflated() {
+    let mut p = Pink::new(6);
+    let mut rows = Vec::new();
+    run(
+        48000,
+        28.0,
+        |t| {
+            if (5.0..25.0).contains(&t) {
+                0.0
+            } else {
+                p.next()
+            }
+        },
+        |t, _, f| {
+            rows.push((
+                t,
+                [f.bass, f.mid, f.treb, f.bass_att, f.mid_att, f.treb_att],
+            ))
+        },
+    );
+    let max = check_band_window(25.25, 28.0, &rows);
+    eprintln!("resume max {max}");
+}
+
+#[test]
+fn empty_band_reads_one() {
+    let mut p = Pink::new(8);
+    let (an, f) = run(
+        8000,
+        2.0,
+        |_| p.next(),
+        |_, _, f| {
+            assert_eq!((f.treb, f.treb_att), (1.0, 1.0));
+        },
+    );
+    assert_eq!((f.treb, f.treb_att), (1.0, 1.0));
+    assert_eq!(an.raw_energy()[2], 0.0);
+    assert!(f.mid > 0.0 && f.bass > 0.0);
+}
+
+#[test]
+fn av_offset_shifts_wave_window() {
+    let rate = 48000u32;
+    let mut hist = AudioHistory::new(rate, 2.0);
+    let frames: Vec<Frame> = (0..rate as usize)
+        .map(|i| [i as f32 / rate as f32, -(i as f32) / rate as f32])
+        .collect();
+    let now = (rate - 1) as f64 / rate as f64;
+    hist.push(&frames, now);
+    let mut an = Analyzer::new(rate);
+    let a = *an.tick(&hist, now, 0.0, 1.0 / 60.0);
+    let b = *an.tick(&hist, now, 0.1, 1.0 / 60.0);
+    assert!((a.wave[0][575] - b.wave[0][575] - 0.1).abs() < 1e-4);
+    assert!((a.wave[1][575] - b.wave[1][575] + 0.1).abs() < 1e-4);
+    assert!(b.wave[0][0] < b.wave[0][575]);
 }

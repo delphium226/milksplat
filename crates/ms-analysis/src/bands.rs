@@ -10,6 +10,8 @@ const INSTANT_TAU: f64 = 0.05;
 const ATT_TAU: f64 = 0.4;
 const AVG_FLOOR: f64 = 1e-6;
 const SILENT_SUM: f64 = 1e-9;
+/// A tick is silent when the history has been quiet for longer than this.
+const SILENT_SECONDS: f64 = 0.1;
 
 /// Everything presets read from the audio, once per tick.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -84,6 +86,8 @@ pub struct Analyzer {
     wave_frames: [Frame; WAVE_LEN],
     ranges: [(usize, usize); 3],
     started: bool,
+    /// Non-silent ticks since the last reset.
+    warm_ticks: u32,
     long_avg: [f64; 3],
     instant: [f64; 3],
     att: [f64; 3],
@@ -101,6 +105,7 @@ impl Analyzer {
             wave_frames: [[0.0; 2]; WAVE_LEN],
             ranges: band_ranges(rate),
             started: false,
+            warm_ticks: 0,
             long_avg: [0.0; 3],
             instant: [0.0; 3],
             att: [0.0; 3],
@@ -120,6 +125,7 @@ impl Analyzer {
         self.fft = Spectrum::new();
         self.ranges = band_ranges(rate);
         self.started = false;
+        self.warm_ticks = 0;
         self.long_avg = [0.0; 3];
         self.instant = [0.0; 3];
         self.att = [0.0; 3];
@@ -160,13 +166,19 @@ impl Analyzer {
 
         // Beat detection (Task 8) slots in here, using `energy[0]`.
 
-        let silent = energy.iter().sum::<f64>() < SILENT_SUM;
-        if !self.started && !silent {
-            self.started = true;
-            self.long_avg = energy;
-        } else if self.started {
-            for (avg, &e) in self.long_avg.iter_mut().zip(&energy) {
-                smooth(avg, e, dt, LONG_TAU);
+        let silent =
+            energy.iter().sum::<f64>() < SILENT_SUM || hist.silent_for(now) > SILENT_SECONDS;
+        if !silent {
+            self.warm_ticks = self.warm_ticks.saturating_add(1);
+            if !self.started {
+                self.started = true;
+                self.long_avg = energy;
+            } else {
+                // Running mean while warming up, then the 5 s exponential.
+                let w = (1.0 - (-dt / LONG_TAU).exp()).max(1.0 / self.warm_ticks as f64);
+                for (avg, &e) in self.long_avg.iter_mut().zip(&energy) {
+                    *avg += (e - *avg) * w;
+                }
             }
         }
 
