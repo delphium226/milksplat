@@ -10,3 +10,7 @@ license = "MIT OR Apache-2.0"
 [profile.release]
 lto = "fat"
 codegen-units = 1
+
+[workspace.dependencies]
+criterion = "0.8.2"
+proptest = "1.12.0"

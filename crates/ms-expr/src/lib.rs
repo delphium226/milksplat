@@ -1,9 +1,11 @@
 //! EEL2-compatible expression language.
 
 mod ast;
+mod batch;
 mod builtins;
 mod bytecode;
 mod compile;
+mod dataflow;
 mod lexer;
 mod mem;
 mod ops;
@@ -13,6 +15,7 @@ mod vars;
 mod vm;
 
 pub use ast::{AssignOp, BinOp, Expr, UnOp};
+pub use batch::{BatchShared, Lanes, BLOCK};
 pub use builtins::{Fn1, Fn2};
 pub use bytecode::{Op, Reg};
 pub use compile::{compile, Program};

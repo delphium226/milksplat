@@ -15,6 +15,8 @@ pub struct Program {
     pub(crate) num_regs: usize,
     /// Minimum `vars.len()` the program needs.
     pub(crate) num_vars: usize,
+    /// Sorted variables some path reads before writing (see `dataflow`).
+    pub(crate) rbw: Vec<VarId>,
 }
 
 impl Program {
@@ -38,7 +40,9 @@ pub fn compile(src: &str, vars: &mut VarTable) -> Result<Program, CompileError> 
     };
     c.expr(&folded, 0)?;
     let num_vars = c.vars.len();
+    let rbw = crate::dataflow::reads_before_write(&c.ops);
     Ok(Program {
+        rbw,
         ops: c.ops,
         num_regs: c.max_reg as usize + 1,
         num_vars,
