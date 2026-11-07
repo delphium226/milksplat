@@ -6,10 +6,13 @@ use crate::{lex, CompileError, Tok, Token};
 /// Maximum syntactic nesting before the parser gives up.
 const MAX_DEPTH: u32 = 256;
 
+/// Maximum height of the AST the parser will build (covers left-deep chains).
+const MAX_AST_HEIGHT: u32 = 1024;
+
 /// Parse source text into a top-level [`Expr::Block`].
 pub fn parse(src: &str) -> Result<Expr, CompileError> {
     let toks = lex(src)?;
-    let mut p = Parser { toks, pos: 0, depth: 0 };
+    let mut p = Parser { toks, pos: 0, depth: 0, height: 0 };
     let mut stmts = Vec::new();
     loop {
         while matches!(p.peek().tok, Tok::Semi) {
@@ -31,6 +34,8 @@ struct Parser {
     toks: Vec<Token>,
     pos: usize,
     depth: u32,
+    /// Height of the most recently returned expression.
+    height: u32,
 }
 
 /// Binary operator info: (operator, precedence, right-associative).
@@ -109,6 +114,15 @@ impl Parser {
         Ok(())
     }
 
+    /// Records the height of a node built from children of heights `h`.
+    fn set_height(&mut self, at: &Token, h: u32) -> Result<(), CompileError> {
+        if h > MAX_AST_HEIGHT {
+            return Err(self.err_at(at, "expression too deeply nested"));
+        }
+        self.height = h;
+        Ok(())
+    }
+
     fn leave(&mut self) {
         self.depth -= 1;
     }
@@ -131,6 +145,8 @@ impl Parser {
         };
         self.pos += 1;
         let value = Box::new(self.assign()?);
+        let h = self.height + 1;
+        self.set_height(&op_tok, h)?;
         Ok(Expr::Assign { op, name, value })
     }
 
@@ -143,16 +159,20 @@ impl Parser {
 
     fn binary_inner(&mut self, min_prec: u8) -> Result<Expr, CompileError> {
         let mut lhs = self.unary()?;
+        let mut lh = self.height;
         loop {
             let Tok::Op(o) = self.peek().tok else { break };
             let Some((op, prec, right)) = binop(o) else { break };
             if prec < min_prec {
                 break;
             }
-            self.pos += 1;
+            let op_tok = self.advance();
             let rhs = self.binary(if right { prec } else { prec + 1 })?;
+            lh = 1 + lh.max(self.height);
+            self.set_height(&op_tok, lh)?;
             lhs = Expr::Binary(op, Box::new(lhs), Box::new(rhs));
         }
+        self.height = lh;
         Ok(lhs)
     }
 
@@ -163,17 +183,21 @@ impl Parser {
             Tok::Op("!") => UnOp::Not,
             _ => return self.primary(),
         };
-        self.pos += 1;
+        let op_tok = self.advance();
         self.enter()?;
         let r = self.unary();
         self.leave();
-        Ok(Expr::Unary(op, Box::new(r?)))
+        let inner = r?;
+        let h = self.height + 1;
+        self.set_height(&op_tok, h)?;
+        Ok(Expr::Unary(op, Box::new(inner)))
     }
 
     fn primary(&mut self) -> Result<Expr, CompileError> {
         match self.peek().tok.clone() {
             Tok::Num(v) => {
                 self.pos += 1;
+                self.height = 1;
                 Ok(Expr::Num(v))
             }
             Tok::Ident(name) => {
@@ -181,8 +205,11 @@ impl Parser {
                 if matches!(self.peek().tok, Tok::LParen) {
                     self.pos += 1;
                     let args = self.call_args()?;
+                    let h = self.height + 1;
+                    self.set_height(&t, h)?;
                     Ok(Expr::Call { name, args, line: t.line, col: t.col })
                 } else {
+                    self.height = 1;
                     Ok(Expr::Var(name))
                 }
             }
@@ -210,10 +237,13 @@ impl Parser {
         let mut args = Vec::new();
         if matches!(self.peek().tok, Tok::RParen) {
             self.pos += 1;
+            self.height = 0;
             return Ok(args);
         }
+        let mut max_h = 0;
         loop {
             args.push(self.sequence()?);
+            max_h = max_h.max(self.height);
             if matches!(self.peek().tok, Tok::Comma) {
                 self.pos += 1;
             } else {
@@ -221,6 +251,7 @@ impl Parser {
             }
         }
         self.expect_rparen()?;
+        self.height = max_h;
         Ok(args)
     }
 
@@ -228,6 +259,7 @@ impl Parser {
     /// `,` or `)`. A single statement is returned bare, several as a `Block`.
     fn sequence(&mut self) -> Result<Expr, CompileError> {
         let mut stmts = Vec::new();
+        let mut max_h = 0;
         loop {
             while matches!(self.peek().tok, Tok::Semi) {
                 self.pos += 1;
@@ -236,6 +268,7 @@ impl Parser {
                 break;
             }
             stmts.push(self.assign()?);
+            max_h = max_h.max(self.height);
             match self.peek().tok {
                 Tok::Semi | Tok::RParen | Tok::Comma | Tok::Eof => {}
                 _ => return Err(self.unexpected()),
@@ -244,7 +277,11 @@ impl Parser {
         match stmts.len() {
             0 => Err(self.unexpected()),
             1 => Ok(stmts.remove(0)),
-            _ => Ok(Expr::Block(stmts)),
+            _ => {
+                let t = self.peek().clone();
+                self.set_height(&t, max_h + 1)?;
+                Ok(Expr::Block(stmts))
+            }
         }
     }
 }

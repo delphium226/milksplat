@@ -60,6 +60,19 @@ mod tests {
         assert_ne!(xs, zs);
     }
 
+    /// Reference values: xoshiro256++ (Blackman/Vigna reference C algorithm)
+    /// with state = four successive splitmix64 outputs from seed 0, i.e.
+    /// s = [0xe220a8397b1dcdaf, 0x6e789e6aa1b965f4, 0x06c45d188009454f,
+    /// 0xf88bb8a8724c81ec]. Outputs computed independently with a Python
+    /// transcription of the reference algorithm.
+    #[test]
+    fn known_answer_seed_zero() {
+        let mut r = Rng::seeded(0);
+        assert_eq!(r.next_u64(), 0x53175d61490b23df);
+        assert_eq!(r.next_u64(), 0x61da6f3dc380d507);
+        assert_eq!(r.next_u64(), 0x5c0fdf91ec9a7bfc);
+    }
+
     #[test]
     fn in_unit_interval_and_spread() {
         let mut r = Rng::seeded(0);

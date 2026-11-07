@@ -27,15 +27,18 @@ impl Program {
 
 pub fn compile(src: &str, vars: &mut VarTable) -> Result<Program, CompileError> {
     let ast = parse(src)?;
-    register_vars(&ast, vars);
-    let folded = fold(ast);
+    register_vars(&ast, vars)?;
+    let mut folded = ast;
+    fold(&mut folded);
     let mut c = Compiler { ops: Vec::new(), max_reg: 0, vars };
     c.expr(&folded, 0)?;
     let num_vars = c.vars.len();
     Ok(Program { ops: c.ops, num_regs: c.max_reg as usize + 1, num_vars })
 }
 
-fn register_vars(e: &Expr, vars: &mut VarTable) {
+/// Registers every variable and rejects unsupported calls over the whole AST,
+/// before folding can discard dead branches.
+fn register_vars(e: &Expr, vars: &mut VarTable) -> Result<(), CompileError> {
     match e {
         Expr::Num(_) => {}
         Expr::Var(n) => {
@@ -43,48 +46,66 @@ fn register_vars(e: &Expr, vars: &mut VarTable) {
         }
         Expr::Assign { name, value, .. } => {
             vars.get_or_insert(name);
-            register_vars(value, vars);
+            register_vars(value, vars)?;
         }
-        Expr::Unary(_, a) => register_vars(a, vars),
+        Expr::Unary(_, a) => register_vars(a, vars)?,
         Expr::Binary(_, a, b) => {
-            register_vars(a, vars);
-            register_vars(b, vars);
+            register_vars(a, vars)?;
+            register_vars(b, vars)?;
         }
-        Expr::Call { args, .. } => args.iter().for_each(|a| register_vars(a, vars)),
-        Expr::Block(v) => v.iter().for_each(|a| register_vars(a, vars)),
+        Expr::Call { name, line, col, .. } => {
+            return Err(unknown_call(name, *line, *col));
+        }
+        Expr::Block(v) => {
+            for a in v {
+                register_vars(a, vars)?;
+            }
+        }
     }
+    Ok(())
 }
 
-fn fold(e: Expr) -> Expr {
-    match e {
-        Expr::Unary(op, a) => match fold(*a) {
-            Expr::Num(x) => Expr::Num(unary(op, x)),
-            a => Expr::Unary(op, Box::new(a)),
-        },
+/// Constant folding, in place (small stack frames: depth can reach 1024).
+fn fold(e: &mut Expr) {
+    let replacement = match e {
+        Expr::Unary(op, a) => {
+            fold(a);
+            match **a {
+                Expr::Num(x) => Some(unary(*op, x)),
+                _ => None,
+            }
+        }
         Expr::Binary(op, a, b) => {
-            let a = fold(*a);
+            fold(a);
             // A constant-false `&&` / constant-true `||` never evaluates `b`.
-            if let Expr::Num(x) = a {
-                match op {
-                    BinOp::LogAnd if !truthy(x) => return Expr::Num(0.0),
-                    BinOp::LogOr if truthy(x) => return Expr::Num(1.0),
-                    _ => {}
+            match (&**a, *op) {
+                (Expr::Num(x), BinOp::LogAnd) if !truthy(*x) => Some(0.0),
+                (Expr::Num(x), BinOp::LogOr) if truthy(*x) => Some(1.0),
+                _ => {
+                    fold(b);
+                    match (&**a, &**b) {
+                        (Expr::Num(x), Expr::Num(y)) => Some(binary(*op, *x, *y)),
+                        _ => None,
+                    }
                 }
             }
-            let b = fold(*b);
-            match (&a, &b) {
-                (Expr::Num(x), Expr::Num(y)) => Expr::Num(binary(op, *x, *y)),
-                _ => Expr::Binary(op, Box::new(a), Box::new(b)),
-            }
         }
-        Expr::Assign { op, name, value } => {
-            Expr::Assign { op, name, value: Box::new(fold(*value)) }
+        Expr::Assign { value, .. } => {
+            fold(value);
+            None
         }
-        Expr::Call { name, args, line, col } => {
-            Expr::Call { name, args: args.into_iter().map(fold).collect(), line, col }
+        Expr::Call { args, .. } => {
+            args.iter_mut().for_each(fold);
+            None
         }
-        Expr::Block(v) => Expr::Block(v.into_iter().map(fold).collect()),
-        other => other,
+        Expr::Block(v) => {
+            v.iter_mut().for_each(fold);
+            None
+        }
+        Expr::Num(_) | Expr::Var(_) => None,
+    };
+    if let Some(v) = replacement {
+        *e = Expr::Num(v);
     }
 }
 
@@ -110,52 +131,20 @@ impl Compiler<'_> {
     }
 
     /// Compiles `e` so its value ends up in register `dst`. Registers above
-    /// `dst` are free scratch.
+    /// `dst` are free scratch. Kept small, with the bulky arms in separate
+    /// functions, because it recurses up to the parser's height limit.
     fn expr(&mut self, e: &Expr, dst: usize) -> Result<(), CompileError> {
         let d = self.reg(dst)?;
         match e {
             Expr::Num(v) => self.ops.push(Op::Const { dst: d, value: *v }),
-            Expr::Var(n) => {
-                let var = self.var(n);
-                self.ops.push(Op::LoadVar { dst: d, var });
-            }
-            Expr::Assign { op, name, value } => {
-                let var = self.var(name);
-                match op {
-                    AssignOp::Set => self.expr(value, dst)?,
-                    _ => {
-                        let t = self.reg(dst + 1)?;
-                        self.ops.push(Op::LoadVar { dst: d, var });
-                        self.expr(value, dst + 1)?;
-                        let bop = match op {
-                            AssignOp::Add => BinOp::Add,
-                            AssignOp::Sub => BinOp::Sub,
-                            AssignOp::Mul => BinOp::Mul,
-                            AssignOp::Div => BinOp::Div,
-                            _ => BinOp::Mod,
-                        };
-                        self.ops.push(Op::Bin { op: bop, dst: d, a: d, b: t });
-                    }
-                }
-                self.ops.push(Op::StoreVar { var, src: d });
-            }
+            Expr::Var(n) => self.load_var(n, d),
+            Expr::Assign { op, name, value } => self.assign(*op, name, value, dst)?,
             Expr::Unary(op, a) => {
                 self.expr(a, dst)?;
                 self.ops.push(Op::Un { op: *op, dst: d, a: d });
             }
             Expr::Binary(op @ (BinOp::LogAnd | BinOp::LogOr), a, b) => {
-                self.expr(a, dst)?;
-                self.ops.push(Op::Truthy { dst: d, a: d });
-                let jump_at = self.ops.len();
-                self.ops.push(Op::JumpIfFalse { cond: d, target: 0 });
-                self.expr(b, dst)?;
-                self.ops.push(Op::Truthy { dst: d, a: d });
-                let end = self.ops.len() as u32;
-                self.ops[jump_at] = if *op == BinOp::LogAnd {
-                    Op::JumpIfFalse { cond: d, target: end }
-                } else {
-                    Op::JumpIfTrue { cond: d, target: end }
-                };
+                self.logic(*op, a, b, dst)?
             }
             Expr::Binary(op, a, b) => {
                 let t = self.reg(dst + 1)?;
@@ -163,13 +152,7 @@ impl Compiler<'_> {
                 self.expr(b, dst + 1)?;
                 self.ops.push(Op::Bin { op: *op, dst: d, a: d, b: t });
             }
-            Expr::Call { name, line, col, .. } => {
-                return Err(CompileError {
-                    line: *line,
-                    col: *col,
-                    message: format!("unknown function '{name}'"),
-                });
-            }
+            Expr::Call { name, line, col, .. } => return Err(unknown_call(name, *line, *col)),
             Expr::Block(stmts) => {
                 if stmts.is_empty() {
                     self.ops.push(Op::Const { dst: d, value: 0.0 });
@@ -181,4 +164,65 @@ impl Compiler<'_> {
         }
         Ok(())
     }
+
+    #[inline(never)]
+    fn load_var(&mut self, name: &str, d: Reg) {
+        let var = self.var(name);
+        self.ops.push(Op::LoadVar { dst: d, var });
+    }
+
+    #[inline(never)]
+    fn assign(
+        &mut self,
+        op: AssignOp,
+        name: &str,
+        value: &Expr,
+        dst: usize,
+    ) -> Result<(), CompileError> {
+        let d = self.reg(dst)?;
+        let var = self.var(name);
+        let bop = match op {
+            AssignOp::Set => None,
+            AssignOp::Add => Some(BinOp::Add),
+            AssignOp::Sub => Some(BinOp::Sub),
+            AssignOp::Mul => Some(BinOp::Mul),
+            AssignOp::Div => Some(BinOp::Div),
+            AssignOp::Mod => Some(BinOp::Mod),
+        };
+        match bop {
+            None => self.expr(value, dst)?,
+            Some(bop) => {
+                let t = self.reg(dst + 1)?;
+                self.ops.push(Op::LoadVar { dst: d, var });
+                self.expr(value, dst + 1)?;
+                self.ops.push(Op::Bin { op: bop, dst: d, a: d, b: t });
+            }
+        }
+        self.ops.push(Op::StoreVar { var, src: d });
+        Ok(())
+    }
+
+    #[inline(never)]
+    fn logic(&mut self, op: BinOp, a: &Expr, b: &Expr, dst: usize) -> Result<(), CompileError> {
+        let d = self.reg(dst)?;
+        self.expr(a, dst)?;
+        self.ops.push(Op::Truthy { dst: d, a: d });
+        let jump_at = self.ops.len();
+        self.ops.push(Op::JumpIfFalse { cond: d, target: 0 });
+        self.expr(b, dst)?;
+        self.ops.push(Op::Truthy { dst: d, a: d });
+        let end = self.ops.len() as u32;
+        self.ops[jump_at] = if op == BinOp::LogAnd {
+            Op::JumpIfFalse { cond: d, target: end }
+        } else {
+            Op::JumpIfTrue { cond: d, target: end }
+        };
+        Ok(())
+    }
+}
+
+#[cold]
+#[inline(never)]
+fn unknown_call(name: &str, line: u32, col: u32) -> CompileError {
+    CompileError { line, col, message: format!("unknown function '{name}'") }
 }
