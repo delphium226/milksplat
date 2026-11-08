@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::num::NonZeroU64;
 use std::ops::Range;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
 use image::RgbaImage;
@@ -244,6 +244,8 @@ pub struct RendererShared {
     pub(crate) generation: u64,
     pub(crate) device: wgpu::Device,
     pub(crate) queue: wgpu::Queue,
+    /// The device-lost flag of the [`Gpu`] this handle was made from.
+    pub(crate) lost: Arc<AtomicBool>,
     /// Group 0 (the prelude's bindings 0-14), shared by every warp and
     /// composite shader.
     pub(crate) group0_layout: wgpu::BindGroupLayout,
@@ -251,7 +253,7 @@ pub struct RendererShared {
     pub(crate) base_pipeline_layout: wgpu::PipelineLayout,
     pub(crate) samplers: Samplers,
     /// 1x1 white, bound for user textures whose file was not found.
-    white: wgpu::TextureView,
+    pub(crate) white: wgpu::TextureView,
     pub(crate) builtin_warp: WarpShader,
     pub(crate) builtin_comp: CompShader,
 }
@@ -544,6 +546,7 @@ impl RendererShared {
             generation,
             device,
             queue: gpu.queue.clone(),
+            lost: Arc::clone(&gpu.lost),
             group0_layout,
             base_pipeline_layout,
             samplers,

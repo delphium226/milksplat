@@ -19,6 +19,7 @@ mod shaders;
 mod shapes;
 mod text;
 mod textures;
+mod warmup;
 mod warp;
 mod waves;
 

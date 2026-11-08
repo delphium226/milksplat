@@ -159,33 +159,7 @@ impl Gpu {
     /// and returns `Err`. Also returns `Err` if the device-lost callback fired
     /// during the poll.
     pub fn poll_wait(&self) -> Result<(), GpuError> {
-        if self.lost.load(Ordering::SeqCst) {
-            return Err(GpuError::DeviceLost("device already lost".into()));
-        }
-        let polled = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            self.device.poll(wgpu::PollType::wait_indefinitely())
-        }));
-        let failure = match polled {
-            Ok(Ok(_)) => None,
-            Ok(Err(e)) => Some(format!("device poll failed: {e}")),
-            Err(payload) => {
-                let msg = payload
-                    .downcast_ref::<String>()
-                    .map(String::as_str)
-                    .or_else(|| payload.downcast_ref::<&str>().copied())
-                    .unwrap_or("unknown panic");
-                Some(format!("device poll panicked: {msg}"))
-            }
-        };
-        if let Some(why) = failure {
-            self.lost.store(true, Ordering::SeqCst);
-            tracing::error!("{why}");
-            return Err(GpuError::DeviceLost(why));
-        }
-        if self.lost.load(Ordering::SeqCst) {
-            return Err(GpuError::DeviceLost("device lost during poll".into()));
-        }
-        Ok(())
+        poll_wait_on(&self.device, &self.lost)
     }
 
     fn open(
@@ -355,6 +329,39 @@ impl Readback {
             }
         }
     }
+}
+
+/// [`Gpu::poll_wait`] for a device and its lost flag (also used where only a
+/// [`RendererShared`](crate::RendererShared) is at hand, e.g. the loader
+/// thread's warm-up draw).
+pub(crate) fn poll_wait_on(device: &wgpu::Device, lost: &AtomicBool) -> Result<(), GpuError> {
+    if lost.load(Ordering::SeqCst) {
+        return Err(GpuError::DeviceLost("device already lost".into()));
+    }
+    let polled = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        device.poll(wgpu::PollType::wait_indefinitely())
+    }));
+    let failure = match polled {
+        Ok(Ok(_)) => None,
+        Ok(Err(e)) => Some(format!("device poll failed: {e}")),
+        Err(payload) => {
+            let msg = payload
+                .downcast_ref::<String>()
+                .map(String::as_str)
+                .or_else(|| payload.downcast_ref::<&str>().copied())
+                .unwrap_or("unknown panic");
+            Some(format!("device poll panicked: {msg}"))
+        }
+    };
+    if let Some(why) = failure {
+        lost.store(true, Ordering::SeqCst);
+        tracing::error!("{why}");
+        return Err(GpuError::DeviceLost(why));
+    }
+    if lost.load(Ordering::SeqCst) {
+        return Err(GpuError::DeviceLost("device lost during poll".into()));
+    }
+    Ok(())
 }
 
 /// Reads mip 0 / layer 0 of a 2D texture back to the CPU as RGBA8, blocking

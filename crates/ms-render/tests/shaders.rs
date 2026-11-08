@@ -822,3 +822,42 @@ fn builtin_comp_effects() {
     let mirrored = image::imageops::flip_horizontal(&pattern());
     assert_images_near(&img, &mirrored, 1);
 }
+
+#[test]
+fn warm_up_draws_off_thread_and_rejects_stale_sets() {
+    let gpu = gpu();
+    let mut r = renderer(&gpu);
+    let shared = r.shared();
+    let (set, warmed) = std::thread::spawn(move || {
+        let tex = |_: &str| Some(RgbaImage::from_pixel(2, 2, Rgba([10, 200, 30, 255])));
+        let set = shared.compile_shaders(
+            Some("return GetMain(uv).rgb * 0.9;"),
+            Some("return textureSample(sampler_fc_checker, sampler_fc_checker_s, uv).rgb;"),
+            RGBA8,
+            &tex,
+        );
+        let warmed =
+            [FeedbackFormat::Rgba8, FeedbackFormat::Fp16].map(|f| shared.warm_up(&set, f, RGBA8));
+        (set, warmed)
+    })
+    .join()
+    .unwrap();
+    assert!(set.errors.is_empty(), "{:?}", set.errors);
+    for w in warmed {
+        assert_eq!(w, Ok(()));
+    }
+    // The built-in set warms up too.
+    let builtin = r.compile_shaders(&gpu, None, None, RGBA8, &no_textures);
+    assert_eq!(
+        r.shared().warm_up(&builtin, FeedbackFormat::Rgba8, RGBA8),
+        Ok(())
+    );
+
+    // After `recreate`, the old set belongs to another generation.
+    r.recreate(&gpu);
+    let e = r
+        .shared()
+        .warm_up(&set, FeedbackFormat::Rgba8, RGBA8)
+        .unwrap_err();
+    assert!(e.contains("generation"), "{e}");
+}

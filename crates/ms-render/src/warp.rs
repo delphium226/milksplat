@@ -112,10 +112,10 @@ pub struct WarpLayer<'a> {
 /// Interleaved warp vertex: clip position, UV, colour (a = weight).
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-struct Vertex {
-    pos: [f32; 2],
-    uv: [f32; 2],
-    color: [f32; 4],
+pub(crate) struct Vertex {
+    pub(crate) pos: [f32; 2],
+    pub(crate) uv: [f32; 2],
+    pub(crate) color: [f32; 4],
 }
 
 impl Vertex {
@@ -421,7 +421,7 @@ fn push_vertices(out: &mut Vec<Vertex>, layer: &WarpLayer<'_>) {
 }
 
 /// Two triangles per cell, indices relative to the layer's first vertex.
-fn push_indices(out: &mut Vec<u32>, cols: u32, rows: u32) {
+pub(crate) fn push_indices(out: &mut Vec<u32>, cols: u32, rows: u32) {
     let stride = cols + 1;
     for y in 0..rows {
         for x in 0..cols {

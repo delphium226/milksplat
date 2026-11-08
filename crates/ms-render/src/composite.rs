@@ -109,9 +109,22 @@ impl CompShader {
         }
     }
 
+    /// The `RendererShared` generation that compiled this shader.
+    pub(crate) fn generation(&self) -> u64 {
+        self.inner.generation
+    }
+
+    /// The user texture bind group, if any.
+    pub(crate) fn group1(&self) -> Option<&wgpu::BindGroup> {
+        self.inner.group1.as_ref()
+    }
+
     /// The cached pipeline for `format`: `None` if not created yet,
     /// `Some(None)` if creation failed.
-    fn cached(&self, format: wgpu::TextureFormat) -> Option<Option<wgpu::RenderPipeline>> {
+    pub(crate) fn cached(
+        &self,
+        format: wgpu::TextureFormat,
+    ) -> Option<Option<wgpu::RenderPipeline>> {
         self.lock()
             .iter()
             .find(|(f, _)| *f == format)
