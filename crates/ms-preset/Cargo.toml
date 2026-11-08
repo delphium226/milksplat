@@ -6,3 +6,5 @@ license.workspace = true
 
 [dependencies]
 toml.workspace = true
+ms-expr.workspace = true
+tracing.workspace = true
