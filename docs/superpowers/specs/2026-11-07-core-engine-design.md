@@ -74,7 +74,7 @@ Later sub-projects add `ms-ui` (overlay and editor) and `ms-milk` (importer) wit
 
 ### 3.3 Clock and frame loop
 
-- Simulation runs on a fixed tick, 60 Hz by default (a preset may declare a different `sim_rate`). Per tick: audio analysis at audio time, preset `frame` code, `vertex` code, warp pass, overlay drawing, blur.
+- Simulation runs on a fixed tick, 60 Hz by default (a preset may declare a different `sim_rate`; the clock follows the preset on screen, and during a blend keeps the outgoing preset's rate until the blend completes). Per tick: audio analysis at audio time, preset `frame` code, `vertex` code, warp pass, overlay drawing, blur.
 - Composite runs every display frame at display rate, reading the latest feedback buffer. Shader uniforms receive exact (not tick-quantized) `time`.
 - If the render thread falls behind by more than 4 ticks, extra ticks are dropped (not run in a burst), and the quality governor (§6.6) is told.
 - Present mode: Mailbox if available, else Fifo; wgpu maximum frame latency 1. VRR displays are used as-is.
@@ -136,7 +136,7 @@ Textures are referenced by name from shaders. Lookup order: the preset's own fol
 - Operators: `+ - * / % ^ (power)`, unary `-` and `!`, comparisons `== != < <= > >=`, logical `&& ||` (short-circuit), bitwise `& |` (on values truncated to integers), assignment `=` and compound `+= -= *= /= %=`.
 - Division by zero and modulo by zero yield `0`.
 - `==` and `!=` compare with tolerance `1e-5` (absolute).
-- Control flow: `if(c, a, b)`, `loop(n, body)`, `while(body)` (repeats while the body's value is true). Every loop is capped: one program execution may perform at most 1,048,576 loop iterations in total; exceeding the cap stops the loop and logs a warning once per preset.
+- Control flow: `if(c, a, b)`, `loop(n, body)`, `while(body)` (repeats while the body's value is true). Every loop is capped: one program execution may perform at most 1,048,576 loop iterations in total, and all of one preset's code in one tick (init, frame, every vertex, every wave frame and point, every shape instance) shares a budget of 1,048,576 iterations; exceeding either stops the loop (once the tick budget is spent, every further loop in that tick exits at once, and the tick still completes) and logs a warning once per preset.
 - Built-in functions: `sin cos tan asin acos atan atan2 sqrt pow exp log log10 abs sign min max floor ceil int sqr rand sigmoid band bor bnot equal above below`, plus `megabuf(i)` and `gmegabuf(i)` (each 1,048,576 entries; out-of-range reads return 0 and writes are ignored).
 - Variable names are case-insensitive. Unknown names become user variables initialised to 0.
 - `rand(n)` uses a per-preset seeded generator so render tests are deterministic.
@@ -280,7 +280,7 @@ Then draw on-screen text.
 - An uncaptured-error handler logs instead of panicking.
 - All pipeline creation is wrapped in error scopes. On failure, the preset's shader is replaced by the built-in default, the error is logged, and the preset still runs.
 - **Device lost:** recreate adapter, device and every GPU resource. The current preset is reloaded from its cached compiled form.
-  - If the loss happened within 2 s of a preset becoming active, that preset is added to a blocklist in the config and skipped from then on.
+  - If the loader was preparing a preset when the device was lost (its shader compile or warm-up draw), that preset is blamed; otherwise, if the loss happened within 2 s of a preset becoming active, that preset is. The blamed preset (never the built-in default) is added to a blocklist in the config and skipped from then on; its load is not retried.
 - **Surface lost or outdated:** reconfigure the surface.
 - **Zero-size surface** (minimized): skip configure and rendering; the simulation pauses.
 
