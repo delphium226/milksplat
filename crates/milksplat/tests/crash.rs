@@ -9,7 +9,7 @@ use std::time::{Duration, SystemTime};
 
 use milksplat::crash::{
     install_panic_hook, last_panic, report_escaped_panic, set_adapter_info, write_report,
-    CrashInfo, PanicRecord, RunMarker,
+    CrashInfo, MarkerIds, PanicRecord, RunMarker,
 };
 use milksplat::logging::LogRing;
 use milksplat::paths::{KnownDirs, Paths};
@@ -48,19 +48,30 @@ fn crash_files(dir: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
+fn ids(showing: Option<&str>, loading: Option<&str>) -> MarkerIds {
+    MarkerIds {
+        showing: showing.map(str::to_string),
+        loading: loading.map(str::to_string),
+    }
+}
+
 #[test]
 fn marker_detects_crash() {
     let dir = tempdir();
     let (marker, crashed) = RunMarker::begin(&dir.0);
-    assert_eq!(crashed, None, "a first run");
-    marker.set_preset("a");
+    assert_eq!(crashed, MarkerIds::default(), "a first run");
+    marker.set_showing("a");
     drop(marker); // no `end`: the run "crashed"
     let (marker, crashed) = RunMarker::begin(&dir.0);
-    assert_eq!(crashed.as_deref(), Some("a"));
-    // The new run starts with no preset recorded.
+    assert_eq!(crashed, ids(Some("a"), None));
+    // The new run starts with nothing recorded.
     drop(marker);
     let (marker, crashed) = RunMarker::begin(&dir.0);
-    assert_eq!(crashed, None, "it crashed before showing a preset");
+    assert_eq!(
+        crashed,
+        MarkerIds::default(),
+        "it crashed before any preset"
+    );
     marker.end();
 }
 
@@ -68,25 +79,53 @@ fn marker_detects_crash() {
 fn marker_clean_exit() {
     let dir = tempdir();
     let (marker, _) = RunMarker::begin(&dir.0);
-    marker.set_preset("a");
-    marker.set_preset("b");
+    marker.set_showing("a");
+    marker.set_loading(Some("b"));
     marker.end();
     assert!(!dir.0.join("running").exists(), "end deletes the marker");
     let (marker, crashed) = RunMarker::begin(&dir.0);
-    assert_eq!(crashed, None);
+    assert_eq!(crashed, MarkerIds::default());
     marker.end();
 }
 
+/// A crash while Y showed and X was loading names both; the session skips
+/// both (each once).
 #[test]
-fn marker_keeps_the_latest_preset() {
+fn marker_names_showing_and_loading() {
     let dir = tempdir();
     let (marker, _) = RunMarker::begin(&dir.0);
-    for i in 0..50 {
-        marker.set_preset(&format!("p{i}.splat"));
-    }
+    marker.set_showing("y.splat");
+    marker.set_loading(Some("x.splat"));
     drop(marker);
     let (marker, crashed) = RunMarker::begin(&dir.0);
-    assert_eq!(crashed.as_deref(), Some("p49.splat"));
+    assert_eq!(crashed, ids(Some("y.splat"), Some("x.splat")));
+    assert_eq!(crashed.ids(), ["y.splat", "x.splat"]);
+    assert_eq!(ids(Some("a"), Some("a")).ids(), ["a"]);
+    // A finished load clears `loading`.
+    marker.set_loading(Some("x.splat"));
+    marker.set_loading(None);
+    drop(marker);
+    let (marker, crashed) = RunMarker::begin(&dir.0);
+    assert_eq!(crashed, MarkerIds::default());
+    marker.end();
+}
+
+/// The file is up to date as soon as the call returns (no writer thread,
+/// no debounce): a crash right after the call still finds it.
+#[test]
+fn marker_writes_synchronously() {
+    let dir = tempdir();
+    let file = dir.0.join("running");
+    let (marker, _) = RunMarker::begin(&dir.0);
+    for i in 0..20 {
+        let id = format!("p{i}.splat");
+        marker.set_showing(&id);
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert!(text.contains(&format!("showing={id}\n")), "{text}");
+        marker.set_loading(Some(&id));
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert!(text.contains(&format!("loading={id}\n")), "{text}");
+    }
     marker.end();
 }
 
@@ -95,7 +134,7 @@ fn record() -> PanicRecord {
         message: "index out of bounds".into(),
         location: Some("src/render_thread/mod.rs:42:7".into()),
         thread: "ms-render".into(),
-        backtrace: "   0: milksplat::fake\n".into(),
+        backtrace: Arc::new(std::backtrace::Backtrace::force_capture()),
     }
 }
 
@@ -126,7 +165,8 @@ fn write_report_contents() {
         "index out of bounds",
         "src/render_thread/mod.rs:42:7",
         "ms-render",
-        "milksplat::fake",
+        "Backtrace:\n",
+        "write_report_contents",
         "NVIDIA GeForce RTX 3090 (Dx12), driver 32.0.16.1088",
         "dir/ink.splat",
         "log line 50\n",

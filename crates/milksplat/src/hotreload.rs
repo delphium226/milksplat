@@ -43,6 +43,11 @@ impl Watch {
 
 /// The library id of `path` under `root` (as [`Library::scan`] makes it:
 /// relative, `/`-separated, lowercased), if it is a `.splat` file there.
+/// Both paths are compared as text with `/` separators and without a
+/// `\\?\` prefix, ignoring case on Windows (its file names are
+/// case-insensitive, and notify may report a different case or form than
+/// the root was given in). Pass both in the same form (both absolute, see
+/// [`watch`]).
 pub fn preset_id(root: &Path, path: &Path) -> Option<String> {
     let splat = path
         .extension()
@@ -51,12 +56,23 @@ pub fn preset_id(root: &Path, path: &Path) -> Option<String> {
     if !splat {
         return None;
     }
-    let rel = path.strip_prefix(root).ok()?;
-    let parts: Vec<String> = rel
-        .components()
-        .map(|c| c.as_os_str().to_string_lossy().into_owned())
-        .collect();
-    Some(parts.join("/").to_lowercase())
+    let root = normalise(root);
+    let path = normalise(path);
+    let rel = path.strip_prefix(root.as_str())?.strip_prefix('/')?;
+    let parts: Vec<&str> = rel.split('/').filter(|p| !p.is_empty()).collect();
+    (!parts.is_empty()).then(|| parts.join("/").to_lowercase())
+}
+
+/// `p` as comparable text (see [`preset_id`]).
+fn normalise(p: &Path) -> String {
+    let text = p.to_string_lossy().replace('\\', "/");
+    let text = text.strip_prefix("//?/").unwrap_or(&text);
+    let text = text.trim_end_matches('/');
+    if cfg!(windows) {
+        text.to_lowercase()
+    } else {
+        text.to_string()
+    }
 }
 
 /// Starts watching `roots` (the preset roots, user first, as scanned).
@@ -64,13 +80,15 @@ pub fn preset_id(root: &Path, path: &Path) -> Option<String> {
 /// watched.
 pub fn watch(roots: &[PathBuf]) -> Option<Watch> {
     let (tx, rx) = crossbeam_channel::unbounded();
-    // Events name paths under the root as given, or under its canonical
-    // form; keep both for the id mapping.
-    let mapped: Vec<(PathBuf, Option<PathBuf>)> = roots
+    // notify reports absolute paths under the root it watches, so watch and
+    // map absolute roots (`absolute`, unlike `canonicalize`, adds no `\\?\`
+    // prefix; on Windows it also resolves `..`).
+    let roots: Vec<PathBuf> = roots
         .iter()
-        .map(|r| (r.clone(), std::fs::canonicalize(r).ok()))
+        .map(|r| std::path::absolute(r).unwrap_or_else(|_| r.clone()))
         .collect();
-    let scan_roots = roots.to_vec();
+    let mapped = roots.clone();
+    let scan_roots = roots.clone();
     let mut library = Library::scan(&scan_roots);
     let handler = move |res: DebounceEventResult| match res {
         Ok(events) => {
@@ -87,7 +105,7 @@ pub fn watch(roots: &[PathBuf]) -> Option<Watch> {
         }
     };
     let mut watching = 0;
-    for root in roots {
+    for root in &roots {
         if !root.is_dir() {
             continue;
         }
@@ -111,7 +129,7 @@ pub fn watch(roots: &[PathBuf]) -> Option<Watch> {
 /// exists (removed), or a changed directory, rescans the library.
 fn on_events(
     paths: &[PathBuf],
-    roots: &[(PathBuf, Option<PathBuf>)],
+    roots: &[PathBuf],
     scan_roots: &[PathBuf],
     library: &mut Library,
     tx: &Sender<Change>,
@@ -119,9 +137,7 @@ fn on_events(
     let mut ids = Vec::new();
     let mut rescan = false;
     for path in paths {
-        let id = roots.iter().find_map(|(root, canon)| {
-            preset_id(root, path).or_else(|| canon.as_deref().and_then(|c| preset_id(c, path)))
-        });
+        let id = roots.iter().find_map(|root| preset_id(root, path));
         match id {
             Some(id) => {
                 let known = library.entries.iter().any(|e| e.id == id);

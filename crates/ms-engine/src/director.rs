@@ -209,7 +209,13 @@ pub struct Director {
     scratch: BlendScratch,
     /// Per-vertex weight 1, for single-preset warps.
     ones: Vec<f32>,
+    /// See [`Director::set_load_hook`].
+    load_hook: Option<LoadHook>,
+    /// The hook was last told `Some(id)`.
+    load_notified: bool,
 }
+
+type LoadHook = Box<dyn FnMut(Option<&str>) + Send>;
 
 impl Director {
     /// Starts on the built-in default preset ([`DEFAULT_PRESET_SOURCE`]),
@@ -272,6 +278,8 @@ impl Director {
             started: false,
             scratch: BlendScratch::default(),
             ones: Vec::new(),
+            load_hook: None,
+            load_notified: false,
         };
         d.cur.duration = d.display_time();
         d
@@ -340,6 +348,11 @@ impl Director {
             if p.req.is_none() && !p.parked {
                 match self.lib.entries.iter().find(|e| e.id == p.id) {
                     Some(e) => {
+                        // Before the loader can start on it (see `set_load_hook`).
+                        if let Some(hook) = &mut self.load_hook {
+                            hook(Some(&p.id));
+                            self.load_notified = true;
+                        }
                         p.req = Some(loader.request(p.id.clone(), e.path.clone(), p.seed));
                         p.loader = loader.loader_id();
                         p.sent_at = now;
@@ -351,6 +364,30 @@ impl Director {
                 }
             }
         }
+        // Nothing with the loader any more: the answer was taken, or the
+        // request was dropped.
+        let loading = self.pending.as_ref().is_some_and(|p| p.req.is_some());
+        if !loading && self.load_notified {
+            self.load_notified = false;
+            if let Some(hook) = &mut self.load_hook {
+                hook(None);
+            }
+        }
+    }
+
+    /// Sets a hook told which preset the loader is working on: `Some(id)`
+    /// just *before* each request is sent (so the app can record it before
+    /// any of the preset's work starts, e.g. for crash detection), and
+    /// `None` once no request is outstanding (its answer was taken by
+    /// `update`, or it was dropped). Called on the thread calling `update`.
+    pub fn set_load_hook(&mut self, hook: impl FnMut(Option<&str>) + Send + 'static) {
+        self.load_hook = Some(Box::new(hook));
+    }
+
+    /// The id of the preset on screen (during a blend, the incoming one),
+    /// without allocating.
+    pub fn shown(&self) -> &str {
+        self.shown_id()
     }
 
     /// What is on screen.

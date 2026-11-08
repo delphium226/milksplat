@@ -62,7 +62,7 @@ use ms_render::TextureResolver;
 use winit::window::Window;
 
 use crate::config::{Config, ConfigStore, Quality};
-use crate::crash::RunMarker;
+use crate::crash::{MarkerIds, RunMarker};
 use crate::hotkeys::Action;
 use crate::hotreload::Watch;
 use crate::paths::Paths;
@@ -178,8 +178,9 @@ pub struct RenderOptions {
     pub marker: Option<Arc<RunMarker>>,
     /// The preset on screen, for crash reports.
     pub current_preset: Arc<Mutex<Option<String>>>,
-    /// A preset the last run crashed on: skipped this session (not saved).
-    pub crashed_preset: Option<String>,
+    /// What the last run's marker named (it crashed with them showing or
+    /// loading): skipped this session (not saved).
+    pub crashed: MarkerIds,
 }
 
 /// Starts the render thread ("ms-render", 16 MB stack). `instance` must be
@@ -251,14 +252,24 @@ fn run(
     let gs = GpuState::new(&instance, surface, &resolver, internal, opts.safe)?;
 
     let mut session_skip = HashSet::new();
-    let mut startup_notice = None;
-    if let Some(id) = opts.crashed_preset.filter(|id| id != DEFAULT_PRESET_ID) {
-        tracing::warn!("skipping {id} this session: the last run crashed while it was showing");
-        startup_notice = Some(format!(
-            "Skipped {id} because the last run crashed while it was showing"
+    let mut skipped = Vec::new();
+    for id in opts.crashed.ids() {
+        if id == DEFAULT_PRESET_ID {
+            continue;
+        }
+        let what = if opts.crashed.showing.as_ref() == Some(&id) {
+            "showing"
+        } else {
+            "loading"
+        };
+        tracing::warn!("skipping {id} this session: the last run crashed while it was {what}");
+        skipped.push(format!(
+            "Skipped {} because the last run crashed while it was {what}",
+            display_name(&id)
         ));
         session_skip.insert(id);
     }
+    let startup_notice = (!skipped.is_empty()).then(|| skipped.join("; "));
     let prefs = prefs_of(&cfg, &session_skip);
     let dcfg = DirectorConfig {
         auto_advance_s: cfg.auto_advance_s,
@@ -269,6 +280,12 @@ fn run(
     };
     let mut director = Director::new(dcfg, lib, prefs, seed(), &gs.renderer.shared(), gs.format);
     director.set_mesh_cap(cfg.quality.mesh_cap());
+    if let Some(marker) = &opts.marker {
+        // Written before each request reaches the loader thread, so a
+        // crash while compiling or warming up names the preset.
+        let marker = Arc::clone(marker);
+        director.set_load_hook(move |id| marker.set_loading(id));
+    }
     // Safe mode ignores the configured device.
     let device = cfg.audio_device.clone().filter(|_| !opts.safe);
     let audio = AudioInput::start(device, Arc::new(move || clock.now()));
@@ -721,9 +738,8 @@ impl RenderThread {
 
         let period = 1.0 / SIM_HZ;
         let aspect = aspect(self.size);
-        // The analysis window cannot end in the future: a negative offset
-        // (kept in the config) analyses the newest audio.
-        let av_offset = f64::from(self.av_offset_ms.max(0)) / 1000.0;
+        // Never negative (0..=2000 ms): the window cannot end in the future.
+        let av_offset = f64::from(self.av_offset_ms) / 1000.0;
         for _ in 0..ticks.run {
             self.tick_time += period;
             // The tick's moment on the app clock (ticks trail the frame).
@@ -733,6 +749,15 @@ impl RenderThread {
                 .tick(&self.hist, audio_time, av_offset, period);
             gs.renderer.set_spectrum(&gs.gpu, &audio.spectrum);
             self.director.update(self.tick_time, audio, &gs.loader);
+            // A switch just started: record it before its first tick runs.
+            if self.marked.as_deref() != Some(self.director.shown()) {
+                session::mark_showing(
+                    &self.director,
+                    &mut self.marked,
+                    &self.current_preset,
+                    self.marker.as_deref(),
+                );
+            }
             let base = TickInputBase {
                 fps: SIM_HZ,
                 audio,
@@ -760,7 +785,6 @@ impl RenderThread {
 
         let shown = self.shown_id();
         self.overlay.set_shown(&shown, wall);
-        self.mark_shown(&shown);
         let target = [frame.texture.width(), frame.texture.height()];
         let debug = if self.overlay.show_debug {
             self.debug_line(gs, &shown)

@@ -25,8 +25,9 @@ use crossbeam_channel::{RecvTimeoutError, Sender};
 use serde::{Deserialize, Serialize};
 use toml::{Table, Value};
 
-/// The A/V offset range, in milliseconds (§8.4).
-pub const AV_OFFSET_MIN_MS: i32 = -500;
+/// The A/V offset range, in milliseconds (§8.4). Not negative: the
+/// analysis window cannot end in the future.
+pub const AV_OFFSET_MIN_MS: i32 = 0;
 pub const AV_OFFSET_MAX_MS: i32 = 2000;
 /// The A/V offset for a Bluetooth output with no stored value (§8.4).
 pub const BLUETOOTH_AV_OFFSET_MS: i32 = 200;
@@ -192,6 +193,32 @@ pub fn tmp_path(path: &Path) -> PathBuf {
 /// Loads the config at `path` (see the module docs). Never fails; the
 /// warnings say what was wrong and what was used instead.
 pub fn load_config(path: &Path) -> (Config, Vec<String>) {
+    let l = load_config_checked(path);
+    (l.config, l.warnings)
+}
+
+/// A loaded config, and whether it may be saved back.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LoadedConfig {
+    pub config: Config,
+    pub warnings: Vec<String>,
+    /// False when the file could be neither read nor moved aside: saving
+    /// would replace the user's (perhaps only locked) file with defaults,
+    /// so the app must not save this run ([`ConfigStore::disable_saving`]).
+    pub persist: bool,
+}
+
+/// [`load_config`], also saying whether the file may be saved back.
+pub fn load_config_checked(path: &Path) -> LoadedConfig {
+    let (config, warnings, persist) = load(path);
+    LoadedConfig {
+        config,
+        warnings,
+        persist,
+    }
+}
+
+fn load(path: &Path) -> (Config, Vec<String>, bool) {
     let mut warnings = Vec::new();
     let shown = path.display();
     let text = match std::fs::read(path) {
@@ -201,7 +228,7 @@ pub fn load_config(path: &Path) -> (Config, Vec<String>) {
             if let Err(e) = save_config(path, &cfg) {
                 warnings.push(format!("cannot write the default config to {shown}: {e}"));
             }
-            return (cfg, warnings);
+            return (cfg, warnings, true);
         }
         Err(e) => Err(format!("cannot read it ({e})")),
     };
@@ -209,7 +236,7 @@ pub fn load_config(path: &Path) -> (Config, Vec<String>) {
     match table {
         Ok(table) => {
             let cfg = from_table(&table, &mut warnings);
-            (cfg, warnings)
+            (cfg, warnings, true)
         }
         Err(why) => {
             let bad = bad_path(path);
@@ -221,16 +248,17 @@ pub fn load_config(path: &Path) -> (Config, Vec<String>) {
                 )),
                 Err(e) => {
                     warnings.push(format!(
-                        "using the defaults; cannot rename the bad file: {e}"
+                        "using the defaults; cannot rename the bad file ({e}), so the config \
+                         will not be saved this run"
                     ));
-                    return (Config::default(), warnings);
+                    return (Config::default(), warnings, false);
                 }
             }
             let cfg = Config::default();
             if let Err(e) = save_config(path, &cfg) {
                 warnings.push(format!("cannot write the default config to {shown}: {e}"));
             }
-            (cfg, warnings)
+            (cfg, warnings, true)
         }
     }
 }
@@ -410,13 +438,15 @@ struct StoreInner {
     cfg: Mutex<Config>,
     dirty: AtomicBool,
     saves: AtomicU64,
+    /// Cleared by [`ConfigStore::disable_saving`].
+    persist: AtomicBool,
 }
 
 impl StoreInner {
     /// Writes the config if it changed since the last write. The lock is
     /// held only to copy it, never during the write.
     fn save_if_dirty(&self) {
-        if !self.dirty.swap(false, Ordering::SeqCst) {
+        if !self.dirty.swap(false, Ordering::SeqCst) || !self.persist.load(Ordering::SeqCst) {
             return;
         }
         let snapshot = lock(&self.cfg).clone();
@@ -457,6 +487,7 @@ impl ConfigStore {
             cfg: Mutex::new(cfg),
             dirty: AtomicBool::new(false),
             saves: AtomicU64::new(0),
+            persist: AtomicBool::new(true),
         });
         let (tx, rx) = crossbeam_channel::unbounded();
         let worker = Arc::clone(&inner);
@@ -512,6 +543,17 @@ impl ConfigStore {
         f(&mut lock(&self.inner.cfg));
         self.inner.dirty.store(true, Ordering::SeqCst);
         let _ = self.tx.send(SaverMsg::Changed);
+    }
+
+    /// Stops all saving (changes stay in memory), when the file on disk
+    /// could not be read or moved aside and must not be overwritten.
+    pub fn disable_saving(&self) {
+        tracing::warn!(
+            "the config file could not be read; changes will not be saved this run, \
+             so {} is left as it is",
+            self.inner.path.display()
+        );
+        self.inner.persist.store(false, Ordering::SeqCst);
     }
 
     /// A copy of the current config.

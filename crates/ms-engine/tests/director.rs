@@ -1249,3 +1249,46 @@ fn set_library_adds_and_removes() {
     }
     assert_eq!(rig.director.current(), showing(DEFAULT_PRESET_ID));
 }
+
+/// The load hook hears of a request before the loader gets it, and is
+/// cleared once the answer has been taken; `shown` follows the switch.
+#[test]
+fn load_hook_runs_before_the_request() {
+    use std::sync::{Arc, Mutex};
+    let (_fx, lib) = fixture(&[("a.splat", &good("a"))]);
+    let mut rig = make_rig(manual_cfg(), lib, Prefs::default());
+    let loader = Arc::new(Loader::spawn(
+        rig.renderer.shared(),
+        TextureResolver::new(Vec::new()),
+        FMT,
+    ));
+    // Each event with the loader's request count at that moment.
+    type Events = Arc<Mutex<Vec<(Option<String>, u64)>>>;
+    let events: Events = Arc::default();
+    let (ev, ld) = (Arc::clone(&events), Arc::clone(&loader));
+    rig.director.set_load_hook(move |id| {
+        ev.lock()
+            .unwrap()
+            .push((id.map(str::to_string), ld.request_count()));
+    });
+    loader.set_paused(true);
+    rig.director.command(Command::Load("a.splat".into()));
+    rig.director.update(1.0, &AudioFrame::default(), &loader);
+    assert_eq!(
+        *events.lock().unwrap(),
+        [(Some("a.splat".to_string()), 0)],
+        "told before the request was made"
+    );
+    assert_eq!(loader.request_count(), 1);
+    assert_eq!(rig.director.shown(), DEFAULT_PRESET_ID);
+
+    loader.set_paused(false);
+    let start = Instant::now();
+    while rig.director.shown() != "a.splat" {
+        rig.director.update(1.0, &AudioFrame::default(), &loader);
+        assert!(start.elapsed() < DEADLINE, "timed out");
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    let events = events.lock().unwrap();
+    assert_eq!(events.last().map(|e| e.0.clone()), Some(None), "cleared");
+}

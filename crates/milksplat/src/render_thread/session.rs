@@ -1,15 +1,20 @@
 //! The render thread's link to the rest of the run, outside the frame
 //! work: the capture device's A/V offset, the silence state (hint and
 //! keep-awake), the preset on screen for crash reports and the run marker,
-//! hot reload, and copying config changes to the store. None of it touches
-//! the disk; the store, the marker and the watcher have their own threads.
+//! hot reload, and copying config changes to the store. Only the marker
+//! touches the disk here: a tiny synchronous write when the preset on
+//! screen changes (rare), before that preset's first tick. The store and
+//! the watcher have their own threads.
 
-use std::sync::PoisonError;
+use std::sync::{Mutex, PoisonError};
+
+use ms_engine::Director;
 
 use ms_preset::Prefs;
 
 use super::audio::DeviceStarted;
 use super::{prefs_of, RenderThread};
+use crate::crash::RunMarker;
 use crate::hotreload::Watch;
 use crate::keepawake::SILENCE_S;
 
@@ -31,22 +36,6 @@ impl RenderThread {
             self.silent = silent;
             self.overlay.no_audio = silent;
             (self.on_silence)(silent);
-        }
-    }
-
-    /// Records the preset on screen for crash reports and the run marker,
-    /// when it changes (no disk access here).
-    pub(super) fn mark_shown(&mut self, shown: &str) {
-        if self.marked.as_deref() == Some(shown) {
-            return;
-        }
-        self.marked = Some(shown.to_string());
-        *self
-            .current_preset
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner) = Some(shown.to_string());
-        if let Some(m) = &self.marker {
-            m.set_preset(shown);
         }
     }
 
@@ -89,5 +78,23 @@ impl RenderThread {
             s.quality = quality;
             s.av_offsets_ms = offsets;
         });
+    }
+}
+
+/// Records the preset on screen (`director.shown()`) for crash reports and
+/// in the run marker, synchronously. The render thread calls it after
+/// `Director::update` started a switch and before `tick_and_render` runs
+/// the new preset. (A free function: the caller holds other borrows.)
+pub(super) fn mark_showing(
+    director: &Director,
+    marked: &mut Option<String>,
+    slot: &Mutex<Option<String>>,
+    marker: Option<&RunMarker>,
+) {
+    let shown = director.shown();
+    *marked = Some(shown.to_string());
+    *slot.lock().unwrap_or_else(PoisonError::into_inner) = Some(shown.to_string());
+    if let Some(m) = marker {
+        m.set_showing(shown);
     }
 }

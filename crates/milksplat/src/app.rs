@@ -26,8 +26,10 @@ use winit::keyboard::ModifiersState;
 use winit::monitor::MonitorHandle;
 use winit::window::{Fullscreen, Window, WindowId};
 
-use crate::config::{load_config, Config, ConfigStore, WindowState};
-use crate::crash::{install_panic_hook, report_escaped_panic, show_crash_box, RunMarker};
+use crate::config::{load_config_checked, Config, ConfigStore, WindowState};
+use crate::crash::{
+    install_panic_hook, report_escaped_panic, show_crash_box, MarkerIds, RunMarker,
+};
 use crate::hotkeys::{map_key, Action};
 use crate::keepawake::KeepAwake;
 use crate::paths::Paths;
@@ -142,14 +144,18 @@ pub fn main() -> ExitCode {
         paths.config.display(),
         paths.logs.display()
     );
-    let (cfg, warnings) = load_config(&paths.config);
-    for w in warnings {
+    let loaded = load_config_checked(&paths.config);
+    for w in &loaded.warnings {
         tracing::warn!("{w}");
     }
+    let cfg = loaded.config;
     let current_preset = Arc::new(Mutex::new(None));
     install_panic_hook(&paths, Arc::clone(&current_preset));
-    let (marker, crashed_preset) = RunMarker::begin(&paths.logs);
+    let (marker, crashed) = RunMarker::begin(&paths.logs);
     let (store, saver) = ConfigStore::start(paths.config.clone(), cfg.clone());
+    if !loaded.persist {
+        store.disable_saving();
+    }
 
     let event_loop = match EventLoop::<UserEvent>::with_user_event().build() {
         Ok(event_loop) => event_loop,
@@ -164,7 +170,7 @@ pub fn main() -> ExitCode {
     app.store = Some(store);
     app.marker = Some(Arc::clone(&marker));
     app.current_preset = current_preset;
-    app.crashed_preset = crashed_preset;
+    app.crashed = crashed;
     let app_ref = &mut app;
     // winit hands a panic in an event handler back from `run_app`.
     match catch_unwind(AssertUnwindSafe(move || event_loop.run_app(app_ref))) {
@@ -236,7 +242,7 @@ struct App {
     store: Option<ConfigStore>,
     marker: Option<Arc<RunMarker>>,
     current_preset: Arc<Mutex<Option<String>>>,
-    crashed_preset: Option<String>,
+    crashed: MarkerIds,
     /// The last windowed (not fullscreen, not minimised) size and
     /// position, saved on exit.
     windowed: WindowState,
@@ -267,7 +273,7 @@ impl App {
             store: None,
             marker: None,
             current_preset: Arc::new(Mutex::new(None)),
-            crashed_preset: None,
+            crashed: MarkerIds::default(),
             silent: false,
             keep_awake: KeepAwake::default(),
         }
@@ -326,7 +332,7 @@ impl App {
             store,
             marker: self.marker.clone(),
             current_preset: Arc::clone(&self.current_preset),
-            crashed_preset: self.crashed_preset.take(),
+            crashed: std::mem::take(&mut self.crashed),
         };
         self.instance = Some(instance.clone());
         let handle = run_render_thread(

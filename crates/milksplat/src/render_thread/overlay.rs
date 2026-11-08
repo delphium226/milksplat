@@ -81,7 +81,9 @@ impl Overlay {
         if self.no_audio {
             let width = NO_AUDIO_HINT.len() as f32 * line;
             let x = ((size[0] as f32 - width) / 2.0).max(MARGIN);
-            items.push(item(NO_AUDIO_HINT, [x, bottom - line], scale, GREY));
+            // Above the name band (the name and the notice above it).
+            let y = (name_y - line * 3.0).max(MARGIN);
+            items.push(item(NO_AUDIO_HINT, [x, y], scale, GREY));
         }
         if self.show_help {
             let top = if self.show_debug {

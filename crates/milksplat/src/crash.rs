@@ -13,39 +13,38 @@
 //! and the last 200 log lines. The app then shows a message box ("Milksplat
 //! crashed. A report was saved to <path>.") and exits with code 1.
 //!
-//! **Run marker.** [`RunMarker`] keeps a `running` file holding the preset
-//! on screen while the app runs, and deletes it on a clean exit. A marker
-//! found at startup means the last run crashed while that preset showed.
+//! **Run marker.** [`RunMarker`] keeps a `running` file naming the preset
+//! on screen and the preset the loader is working on, and deletes it on a
+//! clean exit. A marker found at startup means the last run crashed (or was
+//! killed) with those presets showing or loading; both are skipped for the
+//! session. The file is rewritten synchronously, before the risky work
+//! starts, whenever either id changes (rare: on switches and requests), so
+//! it is right even for crashes that never unwind (a driver fault).
 
+use std::backtrace::Backtrace;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError, TryLockError};
-use std::thread::JoinHandle;
-use std::time::{Duration, Instant, SystemTime};
-
-use crossbeam_channel::{RecvTimeoutError, Sender};
+use std::time::SystemTime;
 
 use crate::paths::Paths;
 
 /// The marker file's name, in the logs directory.
 pub const MARKER_FILE: &str = "running";
-/// The marker is rewritten at most this often (shorter than the config's
-/// second: a crash right after a switch should still name the new preset).
-pub const MARKER_INTERVAL: Duration = Duration::from_millis(250);
 /// Panics remembered for the report (the latest of the reporting thread
 /// is used).
 const RECENT_PANICS: usize = 8;
-/// How long dropping or ending the marker waits for its writer.
-const MARKER_JOIN_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// A panic, as the hook saw it.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct PanicRecord {
     pub message: String,
     /// `file:line:column`.
     pub location: Option<String>,
     pub thread: String,
-    pub backtrace: String,
+    /// Captured but not resolved: symbols are only looked up when a report
+    /// is written, never inside the hook.
+    pub backtrace: Arc<Backtrace>,
 }
 
 /// Everything a crash report holds.
@@ -132,7 +131,7 @@ fn record_of(info: &std::panic::PanicHookInfo<'_>) -> PanicRecord {
             .location()
             .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column())),
         thread,
-        backtrace: std::backtrace::Backtrace::force_capture().to_string(),
+        backtrace: Arc::new(Backtrace::force_capture()),
     }
 }
 
@@ -177,13 +176,22 @@ pub fn report_escaped_panic(reason: &str, show_box: bool) -> Option<PathBuf> {
         time: SystemTime::now(),
         log_lines: crate::logging::ring().lines(),
     };
-    let path = match write_report(&dir, &info) {
+    let written = write_report(&dir, &info).or_else(|e| {
+        let tmp = std::env::temp_dir();
+        tracing::error!(
+            "cannot write a crash report in {} ({e}); trying {}",
+            dir.display(),
+            tmp.display()
+        );
+        write_report(&tmp, &info)
+    });
+    let path = match written {
         Ok(path) => {
             tracing::error!("crash report written to {}", path.display());
             Some(path)
         }
         Err(e) => {
-            tracing::error!("cannot write a crash report in {}: {e}", dir.display());
+            tracing::error!("cannot write a crash report: {e}");
             None
         }
     };
@@ -222,8 +230,10 @@ pub fn write_report(dir: &Path, info: &CrashInfo) -> std::io::Result<PathBuf> {
     ));
     if let Some(p) = &info.panic {
         text.push_str("Backtrace:\n");
-        text.push_str(&p.backtrace);
-        if !p.backtrace.ends_with('\n') {
+        // Symbols are resolved here, not in the hook.
+        let backtrace = p.backtrace.to_string();
+        text.push_str(&backtrace);
+        if !backtrace.ends_with('\n') {
             text.push('\n');
         }
         text.push('\n');
@@ -330,113 +340,109 @@ impl Utc {
     }
 }
 
-/// The `running` marker (see the module docs). Writes happen on a small
-/// thread (`ms-marker`), at most every [`MARKER_INTERVAL`], so
-/// [`set_preset`](Self::set_preset) never touches the disk.
+/// What a `running` marker named: the preset on screen and the preset
+/// being loaded.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MarkerIds {
+    pub showing: Option<String>,
+    pub loading: Option<String>,
+}
+
+impl MarkerIds {
+    fn parse(text: &str) -> MarkerIds {
+        let mut ids = MarkerIds::default();
+        let some = |v: &str| Some(v.trim().to_string()).filter(|v| !v.is_empty());
+        for line in text.lines() {
+            match line.split_once('=') {
+                Some(("showing", v)) => ids.showing = some(v),
+                Some(("loading", v)) => ids.loading = some(v),
+                _ => {}
+            }
+        }
+        ids
+    }
+
+    fn text(&self) -> String {
+        format!(
+            "showing={}\nloading={}\n",
+            self.showing.as_deref().unwrap_or(""),
+            self.loading.as_deref().unwrap_or("")
+        )
+    }
+
+    /// Both ids, without duplicates.
+    pub fn ids(&self) -> Vec<String> {
+        let mut out: Vec<String> = self.showing.iter().cloned().collect();
+        if let Some(l) = self
+            .loading
+            .as_ref()
+            .filter(|l| Some(*l) != self.showing.as_ref())
+        {
+            out.push(l.clone());
+        }
+        out
+    }
+}
+
+/// The `running` marker (see the module docs). Each change rewrites the
+/// small file at once, on the calling thread (the render thread, before
+/// the switch or the load request it records).
 pub struct RunMarker {
     path: PathBuf,
-    tx: Option<Sender<String>>,
-    thread: Option<JoinHandle<()>>,
+    ids: Mutex<MarkerIds>,
 }
 
 impl RunMarker {
-    /// Starts a run: returns the marker and, if the last run did not end
-    /// cleanly while a preset was recorded, that preset's id.
-    pub fn begin(dir: &Path) -> (RunMarker, Option<String>) {
+    /// Starts a run: returns the marker and what the last run's marker
+    /// named, if that run did not end cleanly.
+    pub fn begin(dir: &Path) -> (RunMarker, MarkerIds) {
         let path = dir.join(MARKER_FILE);
         let crashed = std::fs::read_to_string(&path)
-            .ok()
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty());
-        if let Err(e) = std::fs::create_dir_all(dir).and_then(|()| std::fs::write(&path, "")) {
-            tracing::warn!("cannot write the run marker {}: {e}", path.display());
-        }
-        let (tx, rx) = crossbeam_channel::unbounded::<String>();
-        let target = path.clone();
-        let thread = std::thread::Builder::new()
-            .name("ms-marker".into())
-            .spawn(move || {
-                let write = |id: &str| {
-                    if let Err(e) = std::fs::write(&target, id) {
-                        tracing::warn!("cannot update the run marker: {e}");
-                    }
-                };
-                let mut last: Option<Instant> = None;
-                while let Ok(mut id) = rx.recv() {
-                    let mut done = false;
-                    if let Some(due) = last.map(|t| t + MARKER_INTERVAL) {
-                        loop {
-                            let left = due.saturating_duration_since(Instant::now());
-                            if left.is_zero() {
-                                break;
-                            }
-                            match rx.recv_timeout(left) {
-                                Ok(newer) => id = newer,
-                                Err(RecvTimeoutError::Timeout) => break,
-                                Err(RecvTimeoutError::Disconnected) => {
-                                    done = true;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                    // Anything queued meanwhile is newer.
-                    if let Some(newest) = rx.try_iter().last() {
-                        id = newest;
-                    }
-                    write(&id);
-                    last = Some(Instant::now());
-                    if done {
-                        break;
-                    }
-                }
-            });
-        let (tx, thread) = match thread {
-            Ok(t) => (Some(tx), Some(t)),
-            Err(e) => {
-                tracing::warn!("cannot start the run marker thread ({e}); crash detection is off");
-                (None, None)
-            }
+            .map(|t| MarkerIds::parse(&t))
+            .unwrap_or_default();
+        let marker = RunMarker {
+            path,
+            ids: Mutex::new(MarkerIds::default()),
         };
-        (RunMarker { path, tx, thread }, crashed)
+        if let Err(e) = std::fs::create_dir_all(dir) {
+            tracing::warn!("cannot create {}: {e}", dir.display());
+        }
+        marker.write(&MarkerIds::default());
+        (marker, crashed)
     }
 
-    /// Records the preset on screen.
-    pub fn set_preset(&self, id: &str) {
-        if let Some(tx) = &self.tx {
-            let _ = tx.send(id.to_string());
+    /// Records the preset on screen (a write only if it changed).
+    pub fn set_showing(&self, id: &str) {
+        self.change(|ids| ids.showing = Some(id.to_string()));
+    }
+
+    /// Records the preset the loader is working on, or none.
+    pub fn set_loading(&self, id: Option<&str>) {
+        self.change(|ids| ids.loading = id.map(str::to_string));
+    }
+
+    fn change(&self, f: impl FnOnce(&mut MarkerIds)) {
+        let mut ids = self.ids.lock().unwrap_or_else(PoisonError::into_inner);
+        let before = ids.clone();
+        f(&mut ids);
+        if *ids != before {
+            self.write(&ids);
         }
     }
 
-    /// A clean exit: deletes the marker.
-    pub fn end(mut self) {
-        self.stop();
+    fn write(&self, ids: &MarkerIds) {
+        if let Err(e) = std::fs::write(&self.path, ids.text()) {
+            tracing::warn!("cannot write the run marker {}: {e}", self.path.display());
+        }
+    }
+
+    /// A clean exit: deletes the marker. (Dropping it without `end` leaves
+    /// the file: the run did not end cleanly.)
+    pub fn end(self) {
         if let Err(e) = std::fs::remove_file(&self.path) {
             if e.kind() != std::io::ErrorKind::NotFound {
                 tracing::warn!("cannot remove the run marker: {e}");
             }
         }
-    }
-
-    /// Writes the last recorded preset and stops the writer.
-    fn stop(&mut self) {
-        self.tx = None;
-        if let Some(t) = self.thread.take() {
-            let start = Instant::now();
-            while !t.is_finished() && start.elapsed() < MARKER_JOIN_TIMEOUT {
-                std::thread::sleep(Duration::from_millis(2));
-            }
-            if t.is_finished() {
-                let _ = t.join();
-            }
-        }
-    }
-}
-
-impl Drop for RunMarker {
-    /// Without [`end`](Self::end) the marker stays: the run did not end
-    /// cleanly.
-    fn drop(&mut self) {
-        self.stop();
     }
 }

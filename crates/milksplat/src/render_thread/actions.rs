@@ -58,7 +58,7 @@ impl RenderThread {
     }
 
     /// `[` / `]`: changes the capture device's A/V offset by `d` ms
-    /// (clamped to -500..=2000) and saves it for that device. Before any
+    /// (clamped to 0..=2000; the notice shows the clamped value) and saves it for that device. Before any
     /// capture has started there is no device to save it for.
     fn av_offset(&mut self, d: i32, now: f64) {
         self.av_offset_ms = self

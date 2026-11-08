@@ -53,6 +53,17 @@ fn ids_match_the_library() {
     );
     assert_eq!(preset_id(&root, &root.join("notes.txt")), None);
     assert_eq!(preset_id(&root, &PathBuf::from("elsewhere/a.splat")), None);
+    assert_eq!(preset_id(&root, &PathBuf::from("rootx/a.splat")), None);
+    if cfg!(windows) {
+        // Case, separators and the verbatim prefix do not matter.
+        assert_eq!(
+            preset_id(
+                &PathBuf::from(r"C:\Presets\"),
+                &PathBuf::from(r"\\?\c:\presets\Dir\A.splat")
+            ),
+            Some("dir/a.splat".to_string())
+        );
+    }
 }
 
 #[test]
@@ -93,4 +104,48 @@ fn edits_and_new_files_are_reported() {
         c.library.as_ref().is_some_and(|l| l.entries.len() == 1)
     });
     assert_eq!(c.library.unwrap().entries[0].id, "b.splat");
+}
+
+/// `rel` as a path relative to `base` (both absolute, same drive).
+fn relative_to(base: &std::path::Path, target: &std::path::Path) -> PathBuf {
+    let b: Vec<_> = base.components().collect();
+    let t: Vec<_> = target.components().collect();
+    let common = b.iter().zip(&t).take_while(|(x, y)| x == y).count();
+    let mut out = PathBuf::new();
+    for _ in common..b.len() {
+        out.push("..");
+    }
+    for c in &t[common..] {
+        out.push(c.as_os_str());
+    }
+    out
+}
+
+/// `--presets presets` is the normal workflow: a relative root (and one
+/// with `..` in it) must still map events to ids.
+#[test]
+fn relative_and_dotted_roots_are_reported() {
+    // Under the target dir, so it is on the same drive as the current
+    // directory (the crate's), and a relative path exists.
+    let base = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("hotreload-rel-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(base.join("Presets").join("Sub")).unwrap();
+    let _cleanup = TempDir(base.clone());
+    let cwd = std::env::current_dir().unwrap();
+    let root = base.join("Presets");
+    let rel = relative_to(&cwd, &root);
+    assert!(rel.is_relative(), "{rel:?}");
+    let dotted = root.join("Sub").join("..");
+
+    for (n, given) in [rel, dotted].into_iter().enumerate() {
+        let preset = root.join("Sub").join(format!("Edit{n}.splat"));
+        std::fs::write(&preset, "version = 1\n").unwrap();
+        let w = watch(std::slice::from_ref(&given)).expect("the watcher starts");
+        std::thread::sleep(Duration::from_millis(100));
+        std::fs::write(&preset, "version = 1\n[params]\nzoom = 1.1\n").unwrap();
+        let want = format!("sub/edit{n}.splat");
+        let c = wait_for(&w, |c| c.ids.contains(&want));
+        assert!(c.ids.contains(&want), "{given:?}: {:?}", c.ids);
+    }
 }

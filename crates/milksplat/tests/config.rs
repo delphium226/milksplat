@@ -8,8 +8,8 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 
 use milksplat::config::{
-    load_config, save_config, Config, ConfigStore, Quality, WindowState, AV_OFFSET_MAX_MS,
-    AV_OFFSET_MIN_MS,
+    load_config, load_config_checked, save_config, Config, ConfigStore, Quality, WindowState,
+    AV_OFFSET_MAX_MS, AV_OFFSET_MIN_MS,
 };
 
 /// A fresh temp directory, removed on drop.
@@ -117,17 +117,19 @@ fn one_bad_field_others_kept() {
     // A/V offsets: a bad entry is dropped, an out-of-range one clamped.
     std::fs::write(
         &path,
-        "[av_offsets_ms]\n\"Speakers\" = 30\n\"Headset\" = 99999\n\"Bad\" = \"x\"\n",
+        "[av_offsets_ms]\n\"Speakers\" = 30\n\"Headset\" = 99999\n\"Bad\" = \"x\"\n\
+         \"Old\" = -40\n",
     )
     .unwrap();
     let (c, warnings) = load_config(&path);
     let want: BTreeMap<String, i32> = [
         ("Speakers".to_string(), 30),
         ("Headset".to_string(), AV_OFFSET_MAX_MS),
+        ("Old".to_string(), 0),
     ]
     .into();
-    assert_eq!(c.av_offsets_ms, want);
-    assert_eq!(warnings.len(), 2, "{warnings:?}");
+    assert_eq!(c.av_offsets_ms, want, "negative offsets clamp to 0");
+    assert_eq!(warnings.len(), 3, "{warnings:?}");
 }
 
 #[test]
@@ -151,7 +153,7 @@ fn everything_set() -> Config {
     Config {
         audio_device: Some("Speakers (Realtek(R) Audio)".into()),
         av_offsets_ms: [
-            ("Speakers (Realtek(R) Audio)".to_string(), -40),
+            ("Speakers (Realtek(R) Audio)".to_string(), 40),
             ("WH-1000XM4 \"Stereo\"".to_string(), 230),
         ]
         .into(),
@@ -244,5 +246,42 @@ fn av_offset_per_device() {
     assert_eq!(c.av_offset_ms("Buds", true), 200, "Bluetooth default");
     c.av_offsets_ms.insert("Buds".into(), 120);
     assert_eq!(c.av_offset_ms("Buds", true), 120, "a stored value wins");
-    assert_eq!((AV_OFFSET_MIN_MS, AV_OFFSET_MAX_MS), (-500, 2000));
+    assert_eq!((AV_OFFSET_MIN_MS, AV_OFFSET_MAX_MS), (0, 2000));
+    // A stored value out of range (an older file) is clamped on use.
+    c.av_offsets_ms.insert("Old".into(), -40);
+    assert_eq!(c.av_offset_ms("Old", false), 0);
+}
+
+/// A config that can be neither read nor moved aside is never
+/// overwritten: the store is told not to save.
+#[test]
+fn unreadable_unmovable_config_is_not_overwritten() {
+    let dir = tempdir();
+    // A directory where the file should be cannot be read as a file, and a
+    // non-empty `.bad` directory cannot be replaced by the rename.
+    let path = dir.0.join("config.toml");
+    std::fs::create_dir(&path).unwrap();
+    std::fs::write(path.join("keep.txt"), "user data").unwrap();
+    let bad = sibling(&path, ".bad");
+    std::fs::create_dir(&bad).unwrap();
+    std::fs::write(bad.join("x"), "x").unwrap();
+
+    let loaded = load_config_checked(&path);
+    assert_eq!(loaded.config, Config::default());
+    assert!(!loaded.persist, "{:?}", loaded.warnings);
+
+    let (store, saver) = ConfigStore::start(path.clone(), loaded.config);
+    store.disable_saving();
+    store.update(|c| c.blend_s = 9.0);
+    saver.finish();
+    assert_eq!(store.saves(), 0);
+    assert!(
+        path.is_dir() && path.join("keep.txt").is_file(),
+        "left alone"
+    );
+
+    // A normal file is fine to save.
+    let ok = dir.0.join("ok.toml");
+    std::fs::write(&ok, "blend_s = 1.0\n").unwrap();
+    assert!(load_config_checked(&ok).persist);
 }

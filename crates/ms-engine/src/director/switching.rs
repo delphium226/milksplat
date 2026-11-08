@@ -85,7 +85,7 @@ impl Director {
     }
 
     /// The id now on screen (the incoming one during a blend).
-    fn shown_id(&self) -> &str {
+    pub(super) fn shown_id(&self) -> &str {
         self.blend.as_ref().map_or(&self.cur.id, |b| &b.to.id)
     }
 
