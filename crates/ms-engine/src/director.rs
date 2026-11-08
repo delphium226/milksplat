@@ -181,6 +181,11 @@ pub struct FramePlan {
     pub blur_levels: u8,
     /// Blend progress in [0, 1], or `None` when one preset is showing.
     pub blend_progress: Option<f32>,
+    /// Simulation ticks per second (spec §3.3, §4): the current preset's
+    /// `sim_rate`; during a blend, the outgoing preset's, until the blend
+    /// completes. The app drives its fixed clock at this rate
+    /// (`FixedClock::advance_at`) and passes it as the tick's `fps`.
+    pub sim_rate: f64,
 }
 
 /// Decides what is shown and renders it (see the module docs).
@@ -452,7 +457,8 @@ impl Director {
         self.ready.as_ref().map(|l| l.id.as_str())
     }
 
-    /// The feedback format, blur levels and blend progress for `now`.
+    /// The feedback format, blur levels, blend progress and simulation
+    /// rate for `now`.
     pub fn frame_plan(&self, now: f64) -> FramePlan {
         let cur = &self.cur;
         match &self.blend {
@@ -460,6 +466,7 @@ impl Director {
                 feedback_format: cur.feedback_format(),
                 blur_levels: cur.shaders.blur_levels(),
                 blend_progress: None,
+                sim_rate: cur.sim_rate(),
             },
             Some(b) => {
                 let fp16 =
@@ -472,6 +479,7 @@ impl Director {
                     },
                     blur_levels: cur.shaders.blur_levels().max(b.to.shaders.blur_levels()),
                     blend_progress: Some(b.progress(now)),
+                    sim_rate: cur.sim_rate(),
                 }
             }
         }

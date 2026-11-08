@@ -1466,3 +1466,40 @@ fn device_lost_with_no_load_blames_the_new_preset() {
     );
     assert_eq!(rig.director.current(), showing(DEFAULT_PRESET_ID));
 }
+
+/// Per-preset `sim_rate` (spec §3.3, §4): the frame plan carries the shown
+/// preset's rate (the outgoing one's until a blend completes), and a
+/// `FixedClock` driven by it at a 60 Hz display runs that many ticks per
+/// second.
+#[test]
+fn sim_rate_follows_the_current_preset() {
+    use ms_engine::FixedClock;
+    let slow = "version = 1\n[params]\nsim_rate = 30\n";
+    let (_fx, lib) = fixture(&[("slow.splat", slow), ("b.splat", &good("b"))]);
+    let config = DirectorConfig {
+        blend_s: 1.0,
+        ..manual_cfg()
+    };
+    let mut rig = make_rig(config, lib, Prefs::default());
+    rig.update(0.0);
+    assert_eq!(rig.director.frame_plan(0.0).sim_rate, 60.0);
+
+    rig.director.command(Command::Load("slow.splat".into()));
+    rig.wait_showing(10.0, "slow.splat");
+    // Blending in: the outgoing default's rate until the blend completes.
+    assert!(rig.director.frame_plan(10.5).blend_progress.is_some());
+    assert_eq!(rig.director.frame_plan(10.5).sim_rate, 60.0);
+    rig.update(11.0);
+    assert_eq!(rig.director.current(), showing("slow.splat"));
+    assert_eq!(rig.director.frame_plan(11.0).sim_rate, 30.0);
+
+    // The app's path: each display frame sets the clock to the plan's rate.
+    let mut clock = FixedClock::new(60.0);
+    let mut ticks = 0;
+    for _ in 0..60 {
+        let rate = rig.director.frame_plan(11.0).sim_rate;
+        ticks += clock.advance_at(rate, 1.0 / 60.0).run;
+    }
+    assert_eq!(ticks, 30);
+    assert_eq!(clock.rate(), 30.0);
+}

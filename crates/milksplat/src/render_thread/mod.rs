@@ -9,7 +9,8 @@
 //! 3. Acquire the surface texture. This happens before any GPU work so that
 //!    the wait for a free back buffer (vsync) is not counted as GPU time.
 //! 4. Drain the audio ring into the history and pad silence up to now.
-//! 5. Advance the fixed 60 Hz clock by the frame's wall-clock delta. For
+//! 5. Advance the fixed clock (the shown preset's `sim_rate`, 60 Hz by
+//!    default; see `FramePlan::sim_rate`) by the frame's wall-clock delta. For
 //!    each due tick: analysis, spectrum upload, `director.update`, then
 //!    `director.tick_and_render` (preset code, warp, overlays, blur).
 //! 6. Composite into the surface texture at the exact (not tick) time.
@@ -72,7 +73,8 @@ use overlay::Overlay;
 
 /// The render thread's stack: the default preset compiles on it (R15).
 pub const RENDER_STACK_BYTES: usize = 16 * 1024 * 1024;
-/// The simulation tick rate (§3.3).
+/// The simulation tick rate at startup (§3.3); from then on the clock
+/// follows the shown preset's `sim_rate`.
 pub const SIM_HZ: f64 = 60.0;
 /// Frame deltas are capped at this, so a stall does not jump the
 /// simulation ahead.
@@ -733,10 +735,14 @@ impl RenderThread {
             .map_or(0.0, |last| (wall - last).clamp(0.0, MAX_DT));
         self.last_wall = Some(wall);
         self.sim_time += dt;
-        let ticks = self.sim.advance(dt);
+        // The clock follows the shown preset's `sim_rate` (the outgoing
+        // one's during a blend); a change keeps the tick phase.
+        let rate = self.director.frame_plan(self.tick_time).sim_rate;
+        let ticks = self.sim.advance_at(rate, dt);
         self.apply_internal_size(gs);
 
-        let period = 1.0 / SIM_HZ;
+        let rate = self.sim.rate();
+        let period = 1.0 / rate;
         let aspect = aspect(self.size);
         // Never negative (0..=2000 ms): the window cannot end in the future.
         let av_offset = f64::from(self.av_offset_ms) / 1000.0;
@@ -759,7 +765,7 @@ impl RenderThread {
                 );
             }
             let base = TickInputBase {
-                fps: SIM_HZ,
+                fps: rate,
                 audio,
                 aspect,
                 pixels: gs.renderer.internal_size(),

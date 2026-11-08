@@ -160,6 +160,11 @@ impl Active {
         }
     }
 
+    /// The preset's simulation rate (`[params] sim_rate`, 1..=240 Hz).
+    pub(super) fn sim_rate(&self) -> f64 {
+        self.preset.source.params.sim_rate
+    }
+
     pub(super) fn feedback_format(&self) -> FeedbackFormat {
         feedback_format(self.preset.source.params.feedback_format)
     }

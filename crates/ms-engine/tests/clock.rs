@@ -120,3 +120,17 @@ fn set_rate_with_alpha_near_one() {
     c.set_rate(1.0);
     assert!((c.alpha() - a).abs() < 1e-9);
 }
+
+#[test]
+fn advance_at_follows_the_rate_and_keeps_phase() {
+    let mut c = FixedClock::new(60.0);
+    // Half a 60 Hz tick in.
+    assert_eq!(c.advance_at(60.0, 0.5 / 60.0).run, 0);
+    assert!((c.alpha() - 0.5).abs() < 1e-9);
+    // Switching to 30 Hz keeps the phase: half a 30 Hz tick more is one tick.
+    assert_eq!(c.advance_at(30.0, 0.5 / 30.0).run, 1);
+    assert_eq!(c.rate(), 30.0);
+    // Out-of-range rates clamp as `new` does.
+    c.advance_at(1000.0, 0.0);
+    assert_eq!(c.rate(), 240.0);
+}

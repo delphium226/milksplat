@@ -46,6 +46,21 @@ impl FixedClock {
         self.acc = alpha / self.rate;
     }
 
+    /// The tick rate in Hz.
+    pub fn rate(&self) -> f64 {
+        self.rate
+    }
+
+    /// [`set_rate`](Self::set_rate) to `rate_hz` if it differs, then
+    /// [`advance`](Self::advance) by `dt`: the per-frame step for a rate
+    /// that follows the preset on screen.
+    pub fn advance_at(&mut self, rate_hz: f64, dt: f64) -> Ticks {
+        if clamp_rate(rate_hz) != self.rate {
+            self.set_rate(rate_hz);
+        }
+        self.advance(dt)
+    }
+
     /// Adds `dt` seconds and returns how many ticks to run (at most 4; the
     /// rest are dropped, not carried). Non-finite or negative `dt` counts as
     /// zero.
