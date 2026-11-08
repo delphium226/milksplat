@@ -29,11 +29,15 @@ pub enum GpuError {
     NoAdapter(String),
     /// An adapter was found but refused to create a device.
     RequestDevice(wgpu::RequestDeviceError),
-    /// Neither a hardware adapter nor the software fallback could be used.
+    /// Neither a hardware adapter (DX12 or Vulkan) nor the software
+    /// fallback could be used.
     NoHardwareOrFallback {
-        hardware: Box<GpuError>,
+        dx12: Box<GpuError>,
+        vulkan: Box<GpuError>,
         fallback: Box<GpuError>,
     },
+    /// The device is lost (or a blocking poll failed); recreate the [`Gpu`].
+    DeviceLost(String),
 }
 
 impl fmt::Display for GpuError {
@@ -41,11 +45,16 @@ impl fmt::Display for GpuError {
         match self {
             GpuError::NoAdapter(wanted) => write!(f, "no {wanted}"),
             GpuError::RequestDevice(e) => write!(f, "GPU device request failed: {e}"),
-            GpuError::NoHardwareOrFallback { hardware, fallback } => write!(
+            GpuError::NoHardwareOrFallback {
+                dx12,
+                vulkan,
+                fallback,
+            } => write!(
                 f,
-                "no usable GPU: hardware adapter failed ({hardware}); \
-                 software fallback failed ({fallback})"
+                "no usable GPU: DX12 hardware failed ({dx12}); Vulkan hardware failed \
+                 ({vulkan}); software fallback failed ({fallback})"
             ),
+            GpuError::DeviceLost(why) => write!(f, "GPU device lost: {why}"),
         }
     }
 }
@@ -53,7 +62,7 @@ impl fmt::Display for GpuError {
 impl std::error::Error for GpuError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            GpuError::NoAdapter(_) => None,
+            GpuError::NoAdapter(_) | GpuError::DeviceLost(_) => None,
             GpuError::RequestDevice(e) => Some(e),
             GpuError::NoHardwareOrFallback { fallback, .. } => Some(fallback.as_ref()),
         }
@@ -88,8 +97,11 @@ impl Gpu {
     }
 
     /// Creates an offscreen GPU: a DX12 hardware adapter, else a Vulkan
-    /// hardware adapter, else the software fallback (WARP on DX12). Setting
-    /// `MS_FORCE_WARP=1` skips the hardware attempts.
+    /// hardware adapter, else the software fallback (WARP on DX12).
+    ///
+    /// Setting [`FORCE_WARP_ENV`] (`MS_FORCE_WARP=1`) skips the hardware
+    /// attempts, e.g. `MS_FORCE_WARP=1 cargo test -p ms-render` runs the GPU
+    /// tests on WARP.
     ///
     /// Each attempt uses a single-backend instance, so a Vulkan instance is
     /// only created when DX12 has no hardware adapter: creating and dropping
@@ -105,34 +117,75 @@ impl Gpu {
                 AdapterKind::Fallback,
             );
         }
-        let hardware = Self::open(
+        let dx12 = match Self::open(
             instance_for(wgpu::Backends::DX12),
             None,
             AdapterKind::Hardware,
+        ) {
+            Ok(gpu) => return Ok(gpu),
+            Err(e) => e,
+        };
+        tracing::info!("no DX12 hardware GPU ({dx12}); trying Vulkan");
+        let vulkan = match Self::open(
+            instance_for(wgpu::Backends::VULKAN),
+            None,
+            AdapterKind::Hardware,
+        ) {
+            Ok(gpu) => return Ok(gpu),
+            Err(e) => e,
+        };
+        tracing::warn!("no hardware GPU ({vulkan}); trying software fallback");
+        Self::open(
+            instance_for(wgpu::Backends::DX12),
+            None,
+            AdapterKind::Fallback,
         )
-        .or_else(|dx12| {
-            tracing::info!("no DX12 hardware GPU ({dx12}); trying Vulkan");
-            Self::open(
-                instance_for(wgpu::Backends::VULKAN),
-                None,
-                AdapterKind::Hardware,
-            )
-        });
-        match hardware {
-            Ok(gpu) => Ok(gpu),
-            Err(hardware) => {
-                tracing::warn!("hardware GPU unavailable ({hardware}); trying software fallback");
-                Self::open(
-                    instance_for(wgpu::Backends::DX12),
-                    None,
-                    AdapterKind::Fallback,
-                )
-                .map_err(|fallback| GpuError::NoHardwareOrFallback {
-                    hardware: Box::new(hardware),
-                    fallback: Box::new(fallback),
-                })
-            }
+        .map_err(|fallback| GpuError::NoHardwareOrFallback {
+            dx12: Box::new(dx12),
+            vulkan: Box::new(vulkan),
+            fallback: Box::new(fallback),
+        })
+    }
+
+    /// Blocks until all submitted GPU work has finished.
+    ///
+    /// **Every blocking poll in the codebase must go through this helper**
+    /// rather than calling `device.poll(..)` directly: wgpu 30 *panics* inside
+    /// `Device::poll` when the device is lost (removed, out of memory, ...),
+    /// and this catches that.
+    ///
+    /// Returns `Err(GpuError::DeviceLost)` without polling if [`Gpu::lost`]
+    /// is already set. On a poll error or a caught panic, sets `lost`, logs
+    /// and returns `Err`. Also returns `Err` if the device-lost callback fired
+    /// during the poll.
+    pub fn poll_wait(&self) -> Result<(), GpuError> {
+        if self.lost.load(Ordering::SeqCst) {
+            return Err(GpuError::DeviceLost("device already lost".into()));
         }
+        let polled = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.device.poll(wgpu::PollType::wait_indefinitely())
+        }));
+        let failure = match polled {
+            Ok(Ok(_)) => None,
+            Ok(Err(e)) => Some(format!("device poll failed: {e}")),
+            Err(payload) => {
+                let msg = payload
+                    .downcast_ref::<String>()
+                    .map(String::as_str)
+                    .or_else(|| payload.downcast_ref::<&str>().copied())
+                    .unwrap_or("unknown panic");
+                Some(format!("device poll panicked: {msg}"))
+            }
+        };
+        if let Some(why) = failure {
+            self.lost.store(true, Ordering::SeqCst);
+            tracing::error!("{why}");
+            return Err(GpuError::DeviceLost(why));
+        }
+        if self.lost.load(Ordering::SeqCst) {
+            return Err(GpuError::DeviceLost("device lost during poll".into()));
+        }
+        Ok(())
     }
 
     fn open(
@@ -206,10 +259,10 @@ enum AdapterKind {
     Fallback,
 }
 
-/// Picks an adapter the way `request_adapter` with
-/// `PowerPreference::HighPerformance` would (discrete > integrated > other >
-/// virtual > CPU), except that DX12 wins ties with Vulkan (`request_adapter`
-/// keeps wgpu's backend order, which puts Vulkan first).
+/// Picks an adapter: hardware before CPU, then DX12 before Vulkan, then by
+/// HighPerformance device type (discrete > integrated > other > virtual).
+/// Done by hand because `request_adapter` keeps wgpu's backend order, which
+/// puts Vulkan first.
 fn select_adapter(
     instance: &wgpu::Instance,
     compatible_surface: Option<&wgpu::Surface<'_>>,
@@ -238,8 +291,15 @@ fn select_adapter(
         };
         kind_ok && compatible_surface.is_none_or(|surface| adapter.is_surface_supported(surface))
     });
-    // Stable sort: DX12 stays ahead of Vulkan within a device type.
-    candidates.sort_by_key(|adapter| rank(adapter.get_info().device_type));
+    // DX12 is the primary backend: any DX12 hardware adapter beats Vulkan.
+    candidates.sort_by_key(|adapter| {
+        let info = adapter.get_info();
+        (
+            info.device_type == wgpu::DeviceType::Cpu,
+            info.backend != wgpu::Backend::Dx12,
+            rank(info.device_type),
+        )
+    });
     candidates.into_iter().next().ok_or_else(|| {
         let what = match kind {
             AdapterKind::Any => "GPU adapter",
@@ -316,6 +376,10 @@ pub fn read_texture(gpu: &Gpu, tex: &wgpu::Texture) -> RgbaImage {
         tracing::error!("read_texture: texture lacks COPY_SRC usage");
         return black();
     }
+    if gpu.lost.load(Ordering::SeqCst) {
+        tracing::error!("read_texture: device is lost");
+        return black();
+    }
     if tex.sample_count() != 1 || tex.dimension() != wgpu::TextureDimension::D2 {
         tracing::error!("read_texture: only single-sampled 2D textures can be read back");
         return black();
@@ -373,8 +437,8 @@ fn copy_and_map(gpu: &Gpu, tex: &wgpu::Texture, readback: Readback) -> Option<Rg
         // The receiver only disappears if we already gave up waiting.
         let _ = tx.send(result);
     });
-    if let Err(e) = gpu.device.poll(wgpu::PollType::wait_indefinitely()) {
-        tracing::error!("read_texture: device poll failed: {e}");
+    if let Err(e) = gpu.poll_wait() {
+        tracing::error!("read_texture: {e}");
         return None;
     }
     match rx.recv_timeout(Duration::from_secs(10)) {

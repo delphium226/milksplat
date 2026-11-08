@@ -4,4 +4,4 @@
 pub mod golden;
 mod gpu;
 
-pub use gpu::{read_texture, Gpu, GpuError};
+pub use gpu::{read_texture, Gpu, GpuError, FORCE_WARP_ENV};

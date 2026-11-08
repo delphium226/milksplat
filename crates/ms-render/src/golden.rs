@@ -119,6 +119,6 @@ fn write_actual(actual: &RgbaImage, dir: &Path, actual_path: &PathBuf, name: &st
 #[macro_export]
 macro_rules! assert_golden {
     ($img:expr, $name:expr) => {
-        $crate::golden::check(&$img, env!("CARGO_MANIFEST_DIR"), $name)
+        $crate::golden::check(&$img, ::core::env!("CARGO_MANIFEST_DIR"), $name)
     };
 }

@@ -271,3 +271,23 @@ fn golden_missing_reference_fails_with_bless_hint() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn lost_device_reads_black_and_poll_wait_errs() {
+    let gpu = gpu();
+    let tex = texture(&gpu, 8, 4, wgpu::TextureFormat::Rgba8Unorm);
+    upload(&gpu, &tex, 4, &[200u8; 8 * 4 * 4]);
+    gpu.device.destroy();
+
+    assert!(
+        gpu.poll_wait().is_err(),
+        "poll_wait on a destroyed device must fail"
+    );
+    assert!(gpu.lost.load(std::sync::atomic::Ordering::SeqCst));
+
+    let img = read_texture(&gpu, &tex);
+    assert_eq!(img.dimensions(), (8, 4));
+    for p in img.pixels() {
+        assert_eq!(p.0, [0, 0, 0, 255]);
+    }
+}
