@@ -1,82 +1,13 @@
 //! The warp pass: redraws the previous feedback image through the warp mesh
 //! into the other ping-pong buffer, blending one or more weighted layers.
 
-use std::num::NonZeroU64;
-
 use crate::feedback::{FeedbackFormat, Renderer};
 use crate::gpu::Gpu;
+use crate::shaders::{self, Uniforms};
 
 /// Largest mesh accepted, in vertices per layer (the quality setting caps
 /// real meshes at 193 * 145); bigger layers are skipped with an error.
 const MAX_MESH_VERTICES: u64 = 1 << 20;
-
-/// The uniform block shared by warp and composite shaders (std140 layout:
-/// every row is 16 bytes).
-///
-/// Field order is part of the shader interface; the WGSL `Uniforms` struct
-/// must match it exactly.
-#[repr(C)]
-#[derive(Clone, Copy, Debug, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct Uniforms {
-    pub time: f32,
-    pub fps: f32,
-    pub frame: f32,
-    pub progress: f32,
-
-    pub bass: f32,
-    pub mid: f32,
-    pub treb: f32,
-    pub beat: f32,
-
-    pub bass_att: f32,
-    pub mid_att: f32,
-    pub treb_att: f32,
-    pub beat_strength: f32,
-
-    pub decay: f32,
-    pub gamma: f32,
-    pub echo_zoom: f32,
-    pub echo_alpha: f32,
-
-    pub echo_orient: f32,
-    pub invert: f32,
-    pub solarize: f32,
-    pub brighten: f32,
-
-    pub darken: f32,
-    pub darken_center: f32,
-    pub aspect_x: f32,
-    pub aspect_y: f32,
-
-    /// xy = size in pixels, zw = 1 / size.
-    pub texsize: [f32; 4],
-    /// New every tick.
-    pub rand_frame: [f32; 4],
-    /// Fixed per preset.
-    pub rand_preset: [f32; 4],
-    pub roam_cos: [f32; 4],
-    pub roam_sin: [f32; 4],
-    /// xyz used (blur levels 1-3).
-    pub blur_min: [f32; 4],
-    /// xyz used (blur levels 1-3).
-    pub blur_max: [f32; 4],
-    /// `q1`..`q32`, packed four per vec4.
-    pub q: [[f32; 4]; 8],
-}
-
-impl Default for Uniforms {
-    fn default() -> Self {
-        Uniforms {
-            decay: 0.98,
-            gamma: 1.0,
-            echo_zoom: 1.0,
-            aspect_x: 1.0,
-            aspect_y: 1.0,
-            blur_max: [1.0; 4],
-            ..bytemuck::Zeroable::zeroed()
-        }
-    }
-}
 
 /// The warp mesh for one layer: `(cols + 1) * (rows + 1)` vertices,
 /// row-major, x left to right, y top to bottom.
@@ -92,67 +23,58 @@ pub struct MeshData {
     pub color: Vec<[f32; 4]>,
 }
 
-/// A compiled warp shader: one pipeline per feedback format, all using the
-/// warp bind group layout (group 0: 0 `Uniforms`, 1 `sampler_main`,
-/// 11 `s_fw`, 12 `s_fc`).
-///
-/// Only the built-in shader exists for now; user shaders plug into the same
-/// [`WarpLayer::shader`] slot.
+/// A compiled warp shader (built-in or a preset's): one pipeline per
+/// feedback format, plus the preset's user-texture bind group (group 1), if
+/// any. Cheap to clone; `Send + Sync`.
+#[derive(Clone)]
 pub struct WarpShader {
-    pipelines: [wgpu::RenderPipeline; 2],
+    pub(crate) pipelines: [wgpu::RenderPipeline; 2],
+    pub(crate) group1: Option<wgpu::BindGroup>,
 }
 
 impl WarpShader {
-    /// The built-in warp: `sample(prev, uv).rgb * decay * colour.rgb`,
-    /// sampled with linear filtering and wrap addressing.
-    pub fn builtin(gpu: &Gpu, renderer: &Renderer) -> WarpShader {
-        let module = gpu
-            .device
-            .create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("warp_builtin.wgsl"),
-                source: wgpu::ShaderSource::Wgsl(include_str!("shaders/warp_builtin.wgsl").into()),
-            });
-        WarpShader::from_module(gpu, renderer, &module, "builtin warp")
+    /// The built-in warp: `GetMain(uv) * decay * colour.rgb` (linear
+    /// filtering, wrap addressing). Shared, not recompiled.
+    pub fn builtin(_gpu: &Gpu, renderer: &Renderer) -> WarpShader {
+        renderer.shared.builtin_warp.clone()
     }
+}
 
-    /// Builds the per-format pipelines from a module with `vs_main` and
-    /// `fs_main` entry points written against the warp bind group layout.
-    pub(crate) fn from_module(
-        gpu: &Gpu,
-        renderer: &Renderer,
-        module: &wgpu::ShaderModule,
-        label: &str,
-    ) -> WarpShader {
-        let pipelines = FeedbackFormat::ALL.map(|format| {
-            gpu.device
-                .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                    label: Some(label),
-                    layout: Some(&renderer.warp_pipeline_layout),
-                    vertex: wgpu::VertexState {
-                        module,
-                        entry_point: Some("vs_main"),
-                        compilation_options: Default::default(),
-                        buffers: &[Some(Vertex::LAYOUT)],
-                    },
-                    primitive: wgpu::PrimitiveState::default(),
-                    depth_stencil: None,
-                    multisample: wgpu::MultisampleState::default(),
-                    fragment: Some(wgpu::FragmentState {
-                        module,
-                        entry_point: Some("fs_main"),
-                        compilation_options: Default::default(),
-                        targets: &[Some(wgpu::ColorTargetState {
-                            format: format.texture_format(),
-                            blend: Some(LAYER_BLEND),
-                            write_mask: wgpu::ColorWrites::ALL,
-                        })],
-                    }),
-                    multiview_mask: None,
-                    cache: None,
-                })
-        });
-        WarpShader { pipelines }
-    }
+/// Builds the per-format warp pipelines from a module with `vs_main` and
+/// `fs_main` entry points (see `shaders/warp_stage.wgsl`).
+pub(crate) fn create_pipelines(
+    device: &wgpu::Device,
+    layout: &wgpu::PipelineLayout,
+    module: &wgpu::ShaderModule,
+    label: &str,
+) -> [wgpu::RenderPipeline; 2] {
+    FeedbackFormat::ALL.map(|format| {
+        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some(label),
+            layout: Some(layout),
+            vertex: wgpu::VertexState {
+                module,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
+                buffers: &[Some(Vertex::LAYOUT)],
+            },
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            fragment: Some(wgpu::FragmentState {
+                module,
+                entry_point: Some("fs_main"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: format.texture_format(),
+                    blend: Some(LAYER_BLEND),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            multiview_mask: None,
+            cache: None,
+        })
+    })
 }
 
 /// Additive layer blending: colour = src * srcAlpha (the layer weight) +
@@ -199,45 +121,6 @@ impl Vertex {
     };
 }
 
-/// Group 0 layout for every warp shader: 0 `Uniforms`, 1 `sampler_main`,
-/// 11 `s_fw` (linear wrap), 12 `s_fc` (linear clamp).
-pub(crate) fn create_bind_group_layout(gpu: &Gpu) -> wgpu::BindGroupLayout {
-    let sampler = |binding| wgpu::BindGroupLayoutEntry {
-        binding,
-        visibility: wgpu::ShaderStages::FRAGMENT,
-        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-        count: None,
-    };
-    gpu.device
-        .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("warp group 0"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: NonZeroU64::new(std::mem::size_of::<Uniforms>() as u64),
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                sampler(11),
-                sampler(12),
-            ],
-        })
-}
-
 /// Mesh and per-layer GPU buffers reused across warp calls.
 #[derive(Default)]
 pub(crate) struct WarpState {
@@ -252,10 +135,27 @@ pub(crate) struct WarpState {
     slots: Vec<LayerSlot>,
 }
 
-struct LayerSlot {
-    uniforms: wgpu::Buffer,
+/// A layer position's uniform buffer and its group 0 bind groups (one per
+/// feedback texture bound as `sampler_main`). Shared with the composite pass.
+pub(crate) struct LayerSlot {
+    pub(crate) uniforms: wgpu::Buffer,
     /// Bind group sampling feedback texture 0 or 1.
-    bind_groups: [Option<wgpu::BindGroup>; 2],
+    pub(crate) bind_groups: [Option<wgpu::BindGroup>; 2],
+}
+
+/// Grows `slots` to at least `n` entries.
+pub(crate) fn ensure_slots(gpu: &Gpu, slots: &mut Vec<LayerSlot>, n: usize, label: &str) {
+    while slots.len() < n {
+        slots.push(LayerSlot {
+            uniforms: gpu.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some(label),
+                size: std::mem::size_of::<Uniforms>() as u64,
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            }),
+            bind_groups: [None, None],
+        });
+    }
 }
 
 impl WarpState {
@@ -414,44 +314,18 @@ impl Renderer {
         }
 
         // Per-layer uniforms and bind groups.
-        while state.slots.len() < draws.len() {
-            state.slots.push(LayerSlot {
-                uniforms: gpu.device.create_buffer(&wgpu::BufferDescriptor {
-                    label: Some("warp uniforms"),
-                    size: std::mem::size_of::<Uniforms>() as u64,
-                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                    mapped_at_creation: false,
-                }),
-                bind_groups: [None, None],
-            });
-        }
+        ensure_slots(gpu, &mut state.slots, draws.len(), "warp uniforms");
         for (draw, slot) in draws.iter().zip(&mut state.slots) {
             gpu.queue
                 .write_buffer(&slot.uniforms, 0, bytemuck::bytes_of(draw.layer.uniforms));
             if slot.bind_groups[src].is_none() {
-                slot.bind_groups[src] =
-                    Some(gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                        label: Some("warp group 0"),
-                        layout: &self.warp_bind_group_layout,
-                        entries: &[
-                            wgpu::BindGroupEntry {
-                                binding: 0,
-                                resource: slot.uniforms.as_entire_binding(),
-                            },
-                            wgpu::BindGroupEntry {
-                                binding: 1,
-                                resource: wgpu::BindingResource::TextureView(&self.views[src]),
-                            },
-                            wgpu::BindGroupEntry {
-                                binding: 11,
-                                resource: wgpu::BindingResource::Sampler(&self.sampler_wrap),
-                            },
-                            wgpu::BindGroupEntry {
-                                binding: 12,
-                                resource: wgpu::BindingResource::Sampler(&self.sampler_clamp),
-                            },
-                        ],
-                    }));
+                slot.bind_groups[src] = Some(shaders::group0_bind_group(
+                    &self.shared,
+                    &self.aux,
+                    &slot.uniforms,
+                    &self.views[src],
+                    "warp group 0",
+                ));
             }
         }
 
@@ -484,8 +358,12 @@ impl Renderer {
                     let Some(bind_group) = &slot.bind_groups[src] else {
                         continue;
                     };
-                    pass.set_pipeline(&draw.layer.shader.pipelines[self.format.index()]);
+                    let shader = draw.layer.shader;
+                    pass.set_pipeline(&shader.pipelines[self.format.index()]);
                     pass.set_bind_group(0, bind_group, &[]);
+                    if let Some(group1) = &shader.group1 {
+                        pass.set_bind_group(1, group1, &[]);
+                    }
                     pass.draw_indexed(
                         draw.first_index..draw.first_index + draw.index_count,
                         draw.base_vertex,
@@ -539,27 +417,6 @@ fn push_indices(out: &mut Vec<u32>, cols: u32, rows: u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn uniforms_layout() {
-        assert_eq!(std::mem::size_of::<Uniforms>() % 16, 0);
-        assert_eq!(std::mem::size_of::<Uniforms>(), 336);
-        assert_eq!(std::mem::offset_of!(Uniforms, decay), 48);
-        assert_eq!(std::mem::offset_of!(Uniforms, texsize), 96);
-        assert_eq!(std::mem::offset_of!(Uniforms, blur_max), 192);
-        assert_eq!(std::mem::offset_of!(Uniforms, q), 208);
-    }
-
-    #[test]
-    fn uniforms_default() {
-        let u = Uniforms::default();
-        assert_eq!(u.decay, 0.98);
-        assert_eq!((u.gamma, u.echo_zoom), (1.0, 1.0));
-        assert_eq!((u.aspect_x, u.aspect_y), (1.0, 1.0));
-        assert_eq!(u.blur_max, [1.0; 4]);
-        assert_eq!(u.blur_min, [0.0; 4]);
-        assert_eq!((u.time, u.echo_alpha, u.q), (0.0, 0.0, [[0.0; 4]; 8]));
-    }
 
     #[test]
     fn indices_cover_every_cell() {

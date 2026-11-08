@@ -3,8 +3,10 @@
 
 use image::RgbaImage;
 
+use crate::composite::CompositeState;
 use crate::gpu::Gpu;
-use crate::warp::{self, WarpState};
+use crate::shaders::{AuxViews, RendererShared};
+use crate::warp::WarpState;
 
 /// Smallest internal size per axis.
 const MIN_DIM: u32 = 16;
@@ -49,7 +51,8 @@ pub struct RenderConfig {
     pub format: FeedbackFormat,
 }
 
-/// GPU state for the visualizer: the feedback chain and the warp pass.
+/// GPU state for the visualizer: the feedback chain, the warp and composite
+/// passes and the shared shader resources.
 pub struct Renderer {
     pub(crate) format: FeedbackFormat,
     pub(crate) size: [u32; 2],
@@ -57,20 +60,22 @@ pub struct Renderer {
     pub(crate) textures: [wgpu::Texture; 2],
     pub(crate) views: [wgpu::TextureView; 2],
     pub(crate) current: usize,
-    /// Linear filtering, repeat addressing (`s_fw`).
-    pub(crate) sampler_wrap: wgpu::Sampler,
-    /// Linear filtering, clamp-to-edge addressing (`s_fc`).
-    pub(crate) sampler_clamp: wgpu::Sampler,
-    /// Group 0 layout shared by the built-in and (Task 15) user warp shaders.
-    pub(crate) warp_bind_group_layout: wgpu::BindGroupLayout,
-    pub(crate) warp_pipeline_layout: wgpu::PipelineLayout,
+    /// Layouts, samplers and built-in shaders (also handed to loader
+    /// threads via [`Renderer::shared`]).
+    pub(crate) shared: RendererShared,
+    /// Group 0 bindings 2-10 (placeholders until the blur chain and noise
+    /// textures replace them; call [`Renderer::invalidate_bind_groups`]
+    /// after changing them).
+    pub(crate) aux: AuxViews,
     pub(crate) warp_state: WarpState,
+    pub(crate) comp_state: CompositeState,
     blit: Blit,
 }
 
 impl Renderer {
-    /// Creates the feedback textures (cleared to black) and the warp and
-    /// blit resources.
+    /// Creates the feedback textures (cleared to black), the shared shader
+    /// resources (layouts, samplers, built-in shaders, placeholder textures)
+    /// and the blit resources.
     pub fn new(gpu: &Gpu, cfg: RenderConfig) -> Self {
         let size = clamp_size(gpu, cfg.internal_size);
         let format = cfg.format;
@@ -78,28 +83,8 @@ impl Renderer {
         let views = [0, 1].map(|i| textures[i].create_view(&Default::default()));
         clear_black(gpu, &views);
 
-        let sampler = |label, address_mode| {
-            gpu.device.create_sampler(&wgpu::SamplerDescriptor {
-                label: Some(label),
-                address_mode_u: address_mode,
-                address_mode_v: address_mode,
-                address_mode_w: address_mode,
-                mag_filter: wgpu::FilterMode::Linear,
-                min_filter: wgpu::FilterMode::Linear,
-                ..Default::default()
-            })
-        };
-        let sampler_wrap = sampler("s_fw", wgpu::AddressMode::Repeat);
-        let sampler_clamp = sampler("s_fc", wgpu::AddressMode::ClampToEdge);
-
-        let warp_bind_group_layout = warp::create_bind_group_layout(gpu);
-        let warp_pipeline_layout =
-            gpu.device
-                .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    label: Some("warp pipeline layout"),
-                    bind_group_layouts: &[Some(&warp_bind_group_layout)],
-                    immediate_size: 0,
-                });
+        let shared = RendererShared::new(gpu);
+        let aux = AuxViews::placeholders(gpu);
 
         Renderer {
             format,
@@ -107,11 +92,10 @@ impl Renderer {
             textures,
             views,
             current: 0,
-            sampler_wrap,
-            sampler_clamp,
-            warp_bind_group_layout,
-            warp_pipeline_layout,
+            shared,
+            aux,
             warp_state: WarpState::default(),
+            comp_state: CompositeState::default(),
             blit: Blit::new(gpu),
         }
     }
@@ -230,7 +214,7 @@ impl Renderer {
         self.blit.copy(
             gpu,
             &self.views[self.current],
-            &self.sampler_clamp,
+            &self.shared.samplers.fc,
             &views[0],
             format,
         );
@@ -240,7 +224,14 @@ impl Renderer {
         self.size = size;
         self.format = format;
         // Per-layer bind groups reference the old texture views.
+        self.invalidate_bind_groups();
+    }
+
+    /// Drops the cached group 0 bind groups (they reference the feedback
+    /// and auxiliary texture views).
+    pub(crate) fn invalidate_bind_groups(&mut self) {
         self.warp_state.invalidate_bind_groups();
+        self.comp_state.invalidate_bind_groups();
     }
 }
 

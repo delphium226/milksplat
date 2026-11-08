@@ -8,6 +8,7 @@ license.workspace = true
 bytemuck.workspace = true
 half.workspace = true
 image.workspace = true
+naga.workspace = true
 pollster.workspace = true
 tracing.workspace = true
 wgpu.workspace = true

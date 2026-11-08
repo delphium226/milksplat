@@ -950,6 +950,7 @@ dependencies = [
  "bytemuck",
  "half",
  "image",
+ "naga",
  "pollster",
  "tracing",
  "wgpu",

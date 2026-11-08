@@ -17,6 +17,8 @@ half = "2.7.1"
 image = { version = "0.25.10", default-features = false, features = ["png"] }
 pollster = "1.0.1"
 wgpu = "30.0.1"
+# The naga version wgpu 30 uses (shader validation for user shaders).
+naga = { version = "30.0.1", features = ["wgsl-in"] }
 cpal = "0.18.2"
 criterion = "0.8.2"
 crossbeam-channel = "0.5.17"
