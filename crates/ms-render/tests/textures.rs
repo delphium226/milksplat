@@ -9,10 +9,9 @@ use std::sync::mpsc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use image::{Rgba, RgbaImage};
-use ms_expr::Rng;
 use ms_render::{
     assert_golden, noise_textures, read_texture, CompositeLayer, FeedbackFormat, Gpu, NoiseSet,
-    RenderConfig, Renderer, TextureResolver, Uniforms,
+    PresetPicks, RenderConfig, Renderer, TextureResolver, Uniforms,
 };
 
 const RGBA8: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
@@ -518,10 +517,10 @@ fn resolver_rejects_path_traversal() {
         "",
     ] {
         assert!(resolver.resolve(name).is_none(), "{name:?} resolved");
-        let mut rng = Rng::seeded(1);
+        let mut picks = PresetPicks::new(1);
         assert!(
-            resolver.resolve_with(name, &mut rng).is_none(),
-            "{name:?} resolved with rng"
+            resolver.resolve_with(name, &mut picks).is_none(),
+            "{name:?} resolved with picks"
         );
     }
 }
@@ -541,45 +540,100 @@ fn rand_texture_from_folder() {
     save_tag(&late, "z.png", 250);
 
     let roots = vec![empty_root, root, tmp.0.join("late")];
+    // One long-lived resolver for every "preset".
+    let resolver = TextureResolver::new(roots.clone());
     let is_one_of_three = |t: u8| t == 101 || t == 102 || t.abs_diff(150) <= 4;
     let mut seen = std::collections::BTreeSet::new();
     for seed in 0..32 {
-        let resolver = TextureResolver::new(roots.clone());
-        let mut rng = Rng::seeded(seed);
-        let t = tag_of(&resolver.resolve_with("rand03", &mut rng).unwrap());
+        let mut picks = PresetPicks::new(seed);
+        let t = tag_of(&resolver.resolve_with("rand03", &mut picks).unwrap());
         assert!(is_one_of_three(t), "seed {seed}: tag {t}");
-        // The same name keeps resolving to the same file for this resolver,
-        // however the rng moves on.
-        for _ in 0..4 {
-            assert_eq!(
-                tag_of(&resolver.resolve_with("rand03", &mut rng).unwrap()),
-                t
-            );
+        // The same name keeps resolving to the same file for these picks,
+        // whatever else is drawn in between, in any case.
+        for name in ["rand03", "rand07", "RAND03", "rand03", "Rand03"] {
+            let got = tag_of(&resolver.resolve_with(name, &mut picks).unwrap());
+            if name.eq_ignore_ascii_case("rand03") {
+                assert_eq!(got, t, "seed {seed}: {name}");
+            }
         }
         seen.insert(if t.abs_diff(150) <= 4 { 150 } else { t });
     }
     assert_eq!(seen.len(), 3, "picks over 32 seeds: {seen:?}");
 
-    // Plain `resolve` does not pick random textures; names outside
-    // rand00..rand15 are ordinary files.
-    let resolver = TextureResolver::new(roots.clone());
+    // Plain `resolve` does not pick random textures, in any case; names
+    // outside rand00..rand15 are ordinary files.
     assert!(resolver.resolve("rand03").is_none());
-    let mut rng = Rng::seeded(5);
-    assert!(resolver.resolve_with("rand16", &mut rng).is_none());
+    assert!(resolver.resolve("RAND03").is_none());
+    let mut picks = PresetPicks::new(5);
+    assert!(resolver.resolve_with("rand16", &mut picks).is_none());
     save_tag(&roots[1], "rand16.png", 77);
     assert_eq!(
-        tag_of(&resolver.resolve_with("rand16", &mut rng).unwrap()),
+        tag_of(&resolver.resolve_with("rand16", &mut picks).unwrap()),
         77
     );
     // Ordinary names work through `resolve_with` too.
     save_tag(&roots[1], "plain.png", 66);
     assert_eq!(
-        tag_of(&resolver.resolve_with("plain", &mut rng).unwrap()),
+        tag_of(&resolver.resolve_with("plain", &mut picks).unwrap()),
         66
     );
     // No random folder anywhere: None.
     let resolver = TextureResolver::new(vec![tmp.sub("bare")]);
-    assert!(resolver.resolve_with("rand00", &mut rng).is_none());
+    assert!(resolver.resolve_with("rand00", &mut picks).is_none());
+}
+
+#[test]
+fn rand_picks_are_per_preset_with_a_shared_resolver() {
+    let tmp = TempDir::new("rand-shared");
+    let root = tmp.sub("root");
+    let random = tmp.sub("root/random");
+    for i in 0..8u8 {
+        save_tag(&random, &format!("r{i}.png"), 10 + i);
+    }
+    let resolver = TextureResolver::new(vec![root]);
+    let names = ["rand00", "rand01", "rand02", "rand03"];
+    let picks_of = |picks: &mut PresetPicks| -> Vec<u8> {
+        names
+            .iter()
+            .map(|n| tag_of(&resolver.resolve_with(n, picks).unwrap()))
+            .collect()
+    };
+    let mut first = PresetPicks::new(0x1234);
+    let mut second = PresetPicks::new(0x9876_5432);
+    let a = picks_of(&mut first);
+    let b = picks_of(&mut second);
+    assert_ne!(a, b, "two presets made identical picks");
+    // Each preset stays self-consistent while the other draws.
+    for _ in 0..3 {
+        assert_eq!(picks_of(&mut first), a);
+        assert_eq!(picks_of(&mut second), b);
+    }
+    // The same seed reproduces the same picks.
+    assert_eq!(picks_of(&mut PresetPicks::new(0x1234)), a);
+}
+
+#[test]
+fn rand_failed_pick_tries_the_others() {
+    let tmp = TempDir::new("rand-broken");
+    let root = tmp.sub("root");
+    let random = tmp.sub("root/random");
+    std::fs::write(random.join("a_broken.png"), b"not a png").unwrap();
+    std::fs::write(random.join("b_broken.jpg"), b"not a jpeg").unwrap();
+    save_tag(&random, "c_good.png", 42);
+    std::fs::write(random.join("d_broken.png"), b"").unwrap();
+    let resolver = TextureResolver::new(vec![root]);
+    for seed in 0..16 {
+        let mut picks = PresetPicks::new(seed);
+        for _ in 0..2 {
+            let img = resolver.resolve_with("rand05", &mut picks);
+            assert_eq!(img.map(|i| tag_of(&i)), Some(42), "seed {seed}");
+        }
+    }
+    // Nothing loads: None.
+    std::fs::remove_file(random.join("c_good.png")).unwrap();
+    assert!(resolver
+        .resolve_with("rand05", &mut PresetPicks::new(3))
+        .is_none());
 }
 
 #[test]
@@ -588,16 +642,52 @@ fn large_images_downscaled_or_rejected() {
     let root = tmp.sub("root");
     save(&root, "wide.png", &solid(8192, 16, [10, 20, 30]));
     save(&root, "fits.png", &solid(4096, 3, [1, 2, 3]));
+    // Over MAX_DECODE_DIM (8192) on one side: rejected from the header.
+    save(&root, "too_wide.png", &solid(10_000, 1, [5, 5, 5]));
     let resolver = TextureResolver::new(vec![root.clone()]);
 
     let wide = resolver.resolve("wide").unwrap();
     assert_eq!(wide.dimensions(), (4096, 8));
     assert_eq!(wide.get_pixel(100, 3).0, [10, 20, 30, 255]);
     assert_eq!(resolver.resolve("fits").unwrap().dimensions(), (4096, 3));
+    assert!(resolver.resolve("too_wide").is_none());
 
     // Over 64 MB: rejected without decoding (and without reading it all).
     let huge = std::fs::File::create(root.join("huge.png")).unwrap();
     huge.set_len(64 * 1024 * 1024 + 1).unwrap();
     drop(huge);
     assert!(resolver.resolve("huge").is_none());
+}
+
+#[test]
+fn largest_decodable_image_is_downscaled() {
+    use image::codecs::png::{CompressionType, FilterType, PngEncoder};
+    use image::ImageEncoder as _;
+    let tmp = TempDir::new("largest");
+    let root = tmp.sub("root");
+    // 8192x8192 RGBA8 (256 MiB decoded, exactly the decode limit), solid,
+    // so it compresses to a small file.
+    let (w, h) = (8192u32, 8192u32);
+    let pixels = [30u8, 140, 220, 255].repeat(w as usize * h as usize);
+    let file = std::fs::File::create(root.join("max.png")).unwrap();
+    PngEncoder::new_with_quality(
+        std::io::BufWriter::new(file),
+        CompressionType::Fast,
+        // Sub turns each solid row into one pixel then zeros, which the
+        // fast (fdeflate) compressor shrinks to almost nothing.
+        FilterType::Sub,
+    )
+    .write_image(&pixels, w, h, image::ExtendedColorType::Rgba8)
+    .unwrap();
+    drop(pixels);
+    let size = std::fs::metadata(root.join("max.png")).unwrap().len();
+    assert!(size < 4 * 1024 * 1024, "encoded size {size}");
+
+    let img = TextureResolver::new(vec![root])
+        .resolve("max")
+        .expect("8192x8192 loads");
+    assert_eq!(img.dimensions(), (4096, 4096));
+    for (x, y) in [(0, 0), (2048, 2048), (4095, 4095)] {
+        assert_eq!(img.get_pixel(x, y).0, [30, 140, 220, 255], "({x},{y})");
+    }
 }

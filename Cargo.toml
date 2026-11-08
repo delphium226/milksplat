@@ -11,6 +11,21 @@ license = "MIT OR Apache-2.0"
 lto = "fat"
 codegen-units = 1
 
+# Image decoding (user textures) is very slow unoptimised (seconds for an
+# 8192x8192 PNG in a debug build). Optimise just the codec crates.
+[profile.dev.package.image]
+opt-level = 3
+[profile.dev.package.png]
+opt-level = 3
+[profile.dev.package.fdeflate]
+opt-level = 3
+[profile.dev.package.zune-jpeg]
+opt-level = 3
+[profile.dev.package.crc32fast]
+opt-level = 3
+[profile.dev.package.simd-adler32]
+opt-level = 3
+
 [workspace.dependencies]
 bytemuck = { version = "1.25.2", features = ["derive"] }
 half = "2.7.1"

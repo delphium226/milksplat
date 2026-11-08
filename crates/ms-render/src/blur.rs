@@ -54,6 +54,12 @@ struct Level {
 impl Blur {
     /// Builds the pipelines and the levels for a feedback chain of `size`
     /// and `format` whose views are `feedback`.
+    ///
+    /// Deliberately not wrapped in error scopes (unlike preset shaders,
+    /// spec §6.7): the WGSL and every descriptor here are fixed, internal
+    /// and covered by the tests on hardware and WARP, so nothing here
+    /// depends on user data. A failure would be a bug, reported through the
+    /// device's uncaptured-error handler, which logs.
     pub(crate) fn new(
         gpu: &Gpu,
         sampler: &wgpu::Sampler,
