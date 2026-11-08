@@ -26,26 +26,24 @@
 //! first frame after resuming has a zero delta, so nothing catches up in a
 //! burst.
 
+mod actions;
 mod audio;
 mod gpu_state;
 mod gpu_timer;
 mod overlay;
+mod recovery;
 
 pub use gpu_state::pick_format;
 pub use overlay::display_name;
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use crossbeam_channel::{Receiver, RecvTimeoutError, TryRecvError};
 use ms_analysis::{Analyzer, AudioHistory};
-use ms_engine::{
-    Command, Director, DirectorConfig, FixedClock, Globals, Governor, State, TickInputBase,
-    DEFAULT_PRESET_ID,
-};
+use ms_engine::{Director, DirectorConfig, FixedClock, Globals, Governor, TickInputBase};
 use ms_preset::{Library, Prefs};
 use ms_render::TextureResolver;
 use winit::window::Window;
@@ -516,172 +514,6 @@ impl RenderThread {
         self.stats.reset();
         self.audio.drain(&mut self.hist);
         self.idle_wait();
-    }
-
-    /// The preset on screen (the incoming one during a blend).
-    fn shown_id(&self) -> String {
-        match self.director.current() {
-            State::Showing { cur } => cur,
-            State::Blending { to, .. } => to,
-        }
-    }
-
-    fn action(&mut self, a: Action) {
-        let now = self.clock.now();
-        match a {
-            Action::Next => self.director.command(Command::Next),
-            Action::Prev => self.director.command(Command::Prev),
-            Action::Random => self.director.command(Command::Random),
-            Action::HardCut => self.director.command(Command::HardCut),
-            Action::ToggleLock => {
-                // Applied by the next update; the notice shows the new state.
-                let text = if self.director.locked() {
-                    "Unlocked"
-                } else {
-                    "Locked"
-                };
-                self.director.command(Command::ToggleLock);
-                self.overlay.notice(text, now);
-            }
-            Action::Favourite => self.favourite(now),
-            Action::Ban => self.ban(now),
-            Action::AvOffset(d) => {
-                self.av_offset_ms = self
-                    .av_offset_ms
-                    .saturating_add(d)
-                    .clamp(0, MAX_AV_OFFSET_MS);
-                let text = format!("A/V offset: {} ms", self.av_offset_ms);
-                self.overlay.notice(text, now);
-            }
-            Action::CycleQuality => {
-                self.quality = self.quality.next();
-                self.cfg.quality = self.quality;
-                self.director.set_mesh_cap(self.quality.mesh_cap());
-                let text = format!("Quality: {}", self.quality.name());
-                self.overlay.notice(text, now);
-            }
-            Action::ShowName => self.overlay.show_name(now),
-            Action::ToggleFps => self.overlay.show_debug = !self.overlay.show_debug,
-            Action::ToggleHelp => self.overlay.show_help = !self.overlay.show_help,
-            // The main thread handles these.
-            Action::ToggleFullscreen | Action::NextMonitor | Action::EscapeKey => {}
-        }
-    }
-
-    /// The library id on screen, or `None` for the built-in default.
-    fn library_id(&self) -> Option<String> {
-        let id = self.shown_id();
-        (id != DEFAULT_PRESET_ID).then_some(id)
-    }
-
-    fn favourite(&mut self, now: f64) {
-        let Some(id) = self.library_id() else {
-            self.overlay
-                .notice("The built-in preset cannot be favourited", now);
-            return;
-        };
-        let mut prefs = self.director.prefs().clone();
-        let text = if prefs.favourites.remove(&id) {
-            self.cfg.favourites.remove(&id);
-            format!("Removed from favourites: {}", display_name(&id))
-        } else {
-            prefs.favourites.insert(id.clone());
-            self.cfg.favourites.insert(id.clone());
-            format!("Favourite: {}", display_name(&id))
-        };
-        self.director.set_prefs(prefs);
-        self.overlay.notice(text, now);
-    }
-
-    fn ban(&mut self, now: f64) {
-        let Some(id) = self.library_id() else {
-            self.overlay
-                .notice("The built-in preset cannot be banned", now);
-            return;
-        };
-        let mut prefs = self.director.prefs().clone();
-        prefs.bans.insert(id.clone());
-        prefs.favourites.remove(&id);
-        self.cfg.bans.insert(id.clone());
-        self.cfg.favourites.remove(&id);
-        self.director.set_prefs(prefs);
-        self.director.command(Command::Next);
-        self.overlay
-            .notice(format!("Banned: {}", display_name(&id)), now);
-    }
-
-    /// `--debug-lose-device`: destroys the device once, after the given
-    /// seconds of rendering, and raises the lost flag at once (the callback
-    /// may come later) so nothing renders on the destroyed device.
-    fn maybe_lose_device(&mut self, wall: f64) {
-        let (Some(after), Some(start), Some(gs)) =
-            (self.lose_device_after, self.first_frame, &self.gs)
-        else {
-            return;
-        };
-        if wall - start >= after {
-            self.lose_device_after = None;
-            tracing::warn!("--debug-lose-device: destroying the GPU device");
-            gs.gpu.device.destroy();
-            gs.gpu.lost.store(true, Ordering::SeqCst);
-        }
-    }
-
-    /// Device loss (§6.7): blame the preset if it just started, then
-    /// recreate the device and everything on it (retrying every second).
-    fn recover(&mut self, wall: f64) {
-        if !self.loss_handled {
-            self.loss_handled = true;
-            tracing::warn!("the GPU device was lost; recreating it");
-            if let Some(id) = self.director.on_device_lost(self.tick_time) {
-                // Task 24 persists the blocklist.
-                self.cfg.blocklist.insert(id);
-            }
-        }
-        // Drop the whole old state first (see `gpu_state`): joins the loader,
-        // releases the swapchain and every renderer resource.
-        if let Some(old) = self.gs.take() {
-            drop(old);
-        }
-        if wall < self.gpu_retry_at {
-            self.idle_wait();
-            return;
-        }
-        // A new surface for the window comes from the main thread (winit
-        // only gives out the window handle there), created after the old
-        // one was dropped above.
-        let Some(surface) = self.new_surface.take() else {
-            if wall >= self.surface_request_at {
-                (self.request_surface)();
-                self.surface_request_at = wall + GPU_RETRY_S;
-            }
-            self.idle_wait();
-            return;
-        };
-        match GpuState::new(&self.instance, surface, &self.resolver, self.internal) {
-            Ok(gs) => {
-                self.director.on_renderer_recreated(
-                    &gs.renderer.shared(),
-                    &self.resolver,
-                    gs.format,
-                );
-                self.gs = Some(gs);
-                self.loss_handled = false;
-                self.surface_dirty = true;
-                self.last_wall = None;
-                self.next_frame_due = None;
-                self.stats.reset();
-                tracing::info!("GPU device recreated");
-            }
-            Err(e) => {
-                tracing::error!(
-                    "cannot recreate the GPU device ({e}); retrying in {GPU_RETRY_S} s"
-                );
-                self.gpu_retry_at = wall + GPU_RETRY_S;
-                // The surface went with the failed attempt; ask again.
-                self.surface_request_at = 0.0;
-            }
-        }
     }
 
     /// Resizes the feedback buffers when the surface size or the scale
