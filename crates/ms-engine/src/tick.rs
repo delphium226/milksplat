@@ -44,8 +44,12 @@
 //! # Allocation
 //!
 //! [`PresetInstance::tick`] returns a reference to output buffers owned by
-//! the instance. After the first tick, ticking reuses every buffer (mesh,
-//! draw list, batching lanes and VM scratch) and does not allocate.
+//! the instance. After the first tick every buffer is reused (mesh, draw
+//! list, batching lanes and batched-VM scratch), so a tick allocates nothing
+//! on the batched and no-vertex paths. Exception: the scalar VM
+//! (`Program::run`) allocates its register file on each run of a program
+//! using more than 32 registers (scalar vertex code, frame, wave and shape
+//! code). Rayon may also allocate inside its own job queues now and then.
 
 use std::sync::Arc;
 
@@ -202,18 +206,16 @@ pub struct PresetInstance {
     waves: Vec<WaveState>,
     shapes: Vec<ShapeState>,
     warned: Warned,
-    /// Warnings from `new`, reported by the first tick.
-    pending: Vec<String>,
+    /// `init` code not yet run: it runs at the start of the first tick,
+    /// which has the [`Globals`].
+    needs_init: bool,
     out: TickOutput,
 }
 
 impl PresetInstance {
-    /// Creates the instance and runs the preset's `init` code (§5.2): after
-    /// the `[params]` values are applied, with time and audio inputs 0. Its
-    /// `q1`..`q32` become the initial `q` snapshot and the user variables it
-    /// sets persist. `init` sees `reg00`..`reg99` as 0 and a private
-    /// `gmegabuf` (there are no [`Globals`] yet); the waves' and shapes'
-    /// `init` code runs next with that `q`.
+    /// Creates the instance. No preset code runs here (the loader thread
+    /// has no [`Globals`]): `init` runs at the start of the first
+    /// [`tick`](Self::tick).
     ///
     /// The mesh is `[params] mesh`, capped per axis by `mesh_cap` (at least
     /// 1x1).
@@ -230,55 +232,22 @@ impl PresetInstance {
                 Some((id, params.param(name)))
             })
             .collect();
-        let mut vars = vec![0.0; p.vars.len().max(BUILTIN_LEN)];
-        set(&mut vars, MESHX, f64::from(mesh[0]));
-        set(&mut vars, MESHY, f64::from(mesh[1]));
-        for &(id, v) in &resets {
-            set(&mut vars, id, v);
-        }
         let mut rng = Rng::seeded(seed);
-        let mut megabuf = Megabuf::new();
-        let mut init_gmegabuf = Megabuf::new();
-        let mut warned = Warned::default();
-        let mut pending = Vec::new();
-        let capped = run(
-            p.init.as_ref(),
-            &mut vars,
-            &mut megabuf,
-            &mut init_gmegabuf,
-            &mut rng,
-        );
-        note_cap(capped, &mut warned.init, "init", &mut pending);
-        let mut q = [0.0; 32];
-        q.copy_from_slice(&vars[Q1..Q1 + 32]);
-        let rand_preset = [0; 4].map(|_| rng.next_f64() as f32);
-
-        let mut waves = Vec::new();
-        for (i, w) in p.waves.iter().enumerate().filter(|(_, w)| w.enabled) {
-            let mut ws = WaveState::new(i, w);
-            ws.init(
-                w,
-                &q,
-                &mut megabuf,
-                &mut init_gmegabuf,
-                &mut rng,
-                &mut pending,
-            );
-            waves.push(ws);
-        }
-        let mut shapes = Vec::new();
-        for (i, s) in p.shapes.iter().enumerate().filter(|(_, s)| s.enabled) {
-            let mut ss = ShapeState::new(i, s);
-            ss.init(
-                s,
-                &q,
-                &mut megabuf,
-                &mut init_gmegabuf,
-                &mut rng,
-                &mut pending,
-            );
-            shapes.push(ss);
-        }
+        let rand_preset = [0; 4].map(|_| unit_rand(&mut rng));
+        let waves: Vec<WaveState> = p
+            .waves
+            .iter()
+            .enumerate()
+            .filter(|(_, w)| w.enabled)
+            .map(|(i, w)| WaveState::new(i, w))
+            .collect();
+        let shapes = p
+            .shapes
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| s.enabled)
+            .map(|(i, s)| ShapeState::new(i, s))
+            .collect();
 
         let stride = mesh[0] as usize + 1;
         let nrows = mesh[1] as usize + 1;
@@ -306,11 +275,11 @@ impl PresetInstance {
         };
         PresetInstance {
             frame_vals: vec![0.0; BUILTIN_LEN],
+            vars: vec![0.0; p.vars.len().max(BUILTIN_LEN)],
             p,
-            vars,
             resets,
-            q,
-            megabuf,
+            q: [0.0; 32],
+            megabuf: Megabuf::new(),
             rng,
             rand_preset,
             mesh,
@@ -321,8 +290,8 @@ impl PresetInstance {
             path: VertexPath::None,
             waves,
             shapes,
-            warned,
-            pending,
+            warned: Warned::default(),
+            needs_init: true,
             out,
         }
     }
@@ -333,10 +302,14 @@ impl PresetInstance {
     }
 
     /// Runs one tick (§5.2) and returns its render data, which stays valid
-    /// until the next call.
+    /// until the next call. The first tick runs the `init` code first (see
+    /// `run_init`).
     pub fn tick(&mut self, input: &TickInput, g: &mut Globals) -> &TickOutput {
         self.out.warnings.clear();
-        self.out.warnings.append(&mut self.pending);
+        if self.needs_init {
+            self.needs_init = false;
+            self.run_init(input, g);
+        }
 
         // 1-5: inputs, params, regs, frame code, q snapshot.
         write_inputs(&mut self.vars, input, self.mesh);
@@ -407,6 +380,63 @@ impl PresetInstance {
         self.fill_draw(audio);
         self.fill_uniforms(input);
         &self.out
+    }
+
+    /// The preset's `init` code (§5.2), once, before the first tick's
+    /// per-tick steps. With the read-only inputs written, the `[params]`
+    /// values applied and the global regs and `gmegabuf`, main `init` runs;
+    /// its `q1`..`q32` become the initial snapshot and the user variables it
+    /// sets persist. The regs go back to `g`, then each wave's and shape's
+    /// `init` runs with the inputs, that `q` and the regs.
+    fn run_init(&mut self, input: &TickInput, g: &mut Globals) {
+        write_inputs(&mut self.vars, input, self.mesh);
+        for &(id, v) in &self.resets {
+            set(&mut self.vars, id, v);
+        }
+        regs_in(&mut self.vars, &g.regs);
+        let capped = run(
+            self.p.init.as_ref(),
+            &mut self.vars,
+            &mut self.megabuf,
+            &mut g.gmegabuf,
+            &mut self.rng,
+        );
+        note_cap(
+            capped,
+            &mut self.warned.init,
+            "init",
+            &mut self.out.warnings,
+        );
+        self.q.copy_from_slice(&self.vars[Q1..Q1 + 32]);
+        regs_out(&self.vars, &mut g.regs);
+        for w in &mut self.waves {
+            if let Some(cw) = self.p.waves.get(w.index()) {
+                w.init(
+                    cw,
+                    input,
+                    self.mesh,
+                    &self.q,
+                    &mut self.megabuf,
+                    g,
+                    &mut self.rng,
+                    &mut self.out.warnings,
+                );
+            }
+        }
+        for s in &mut self.shapes {
+            if let Some(cs) = self.p.shapes.get(s.index()) {
+                s.init(
+                    cs,
+                    input,
+                    self.mesh,
+                    &self.q,
+                    &mut self.megabuf,
+                    g,
+                    &mut self.rng,
+                    &mut self.out.warnings,
+                );
+            }
+        }
     }
 
     /// Recomputes the per-vertex inputs when the aspect changes.
@@ -572,7 +602,7 @@ impl PresetInstance {
         for (i, &x) in self.q.iter().enumerate() {
             q[i / 4][i % 4] = gpu(x);
         }
-        let rand_frame = [0; 4].map(|_| self.rng.next_f64() as f32);
+        let rand_frame = [0; 4].map(|_| unit_rand(&mut self.rng));
         self.out.uniforms = Uniforms {
             time: gpu(input.time),
             fps: gpu(input.fps),
@@ -608,6 +638,12 @@ impl PresetInstance {
             q,
         };
     }
+}
+
+/// A uniform random f32 in [0, 1). An f64 draw rounded to f32 can reach
+/// 1.0, so it is capped at the largest f32 below 1.
+fn unit_rand(rng: &mut Rng) -> f32 {
+    (rng.next_f64() as f32).min(1.0 - f32::EPSILON / 2.0)
 }
 
 /// Chooses the vertex path (see the module docs) and allocates its buffers.

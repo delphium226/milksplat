@@ -5,8 +5,9 @@
 //! definition's values (or the defaults below), the read-only inputs and
 //! the main preset's `q` snapshot are copied in, and its `frame` code runs.
 //! `t1`..`t8` and user variables are never reset, so they persist from
-//! `init` through every tick. `reg00`..`reg99` are copied from and back to
-//! [`Globals`] around each run when the code uses them.
+//! `init` through every tick. `init` runs once, on the instance's first
+//! tick. `reg00`..`reg99` are copied from and back to [`Globals`] around
+//! each run when the code uses them.
 //!
 //! Wave `point` code runs once per sample, on the scalar VM: each point
 //! starts from the post-frame values (user variables and `t1`..`t8` carry
@@ -94,8 +95,12 @@ pub(crate) struct WaveState {
     name: [String; 3],
     vars: Vec<f64>,
     resets: Vec<(usize, f64)>,
-    /// A `samples` variable the code uses, reset to the definition's count
-    /// each tick and read back after the frame code.
+    /// The wave's `samples` variable, if its code uses it. `samples` is a
+    /// wave built-in (MilkDrop lets wave frame code change the point
+    /// count), not a user variable: it is reset to the definition's count
+    /// each tick and read back, rounded and clamped to 1..=512, after the
+    /// frame code. It is not in `BUILTIN_VARS`, so it is looked up by name
+    /// once, here.
     samples_var: Option<usize>,
     /// Built-ins the point code writes (restored before each point).
     restore: Vec<usize>,
@@ -132,22 +137,35 @@ impl WaveState {
         self.index
     }
 
-    /// Runs the `init` code once, with the writables reset and `q` given.
+    /// Runs the `init` code once (on the instance's first tick), with the
+    /// read-only inputs written, the writables reset, `q` given and the
+    /// global regs and `gmegabuf`.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn init(
         &mut self,
         w: &CompiledWave,
+        input: &TickInput,
+        mesh: [u32; 2],
         q: &[f64; 32],
         megabuf: &mut Megabuf,
-        gmegabuf: &mut Megabuf,
+        g: &mut Globals,
         rng: &mut Rng,
         warnings: &mut Vec<String>,
     ) {
+        let vars = &mut self.vars[..];
+        write_inputs(vars, input, mesh);
         for &(id, v) in &self.resets {
-            set(&mut self.vars, id, v);
+            set(vars, id, v);
         }
-        copy_q_in(&mut self.vars, q);
-        let capped = run(w.init.as_ref(), &mut self.vars, megabuf, gmegabuf, rng);
+        copy_q_in(vars, q);
+        if self.regs {
+            regs_in(vars, &g.regs);
+        }
+        let capped = run(w.init.as_ref(), vars, megabuf, &mut g.gmegabuf, rng);
         note_cap(capped, &mut self.warned[0], &self.name[0], warnings);
+        if self.regs {
+            regs_out(vars, &mut g.regs);
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -241,22 +259,35 @@ impl ShapeState {
         self.index
     }
 
-    /// Runs the `init` code once, with the writables reset and `q` given.
+    /// Runs the `init` code once (on the instance's first tick), with the
+    /// read-only inputs written, the writables reset, `q` given and the
+    /// global regs and `gmegabuf`.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn init(
         &mut self,
         s: &CompiledShape,
+        input: &TickInput,
+        mesh: [u32; 2],
         q: &[f64; 32],
         megabuf: &mut Megabuf,
-        gmegabuf: &mut Megabuf,
+        g: &mut Globals,
         rng: &mut Rng,
         warnings: &mut Vec<String>,
     ) {
+        let vars = &mut self.vars[..];
+        write_inputs(vars, input, mesh);
         for &(id, v) in &self.resets {
-            set(&mut self.vars, id, v);
+            set(vars, id, v);
         }
-        copy_q_in(&mut self.vars, q);
-        let capped = run(s.init.as_ref(), &mut self.vars, megabuf, gmegabuf, rng);
+        copy_q_in(vars, q);
+        if self.regs {
+            regs_in(vars, &g.regs);
+        }
+        let capped = run(s.init.as_ref(), vars, megabuf, &mut g.gmegabuf, rng);
         note_cap(capped, &mut self.warned[0], &self.name[0], warnings);
+        if self.regs {
+            regs_out(vars, &mut g.regs);
+        }
     }
 
     /// Runs the frame code once per instance, appending one draw each.

@@ -416,3 +416,90 @@ fn mesh_capped() {
     assert_eq!((out.mesh.cols, out.mesh.rows), (4, 3));
     assert_eq!(out.mesh.uv.len(), 5 * 4);
 }
+
+/// `init` runs on the first tick, against the real globals: it sees regs and
+/// `gmegabuf` left by the previous preset, and its own `gmegabuf` writes are
+/// visible to the frame code on the same tick. Wave `init` sees them too,
+/// along with the read-only inputs.
+#[test]
+fn init_sees_globals() {
+    let mut a = instance(&format!(
+        "{SMALL}[code]\nframe = \"reg05 = 7; gmegabuf(0) = 9\"\n"
+    ));
+    let b_src = format!(
+        "{SMALL}[code]\ninit = \"q1 = reg05; q2 = gmegabuf(0); gmegabuf(1) = 4\"\n\
+         frame = \"q3 = gmegabuf(1)\"\n\
+         [[wave]]\nsamples = 2\ninit = \"t1 = reg05 * 0.1; t2 = meshx\"\npoint = \"x = t2; y = t1\"\n"
+    );
+    let audio = AudioFrame::default();
+    let mut g = Globals::default();
+    a.tick(&input(&audio), &mut g);
+    // B is created before it first ticks (as the loader does), so creation
+    // must not run its code.
+    let mut b = instance(&b_src);
+    let out = b.tick(&input(&audio), &mut g);
+    assert_eq!(out.uniforms.q[0][..3], [7.0, 9.0, 4.0]);
+    let p = out.draw.waves[0].points[0];
+    assert!(close(p[1], 0.7, 1e-6) && p[0] == 8.0, "{p:?}");
+    // init runs once only.
+    let mut g2 = Globals::default();
+    let out = b.tick(&input(&audio), &mut g2);
+    assert_eq!(out.uniforms.q[0][..3], [7.0, 9.0, 0.0]);
+}
+
+/// `rot` turns the sample position counter-clockwise in preset space: with
+/// rot = 90 degrees, the vertex right of centre samples from above centre.
+#[test]
+fn rot_is_counter_clockwise() {
+    let out = run(
+        &mut instance(&format!("{SMALL}rot = 1.5707963267948966\n")),
+        1,
+    );
+    // Row 3 of 6, col 8 of 8: x = 1, y = 0.5.
+    let k = 3 * 9 + 8;
+    assert_eq!(xy(&out, k), (1.0, 0.5));
+    let uv = out.mesh.uv[k];
+    // Sample at preset (0.5, 1), i.e. texture (0.5, 0).
+    assert!(close(uv[0], 0.5, 1e-6) && close(uv[1], 0.0, 1e-6), "{uv:?}");
+}
+
+/// With zoomexp != 1 the zoom depends on rad: zoom^(zoomexp^(rad*2-1)).
+#[test]
+fn zoomexp_varies_zoom_with_rad() {
+    let effective = |toml: &str| {
+        let out = run(&mut instance(toml), 1);
+        // Corner (rad 1) and the vertex right of centre (rad 0.125/sqrt(0.5)).
+        let corner = (0.0 - 0.5) / (f64::from(out.mesh.uv[0][0]) - 0.5);
+        let near = 0.125 / (f64::from(out.mesh.uv[3 * 9 + 5][0]) - 0.5);
+        (corner, near)
+    };
+    let (corner, near) = effective(&format!("{SMALL}zoom = 2.0\nzoomexp = 2.0\n"));
+    let rad = 0.125 / 0.5f64.sqrt();
+    assert!((corner - 4.0).abs() < 1e-5, "{corner}");
+    assert!(
+        (near - 2f64.powf(2f64.powf(rad * 2.0 - 1.0))).abs() < 1e-4,
+        "{near}"
+    );
+    let (corner, near) = effective(&format!("{SMALL}zoom = 2.0\n"));
+    assert!((corner - 2.0).abs() < 1e-5 && (near - 2.0).abs() < 1e-4);
+}
+
+/// A carried variable written only by vertices of the first chunk (the top
+/// four rows; 64x48 always has at least two chunks) keeps the last writer's
+/// value, as on the scalar path.
+#[test]
+fn carried_var_written_in_early_chunk_only() {
+    let vertex = "if(y > 0.93, k = x + y, 0)";
+    let mk = |v: &str| format!("[code]\nframe = \"q1 = k\"\nvertex = \"{v}\"\n");
+    let mut b = instance(&mk(vertex));
+    let mut s = instance(&mk(&format!("{vertex}; n = n + 0")));
+    let (qb, qs) = (
+        run(&mut b, 2).uniforms.q[0][0],
+        run(&mut s, 2).uniforms.q[0][0],
+    );
+    assert_eq!(b.vertex_path(), VertexPath::Batched);
+    assert_eq!(s.vertex_path(), VertexPath::Scalar);
+    // Last writer: row 3 (y = 1 - 3/48), col 64 (x = 1).
+    assert_eq!(qb, (1.0 + (1.0 - 3.0 / 48.0)) as f32);
+    assert_eq!(qb, qs);
+}
