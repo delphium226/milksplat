@@ -4,6 +4,7 @@
 //! These run on the machine's real adapter, or on WARP with
 //! `MS_FORCE_WARP=1`.
 
+use ms_render::test_support::{test_gpu, TestGpu};
 use image::RgbaImage;
 use ms_render::{read_texture, FeedbackFormat, Gpu, RenderConfig, Renderer, TextItem};
 
@@ -11,11 +12,9 @@ const RGBA8: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 /// The clear colour of the test targets, as bytes.
 const BACKGROUND: [u8; 4] = [51, 76, 115, 255];
 
-fn gpu() -> Gpu {
-    match Gpu::headless() {
-        Ok(gpu) => gpu,
-        Err(e) => panic!("Gpu::headless() failed (no hardware adapter and no WARP): {e}"),
-    }
+/// A headless GPU holding the GPU test lock (see `ms_render::test_support`).
+fn gpu() -> TestGpu {
+    test_gpu()
 }
 
 fn renderer(gpu: &Gpu) -> Renderer {

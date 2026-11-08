@@ -7,6 +7,7 @@
 //! The GPU parts run on the machine's real adapter, or on WARP with
 //! `MS_FORCE_WARP=1`.
 
+use ms_render::test_support::{test_gpu, TestGpu};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, Instant};
@@ -60,11 +61,9 @@ const BAD_TOML: &str = "version = = 1\n[meta\n";
 const BAD_SHADER: &str = "version = 1\n[shader]\nwarp = \"this is not wgsl at all\"\n";
 const FP16: &str = "version = 1\n[params]\nfeedback_format = \"fp16\"\n";
 
-fn gpu() -> Gpu {
-    match Gpu::headless() {
-        Ok(gpu) => gpu,
-        Err(e) => panic!("Gpu::headless() failed (no hardware adapter and no WARP): {e}"),
-    }
+/// A headless GPU holding the GPU test lock (see `ms_render::test_support`).
+fn gpu() -> TestGpu {
+    test_gpu()
 }
 
 fn renderer(gpu: &Gpu) -> Renderer {
@@ -94,7 +93,7 @@ struct Rig {
     director: Director,
     loader: Loader,
     renderer: Renderer,
-    gpu: Gpu,
+    gpu: TestGpu,
 }
 
 fn make_rig(cfg: DirectorConfig, lib: Library, prefs: Prefs) -> Rig {

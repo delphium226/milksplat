@@ -4,6 +4,7 @@
 //! adapter exists (or when `MS_FORCE_WARP=1` is set). If no device can be
 //! created at all, the tests fail loudly rather than skipping.
 
+use ms_render::test_support::{test_gpu, TestGpu};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -11,11 +12,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use image::{Rgba, RgbaImage};
 use ms_render::{golden, read_texture, Gpu};
 
-fn gpu() -> Gpu {
-    match Gpu::headless() {
-        Ok(gpu) => gpu,
-        Err(e) => panic!("Gpu::headless() failed (no hardware adapter and no WARP): {e}"),
-    }
+/// A headless GPU holding the GPU test lock (see `ms_render::test_support`).
+fn gpu() -> TestGpu {
+    test_gpu()
 }
 
 fn texture(gpu: &Gpu, w: u32, h: u32, format: wgpu::TextureFormat) -> wgpu::Texture {
@@ -81,6 +80,7 @@ fn panic_message(result: std::thread::Result<()>) -> String {
 
 #[test]
 fn headless_device() {
+    let _lock = ms_render::test_support::gpu_lock();
     let gpu = Gpu::headless();
     assert!(gpu.is_ok(), "Gpu::headless() failed: {:?}", gpu.err());
     if let Ok(gpu) = gpu {

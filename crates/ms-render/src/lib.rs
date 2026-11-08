@@ -17,6 +17,8 @@ mod noise;
 mod shader_scan;
 mod shaders;
 mod shapes;
+#[doc(hidden)]
+pub mod test_support;
 mod text;
 mod textures;
 mod warmup;

@@ -4,6 +4,7 @@
 //! The GPU tests run on the machine's real adapter, or on WARP with
 //! `MS_FORCE_WARP=1`.
 
+use ms_render::test_support::{test_gpu, TestGpu};
 use image::RgbaImage;
 use ms_analysis::AudioFrame;
 use ms_engine::{
@@ -337,11 +338,9 @@ a2 = 0.6
 warp = "return GetMain(uv).rgb * vec3f(0.9, 0.93, 0.99);"
 "#;
 
-fn gpu() -> Gpu {
-    match Gpu::headless() {
-        Ok(gpu) => gpu,
-        Err(e) => panic!("Gpu::headless() failed (no hardware adapter and no WARP): {e}"),
-    }
+/// A headless GPU holding the GPU test lock (see `ms_render::test_support`).
+fn gpu() -> TestGpu {
+    test_gpu()
 }
 
 fn renderer(gpu: &Gpu) -> Renderer {

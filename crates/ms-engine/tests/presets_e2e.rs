@@ -16,6 +16,7 @@
 //! recording (interleaved little-endian f32 stereo at 48 kHz, at least 10 s;
 //! never committed), it uses that instead of the synthetic music.
 
+use ms_render::test_support::{test_gpu, TestGpu};
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
@@ -170,11 +171,9 @@ fn load(stem: &str) -> Arc<CompiledPreset> {
     Arc::new(p)
 }
 
-fn gpu() -> Gpu {
-    match Gpu::headless() {
-        Ok(gpu) => gpu,
-        Err(e) => panic!("Gpu::headless() failed (no hardware adapter and no WARP): {e}"),
-    }
+/// A headless GPU holding the GPU test lock (see `ms_render::test_support`).
+fn gpu() -> TestGpu {
+    test_gpu()
 }
 
 /// A renderer in the preset's feedback format.
