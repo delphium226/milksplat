@@ -10,7 +10,13 @@ fn sixty_hz_from_144hz_frames() {
 #[test]
 fn catch_up_capped() {
     let mut c = FixedClock::new(60.0);
-    assert_eq!(c.advance(1.0), Ticks { run: 4, dropped: 56 });
+    assert_eq!(
+        c.advance(1.0),
+        Ticks {
+            run: 4,
+            dropped: 56
+        }
+    );
     // dropped ticks are not carried
     assert_eq!(c.advance(0.0).run, 0);
 }
@@ -63,6 +69,54 @@ fn set_rate_keeps_alpha_and_clamps() {
     assert!((59..=61).contains(&n));
     // rate clamps to 240 Hz: one second is 240 due ticks, 4 run
     let mut d = FixedClock::new(1e9);
-    assert_eq!(d.advance(1.0), Ticks { run: 4, dropped: 236 });
+    assert_eq!(
+        d.advance(1.0),
+        Ticks {
+            run: 4,
+            dropped: 236
+        }
+    );
     assert!(c.alpha() < 1.0);
+}
+
+#[test]
+fn exact_tick_boundaries_all_integer_rates() {
+    for rate in 1..=240u32 {
+        let r = f64::from(rate);
+        let mut c = FixedClock::new(r);
+        let t = c.advance(1.0);
+        assert_eq!(t.run + t.dropped, rate, "rate {rate}: {t:?}");
+        for k in 1..=4u32 {
+            let mut c = FixedClock::new(r);
+            let t = c.advance(f64::from(k) / r);
+            assert_eq!(t.run, k, "rate {rate} k {k}: {t:?}");
+            assert_eq!(t.dropped, 0);
+            assert!((0.0..1.0).contains(&c.alpha()));
+        }
+    }
+}
+
+#[test]
+fn huge_dt_saturates() {
+    for dt in [1e9, f64::MAX] {
+        let mut c = FixedClock::new(60.0);
+        let t = c.advance(dt);
+        assert_eq!(t.run, 4);
+        assert!(t.dropped > 1_000_000);
+        assert!((0.0..1.0).contains(&c.alpha()));
+        assert_eq!(c.advance(0.0).run, 0);
+    }
+}
+
+#[test]
+fn set_rate_with_alpha_near_one() {
+    let mut c = FixedClock::new(60.0);
+    c.advance(0.999 / 60.0);
+    let a = c.alpha();
+    assert!(a > 0.99 && a < 1.0);
+    c.set_rate(240.0);
+    assert!((c.alpha() - a).abs() < 1e-9);
+    assert!(c.alpha() < 1.0);
+    c.set_rate(1.0);
+    assert!((c.alpha() - a).abs() < 1e-9);
 }

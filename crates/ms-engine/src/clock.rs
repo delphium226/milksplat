@@ -31,6 +31,7 @@ fn clamp_rate(hz: f64) -> f64 {
 }
 
 impl FixedClock {
+    /// Creates a clock at `rate_hz` (clamped to 1..=240; non-finite -> 60).
     pub fn new(rate_hz: f64) -> Self {
         Self {
             rate: clamp_rate(rate_hz),
@@ -45,16 +46,24 @@ impl FixedClock {
         self.acc = alpha / self.rate;
     }
 
-    /// Adds `dt` seconds and returns how many ticks to run. Non-finite or
-    /// negative `dt` counts as zero.
+    /// Adds `dt` seconds and returns how many ticks to run (at most 4; the
+    /// rest are dropped, not carried). Non-finite or negative `dt` counts as
+    /// zero.
     pub fn advance(&mut self, dt: f64) -> Ticks {
         let dt = if dt.is_finite() && dt > 0.0 { dt } else { 0.0 };
         let period = 1.0 / self.rate;
         let total = self.acc + dt;
-        // fmod is exact, so the remainder always lands in [0, period).
-        let rem = total % period;
-        let due = ((total - rem) * self.rate).round();
-        self.acc = if rem.is_finite() && rem >= 0.0 { rem } else { 0.0 };
+        // Epsilon absorbs representation error in dt (e.g. 3/47 * 47 = 2.999...).
+        let mut due = (total * self.rate + 1e-9).floor();
+        let mut acc = total - due / self.rate;
+        // Rounding can leave the remainder just outside [0, period).
+        if acc < 0.0 {
+            acc = 0.0;
+        } else if acc >= period {
+            due += 1.0;
+            acc -= period;
+        }
+        self.acc = if acc >= 0.0 && acc < period { acc } else { 0.0 };
         let run = due.min(f64::from(MAX_RUN));
         // `as` saturates for out-of-range floats.
         Ticks {

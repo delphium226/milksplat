@@ -11,6 +11,9 @@ const DOWN_FRAC: f64 = 0.9;
 const UP_FRAC: f64 = 0.6;
 const CAPACITY: usize = 512;
 
+/// Steps the render scale through `[1.0, 0.875, 0.75, 0.625, 0.5]` from a
+/// 2 s moving average of frame times. `now` must be monotonic non-decreasing;
+/// going backwards is not supported.
 #[derive(Debug, Clone)]
 pub struct Governor {
     step: usize,
@@ -25,6 +28,7 @@ impl Default for Governor {
 }
 
 impl Governor {
+    /// Creates a governor at scale 1.0 with no samples.
     pub fn new() -> Self {
         Self {
             step: 0,

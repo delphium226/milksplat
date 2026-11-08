@@ -45,11 +45,39 @@ fn governor_recovers() {
     assert!(ch.iter().all(|c| c.1 > 0.5));
 }
 
+/// Drives a fresh governor down to 0.625; returns it and the time of that step.
+fn lowered() -> (Governor, f64) {
+    let mut g = Governor::new();
+    for i in 0..60 * 20 {
+        let now = i as f64 / 60.0;
+        if g.record(now, 40.0, BUDGET) == Some(0.625) {
+            return (g, now);
+        }
+    }
+    panic!("never reached 0.625");
+}
+
 #[test]
 fn governor_hysteresis() {
-    let mut g = Governor::new();
-    let ch = feed(&mut g, 0, 60 * 60, |t| if (t as u64).is_multiple_of(2) { 15.0 } else { 5.0 });
+    let (mut g, ts) = lowered();
+    let start = (ts * 60.0).round() as usize + 1;
+    // 20 ms is above 0.9 * budget, 5 ms below 0.6 * budget; alternate each second.
+    let ch = feed(&mut g, start, 60 * 60, |t| {
+        if ((t - ts) as u64).is_multiple_of(2) {
+            20.0
+        } else {
+            5.0
+        }
+    });
     assert!(ch.is_empty(), "{ch:?}");
+
+    // The same values held steadily do cause changes.
+    let (mut g, ts) = lowered();
+    let start = (ts * 60.0).round() as usize + 1;
+    assert!(!feed(&mut g, start, 60 * 10, |_| 20.0).is_empty());
+    let (mut g, ts) = lowered();
+    let start = (ts * 60.0).round() as usize + 1;
+    assert!(!feed(&mut g, start, 60 * 10, |_| 5.0).is_empty());
 }
 
 #[test]
