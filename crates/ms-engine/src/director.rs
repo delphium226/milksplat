@@ -589,6 +589,34 @@ impl Director {
         self.mesh_cap = cap;
     }
 
+    /// The favourites, bans and blocklist in effect, including the ids
+    /// [`on_device_lost`](Self::on_device_lost) has blocklisted.
+    pub fn prefs(&self) -> &Prefs {
+        &self.prefs
+    }
+
+    /// Replaces the favourites, bans and blocklist (the app calls this when
+    /// the user favourites or bans a preset; start from
+    /// [`prefs`](Self::prefs)). A ready next preset or a prefetch that is
+    /// no longer allowed is dropped and another is picked; the preset on
+    /// screen stays until the next switch.
+    pub fn set_prefs(&mut self, prefs: Prefs) {
+        let mut pick = prefs.clone();
+        pick.blocklist.extend(self.skip.iter().cloned());
+        self.prefs = prefs;
+        self.pick_prefs = pick;
+        if self.ready.as_ref().is_some_and(|l| !self.allowed(&l.id)) {
+            self.ready = None;
+        }
+        if self
+            .pending
+            .as_ref()
+            .is_some_and(|p| matches!(p.goal, Goal::Prefetch) && !self.allowed(&p.id))
+        {
+            self.pending = None;
+        }
+    }
+
     /// Test hook: load failures since the last success (or retry pause).
     #[doc(hidden)]
     pub fn consecutive_failures(&self) -> u32 {

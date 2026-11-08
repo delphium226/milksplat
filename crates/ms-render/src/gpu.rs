@@ -88,12 +88,22 @@ impl Gpu {
     }
 
     /// Like [`Gpu::new`], on an existing instance (the one that created
-    /// `compatible_surface`).
+    /// `compatible_surface`). After a device loss, call it again with the
+    /// same instance and surface (a surface outlives the device).
+    ///
+    /// Setting [`FORCE_WARP_ENV`] (`MS_FORCE_WARP=1`) picks the software
+    /// fallback adapter (WARP) instead, as for [`Gpu::headless`].
     pub fn with_instance(
         instance: wgpu::Instance,
         compatible_surface: Option<&wgpu::Surface<'_>>,
     ) -> Result<Gpu, GpuError> {
-        Self::open(instance, compatible_surface, AdapterKind::Any)
+        let kind = if force_warp() {
+            tracing::info!("{FORCE_WARP_ENV}=1: using the software fallback adapter");
+            AdapterKind::Fallback
+        } else {
+            AdapterKind::Any
+        };
+        Self::open(instance, compatible_surface, kind)
     }
 
     /// Creates an offscreen GPU: a DX12 hardware adapter, else a Vulkan
@@ -108,8 +118,7 @@ impl Gpu {
     /// Vulkan instances concurrently (e.g. parallel tests) crashes some
     /// Windows drivers/layers with an access violation.
     pub fn headless() -> Result<Gpu, GpuError> {
-        let force_warp = std::env::var(FORCE_WARP_ENV).is_ok_and(|v| v == "1");
-        if force_warp {
+        if force_warp() {
             tracing::info!("{FORCE_WARP_ENV}=1: using the software fallback adapter");
             return Self::open(
                 instance_for(wgpu::Backends::DX12),
@@ -213,6 +222,11 @@ impl Gpu {
             lost,
         })
     }
+}
+
+/// Whether [`FORCE_WARP_ENV`] is set to `1`.
+fn force_warp() -> bool {
+    std::env::var(FORCE_WARP_ENV).is_ok_and(|v| v == "1")
 }
 
 fn instance_for(backends: wgpu::Backends) -> wgpu::Instance {

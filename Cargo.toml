@@ -47,6 +47,8 @@ toml = "1.2.1"
 tracing = "0.1.44"
 tracing-subscriber = "0.3.23"
 windows = "0.62.2"
+# Window and event loop (Windows only in v1; no X11/Wayland backends).
+winit = { version = "0.30.13", default-features = false, features = ["rwh_06"] }
 windows-core = "0.62.2"
 ms-expr = { path = "crates/ms-expr", version = "0.1.0" }
 ms-analysis = { path = "crates/ms-analysis", version = "0.1.0" }

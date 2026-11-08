@@ -988,3 +988,39 @@ fn renders_solo_blend_and_recreated_renderer() {
     rig.wait_showing(now, "a.splat");
     assert!(rig.gpu.poll_wait().is_ok());
 }
+
+#[test]
+fn set_prefs_drops_banned_next() {
+    let (_fx, lib) = fixture(&[("a.splat", &good("a")), ("b.splat", &good("b"))]);
+    let mut rig = make_rig(manual_cfg(), lib, Prefs::default());
+    rig.wait_ready(1.0);
+    let banned = rig.director.next_ready().unwrap().to_string();
+    let other = if banned == "a.splat" {
+        "b.splat"
+    } else {
+        "a.splat"
+    };
+
+    let mut prefs = rig.director.prefs().clone();
+    prefs.bans.insert(banned.clone());
+    prefs.favourites.insert(other.to_string());
+    rig.director.set_prefs(prefs);
+    assert_eq!(
+        rig.director.next_ready(),
+        None,
+        "a banned ready next is dropped"
+    );
+    assert!(rig.director.prefs().bans.contains(&banned));
+    assert!(rig.director.prefs().favourites.contains(other));
+
+    // The only allowed pick is the other preset; the banned one never shows.
+    rig.wait_ready(2.0);
+    assert_eq!(rig.director.next_ready(), Some(other));
+    rig.director.command(Command::Next);
+    rig.wait_showing(3.0, other);
+    rig.director.command(Command::Load(banned.clone()));
+    for i in 0..30 {
+        rig.update(4.0 + f64::from(i) * DT);
+        assert_ne!(shown(&rig.director), banned);
+    }
+}
