@@ -461,6 +461,31 @@ fn naga_check(stage: Stage, a: &Assembled) -> Result<(), String> {
     })
 }
 
+/// Front-end checks for one stage: every user texture it uses has a slot,
+/// and the assembled module (with `slots` declared) passes naga.
+fn check_stage(
+    stage: Stage,
+    body: &str,
+    scan: &Scan,
+    slots: &[String],
+    overflow: &[String],
+) -> Result<(), String> {
+    let unbound: Vec<&str> = scan
+        .textures
+        .iter()
+        .filter(|t| overflow.contains(t))
+        .map(String::as_str)
+        .collect();
+    if !unbound.is_empty() {
+        return Err(format!(
+            "{} shader: more than {MAX_USER_TEXTURES} user textures; no slot for {}",
+            stage.name(),
+            unbound.join(", ")
+        ));
+    }
+    naga_check(stage, &assemble(stage, "", slots, body))
+}
+
 /// Runs `f` inside this thread's Validation, OutOfMemory and Internal error
 /// scopes and returns its result with the first error captured, if any.
 ///
@@ -536,13 +561,18 @@ impl RendererShared {
         }
     }
 
-    /// Compiles a preset's warp and composite bodies (`None` = built-in).
+    /// Compiles a preset's warp and composite bodies (`None` = built-in),
+    /// creating the composite pipeline for `comp_format` (the display
+    /// target's format) so that `Renderer::composite` into that format does
+    /// no shader compilation.
     ///
     /// User textures (`sampler_X` identifiers the prelude does not declare)
     /// are loaded with `tex(file)`, where `file` is `X` without its `fw_`,
     /// `fc_`, `pw_` or `pc_` prefix. A texture `tex` cannot supply is bound
     /// as 1x1 white and reported in `errors`; a stage that references more
     /// than 16 distinct user textures (counting warp then comp) falls back.
+    /// Only stages that pass naga validation load textures, and only stages
+    /// that compile count towards `blur_levels`.
     ///
     /// Safe to call from any thread: errors are caught in this thread's
     /// error scopes. Never panics on bad shader source or images.
@@ -550,19 +580,44 @@ impl RendererShared {
         &self,
         warp: Option<&str>,
         comp: Option<&str>,
+        comp_format: wgpu::TextureFormat,
         tex: &dyn Fn(&str) -> Option<RgbaImage>,
     ) -> ShaderSet {
         let mut errors = Vec::new();
-        let warp_scan = warp.map(shader_scan::scan).unwrap_or_default();
-        let comp_scan = comp.map(shader_scan::scan).unwrap_or_default();
-        let (slots, overflow) = shader_scan::allocate_slots([&warp_scan, &comp_scan]);
+        let bodies = [(Stage::Warp, warp), (Stage::Comp, comp)];
+        let scans = bodies.map(|(_, body)| body.map(shader_scan::scan).unwrap_or_default());
+        for ((stage, _), scan) in bodies.iter().zip(&scans) {
+            for e in &scan.errors {
+                errors.push(format!("{} shader: {e}", stage.name()));
+            }
+        }
+        let (slots, overflow) = shader_scan::allocate_slots(&scans);
         if !overflow.is_empty() {
             errors.push(format!(
                 "too many user textures (at most {MAX_USER_TEXTURES} per preset); not bound: {}",
                 overflow.join(", ")
             ));
         }
+        let fail = |errors: &mut Vec<String>, stage: Stage, e: String| {
+            tracing::warn!("{e}; using the built-in {} shader", stage.name());
+            errors.push(e);
+        };
 
+        // 1. Slot and naga checks; nothing is uploaded for a stage that fails.
+        let mut ok = [false; 2];
+        for (i, &(stage, body)) in bodies.iter().enumerate() {
+            if let Some(body) = body {
+                match check_stage(stage, body, &scans[i], &slots, &overflow) {
+                    Ok(()) => ok[i] = true,
+                    Err(e) => fail(&mut errors, stage, e),
+                }
+            }
+        }
+
+        // 2. User textures of the stages that passed (a subset of `slots`,
+        //    reallocated so the bound slots are contiguous).
+        let (slots, _) =
+            shader_scan::allocate_slots(scans.iter().zip(ok).filter_map(|(s, ok)| ok.then_some(s)));
         let mut texture_images = HashMap::new();
         let group1 = if slots.is_empty() {
             None
@@ -570,32 +625,46 @@ impl RendererShared {
             self.create_group1(&slots, tex, &mut texture_images, &mut errors)
         };
 
-        let mut stage = |stage: Stage, body: Option<&str>, scan: &Scan| {
-            let body = body?;
-            let result = self.compile_stage(stage, body, scan, &slots, &overflow, group1.as_ref());
-            match result {
-                Ok(compiled) => Some(compiled),
+        // 3. Modules and pipelines.
+        let mut compiled = [None, None];
+        for (i, &(stage, body)) in bodies.iter().enumerate() {
+            let Some(body) = body.filter(|_| ok[i]) else {
+                continue;
+            };
+            match self.build_stage(stage, body, &scans[i], &slots, group1.as_ref(), comp_format) {
+                Ok(c) => compiled[i] = Some(c),
                 Err(e) => {
-                    tracing::warn!("{e}; using the built-in {} shader", stage.name());
-                    errors.push(e);
-                    None
+                    ok[i] = false;
+                    fail(&mut errors, stage, e);
                 }
             }
-        };
-        let warp_shader = match stage(Stage::Warp, warp, &warp_scan) {
+        }
+        let [warp_compiled, comp_compiled] = compiled;
+        let warp_shader = match warp_compiled {
             Some(Compiled::Warp(w)) => w,
             _ => self.builtin_warp.clone(),
         };
-        let comp_shader = match stage(Stage::Comp, comp, &comp_scan) {
+        let comp_shader = match comp_compiled {
             Some(Compiled::Comp(c)) => c,
-            _ => self.builtin_comp.clone(),
+            _ => {
+                if let Err(e) = self.builtin_comp.prepare(&self.device, comp_format) {
+                    errors.push(format!("built-in comp shader: {e}"));
+                }
+                self.builtin_comp.clone()
+            }
         };
 
         ShaderSet {
             warp: warp_shader,
             comp: comp_shader,
             errors,
-            blur_levels: warp_scan.blur_levels.max(comp_scan.blur_levels),
+            blur_levels: scans
+                .iter()
+                .zip(ok)
+                .filter(|(_, ok)| *ok)
+                .map(|(s, _)| s.blur_levels)
+                .max()
+                .unwrap_or(0),
             user_textures: slots,
             warp_source: warp.map(str::to_string),
             comp_source: comp.map(str::to_string),
@@ -603,28 +672,18 @@ impl RendererShared {
         }
     }
 
-    fn compile_stage(
+    /// Builds a stage that passed [`check_stage`]: the module and pipelines
+    /// (for a composite, the pipeline for `comp_format`), inside error scopes.
+    fn build_stage(
         &self,
         stage: Stage,
         body: &str,
         scan: &Scan,
         slots: &[String],
-        overflow: &[String],
         group1: Option<&Group1>,
+        comp_format: wgpu::TextureFormat,
     ) -> Result<Compiled, String> {
         let name = stage.name();
-        let unbound: Vec<&str> = scan
-            .textures
-            .iter()
-            .filter(|t| overflow.contains(t))
-            .map(String::as_str)
-            .collect();
-        if !unbound.is_empty() {
-            return Err(format!(
-                "{name} shader: more than {MAX_USER_TEXTURES} user textures; no slot for {}",
-                unbound.join(", ")
-            ));
-        }
         let (decls, layout, bind_group) = match group1 {
             Some(g) => (slots, &g.pipeline_layout, Some(g.bind_group.clone())),
             None if scan.textures.is_empty() => (&[][..], &self.base_pipeline_layout, None),
@@ -634,10 +693,10 @@ impl RendererShared {
                 ));
             }
         };
-
+        // Same body as checked; only the group 1 declarations may have shrunk
+        // to the textures of the stages that passed, which still covers every
+        // texture this stage uses. wgpu validates the module again below.
         let a = assemble(stage, "", decls, body);
-        naga_check(stage, &a)?;
-
         let label = format!("user {name}");
         let device = &self.device;
         let (compiled, error) = scoped(device, || {
@@ -648,18 +707,18 @@ impl RendererShared {
                     group1: bind_group,
                 }),
                 Stage::Comp => {
-                    let comp = CompShader::new(module, layout.clone(), bind_group, &label);
-                    // Create one pipeline now so errors surface at compile
-                    // time; other target formats are created on first use.
-                    comp.create_validation_pipeline(device);
-                    Compiled::Comp(comp)
+                    Compiled::Comp(CompShader::new(module, layout.clone(), bind_group, &label))
                 }
             }
         });
-        match error {
-            None => Ok(compiled),
-            Some(e) => Err(format!("{name} shader: pipeline creation failed: {e}")),
+        if let Some(e) = error {
+            return Err(format!("{name} shader: pipeline creation failed: {e}"));
         }
+        if let Compiled::Comp(comp) = &compiled {
+            comp.prepare(device, comp_format)
+                .map_err(|e| format!("{name} shader: pipeline creation failed: {e}"))?;
+        }
+        Ok(compiled)
     }
 
     /// Loads the user textures and builds the group 1 layout and bind group.
@@ -922,9 +981,10 @@ impl Renderer {
         _gpu: &Gpu,
         warp: Option<&str>,
         comp: Option<&str>,
+        comp_format: wgpu::TextureFormat,
         tex: &dyn Fn(&str) -> Option<RgbaImage>,
     ) -> ShaderSet {
-        self.shared.compile_shaders(warp, comp, tex)
+        self.shared.compile_shaders(warp, comp, comp_format, tex)
     }
 }
 

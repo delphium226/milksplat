@@ -12,6 +12,7 @@ use ms_render::{
 };
 
 const SIZE: u32 = 128;
+const RGBA8: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 
 fn gpu() -> Gpu {
     match Gpu::headless() {
@@ -104,7 +105,7 @@ fn composite(gpu: &Gpu, r: &mut Renderer, shader: &CompShader, uniforms: &Unifor
 }
 
 fn compile(gpu: &Gpu, r: &Renderer, warp: Option<&str>, comp: Option<&str>) -> ShaderSet {
-    r.compile_shaders(gpu, warp, comp, &no_textures)
+    r.compile_shaders(gpu, warp, comp, RGBA8, &no_textures)
 }
 
 fn assert_all_near(img: &RgbaImage, rgb: [u8; 3], tol: u8) {
@@ -132,6 +133,45 @@ fn assert_images_near(actual: &RgbaImage, expected: &RgbaImage, tol: u8) {
             );
         }
     }
+}
+
+/// Reads an `Rgba16Float` texture back as raw f16 texels (no clamping).
+fn read_f16(gpu: &Gpu, tex: &wgpu::Texture) -> Vec<[half::f16; 4]> {
+    let (w, h) = (tex.width(), tex.height());
+    let padded =
+        (w * 8).div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT) * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+    let buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("read_f16"),
+        size: u64::from(padded) * u64::from(h),
+        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    let mut encoder = gpu
+        .device
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    encoder.copy_texture_to_buffer(
+        tex.as_image_copy(),
+        wgpu::TexelCopyBufferInfo {
+            buffer: &buffer,
+            layout: wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(padded),
+                rows_per_image: Some(h),
+            },
+        },
+        tex.size(),
+    );
+    gpu.queue.submit([encoder.finish()]);
+    buffer.map_async(wgpu::MapMode::Read, .., |r| r.unwrap());
+    gpu.poll_wait().unwrap();
+    let data = buffer.get_mapped_range(..).unwrap();
+    data.chunks_exact(padded as usize)
+        .flat_map(|row| row[..(w * 8) as usize].as_chunks::<8>().0)
+        .map(|t| {
+            let c = |i: usize| half::f16::from_le_bytes([t[2 * i], t[2 * i + 1]]);
+            [c(0), c(1), c(2), c(3)]
+        })
+        .collect()
 }
 
 #[test]
@@ -294,6 +334,180 @@ fn pipeline_error_falls_back() {
 }
 
 #[test]
+fn pipeline_error_off_thread_falls_back() {
+    let gpu = gpu();
+    let mut r = renderer(&gpu);
+    r.write_feedback(&gpu, &pattern());
+    let shared = r.shared();
+    // The pipeline error is raised on the spawned thread and must be caught
+    // by that thread's error scopes.
+    let set = std::thread::spawn(move || {
+        let body = "return extra.xyz;\n}\n\
+                    @group(2) @binding(0) var<uniform> extra: vec4f;\n\
+                    fn ms_unused() {";
+        shared.compile_shaders(None, Some(body), RGBA8, &no_textures)
+    })
+    .join()
+    .unwrap();
+    assert_eq!(set.errors.len(), 1, "{:?}", set.errors);
+    assert!(
+        set.errors[0].contains("pipeline creation failed"),
+        "{}",
+        set.errors[0]
+    );
+    let img = composite(&gpu, &mut r, &set.comp, &Uniforms::default());
+    assert_golden!(img, "comp_identity");
+}
+
+#[test]
+fn comp_pipeline_prepared_for_target_format() {
+    let gpu = gpu();
+    let mut r = renderer(&gpu);
+    let bgra = wgpu::TextureFormat::Bgra8Unorm;
+    let user = r.compile_shaders(
+        &gpu,
+        None,
+        Some("return vec3f(1.0, 0.0, 0.0);"),
+        bgra,
+        &no_textures,
+    );
+    let builtin = r.compile_shaders(&gpu, None, None, bgra, &no_textures);
+    assert!(user.errors.is_empty(), "{:?}", user.errors);
+    assert!(builtin.errors.is_empty(), "{:?}", builtin.errors);
+
+    // Compositing into the format the set was compiled for creates nothing.
+    let u = Uniforms::default();
+    let img = composite_to(&gpu, &mut r, bgra, &u, &[(&user.comp, 1.0)]);
+    assert_all_near(&img, [255, 0, 0], 0);
+    composite_to(&gpu, &mut r, bgra, &u, &[(&builtin.comp, 1.0)]);
+    assert_eq!(user.comp.render_thread_pipeline_creations(), 0);
+    assert_eq!(builtin.comp.render_thread_pipeline_creations(), 0);
+
+    // Another format still works, through the counted safety net.
+    let img = composite_to(&gpu, &mut r, RGBA8, &u, &[(&user.comp, 1.0)]);
+    assert_all_near(&img, [255, 0, 0], 0);
+    assert_eq!(user.comp.render_thread_pipeline_creations(), 1);
+}
+
+#[test]
+fn float_target_is_not_clamped() {
+    let gpu = gpu();
+    let mut r = Renderer::new(
+        &gpu,
+        RenderConfig {
+            internal_size: [SIZE, SIZE],
+            format: FeedbackFormat::Fp16,
+        },
+    );
+    let two = half::f16::from_f32(2.0);
+    let one = half::f16::from_f32(1.0);
+    r.write_feedback_f16(&gpu, &vec![[two, two, two, one]; (SIZE * SIZE) as usize]);
+    let float = wgpu::TextureFormat::Rgba16Float;
+    let u = Uniforms::default();
+    let user = r.compile_shaders(
+        &gpu,
+        None,
+        Some("return vec3f(2.0, 0.5, 70.0);"),
+        float,
+        &no_textures,
+    );
+    let builtin = r.compile_shaders(&gpu, None, None, float, &no_textures);
+    assert!(user.errors.is_empty(), "{:?}", user.errors);
+
+    let tex = target(&gpu, float);
+    let view = tex.create_view(&Default::default());
+    for (set, want) in [(&user, [2.0, 0.5, 64.0]), (&builtin, [2.0, 2.0, 2.0])] {
+        let layer = CompositeLayer {
+            shader: &set.comp,
+            uniforms: &u,
+            alpha: 1.0,
+        };
+        r.composite(&gpu, &view, float, &[layer]);
+        let texel = read_f16(&gpu, &tex)[0];
+        // Sanitised to [0, 64], but not clamped to 1.
+        assert_eq!(texel.map(f32::from)[..3], want);
+    }
+
+    // The same built-in clamps on a unorm target.
+    let img = composite_to(&gpu, &mut r, RGBA8, &u, &[(&builtin.comp, 1.0)]);
+    assert_all_near(&img, [255, 255, 255], 0);
+}
+
+#[test]
+fn fallen_back_stage_does_not_drive_blur_or_textures() {
+    let gpu = gpu();
+    let r = renderer(&gpu);
+    let requested = Mutex::new(Vec::new());
+    let tex = |file: &str| {
+        requested.lock().unwrap().push(file.to_string());
+        Some(RgbaImage::from_pixel(1, 1, Rgba([255; 4])))
+    };
+    // The warp fails naga: its blur level and texture must not count.
+    let set = r.compile_shaders(
+        &gpu,
+        Some("return textureSample(sampler_rock, sampler_rock_s, uv).rgb + GetBlur3(uv) +;"),
+        Some("return GetBlur1(uv) + textureSample(sampler_pc_sky, sampler_pc_sky_s, uv).rgb;"),
+        RGBA8,
+        &tex,
+    );
+    assert_eq!(set.errors.len(), 1, "{:?}", set.errors);
+    assert!(
+        set.errors[0].starts_with("warp shader"),
+        "{}",
+        set.errors[0]
+    );
+    assert_eq!(set.blur_levels, 1);
+    assert_eq!(set.user_textures, ["pc_sky"]);
+    assert_eq!(*requested.lock().unwrap(), ["sky"]);
+
+    // A pipeline-stage failure (after naga) does not count for blur levels.
+    let set = r.compile_shaders(
+        &gpu,
+        None,
+        Some(
+            "return GetBlur2(uv) + extra.xyz;\n}\n\
+             @group(2) @binding(0) var<uniform> extra: vec3f;\n\
+             fn ms_unused() {",
+        ),
+        RGBA8,
+        &no_textures,
+    );
+    assert_eq!(set.errors.len(), 1, "{:?}", set.errors);
+    assert!(
+        set.errors[0].contains("pipeline creation failed"),
+        "{}",
+        set.errors[0]
+    );
+    assert_eq!(set.blur_levels, 0);
+}
+
+#[test]
+fn empty_texture_name_is_an_error() {
+    let gpu = gpu();
+    let r = renderer(&gpu);
+    let set = compile(
+        &gpu,
+        &r,
+        None,
+        Some("return textureSample(sampler_fc_, sampler_fc__s, uv).rgb;"),
+    );
+    assert!(set.user_textures.is_empty());
+    assert!(
+        set.errors[0].contains("empty texture name"),
+        "{:?}",
+        set.errors
+    );
+    // The identifier stays undeclared, so the stage falls back too.
+    assert!(
+        set.errors
+            .iter()
+            .any(|e| e.contains("no definition in scope")),
+        "{:?}",
+        set.errors
+    );
+}
+
+#[test]
 fn errors_report_user_line_numbers() {
     let gpu = gpu();
     let r = renderer(&gpu);
@@ -333,6 +547,7 @@ fn user_texture_bound() {
         &gpu,
         None,
         Some("return textureSample(sampler_fc_checker, sampler_fc_checker_s, uv).rgb;"),
+        RGBA8,
         &tex,
     );
     assert!(set.errors.is_empty(), "{:?}", set.errors);
@@ -386,15 +601,15 @@ fn too_many_user_textures_falls_back() {
     let tex = |_: &str| Some(RgbaImage::from_pixel(1, 1, Rgba([10, 10, 10, 255])));
 
     // Exactly 16 fit (and stay within the device's per-stage limits).
-    let set = r.compile_shaders(&gpu, None, Some(&body(16)), &tex);
+    let set = r.compile_shaders(&gpu, None, Some(&body(16)), RGBA8, &tex);
     assert!(set.errors.is_empty(), "{:?}", set.errors);
     assert_eq!(set.user_textures.len(), 16);
     let img = composite(&gpu, &mut r, &set.comp, &Uniforms::default());
     assert_all_near(&img, [160, 160, 160], 2);
 
-    // A 17th has no slot: the stage falls back.
-    let set = r.compile_shaders(&gpu, None, Some(&body(17)), &tex);
-    assert_eq!(set.user_textures.len(), 16);
+    // A 17th has no slot: the stage falls back, so nothing is bound.
+    let set = r.compile_shaders(&gpu, None, Some(&body(17)), RGBA8, &tex);
+    assert!(set.user_textures.is_empty(), "{:?}", set.user_textures);
     assert!(
         set.errors.iter().any(|e| e.contains("16")),
         "{:?}",
@@ -430,7 +645,12 @@ fn compile_off_thread() {
     let mut r = renderer(&gpu);
     let shared: RendererShared = r.shared();
     let set = std::thread::spawn(move || {
-        shared.compile_shaders(None, Some("return vec3f(0.0, 1.0, 0.0);"), &no_textures)
+        shared.compile_shaders(
+            None,
+            Some("return vec3f(0.0, 1.0, 0.0);"),
+            RGBA8,
+            &no_textures,
+        )
     })
     .join()
     .unwrap();
@@ -541,6 +761,53 @@ fn builtin_comp_effects() {
         },
     );
     assert_all_near(&img, [192, 192, 192], 1);
+    // brighten: sqrt(c) = 0.501.
+    let img = run(
+        &mut r,
+        Uniforms {
+            brighten: 1.0,
+            ..Uniforms::default()
+        },
+    );
+    assert_all_near(&img, [128, 128, 128], 1);
+
+    // darken_center on white: the centre pixel (offset 1/128 per axis in
+    // clip units, r = 0.01105) is scaled by 1 - 3/32 * (1 - r/0.05) = 0.927
+    // -> 236; outside radius 0.05 nothing changes.
+    r.write_feedback(&gpu, &RgbaImage::from_pixel(SIZE, SIZE, Rgba([255; 4])));
+    let img = run(
+        &mut r,
+        Uniforms {
+            darken_center: 1.0,
+            ..Uniforms::default()
+        },
+    );
+    for (x, y, want) in [(64, 64, 236), (63, 63, 236), (0, 0, 255), (80, 64, 255)] {
+        let p = img.get_pixel(x, y).0;
+        for c in 0..3 {
+            assert!(
+                p[c].abs_diff(want) <= 1,
+                "pixel ({x},{y}) = {p:?}, want {want}"
+            );
+        }
+    }
+
+    // Full echo zoomed 2x about the centre (no flip): pixel 16 samples texel
+    // 40.25 (inside a dot, white) and pixel 24 samples texel 44.25 (red);
+    // unzoomed they are red and a dot respectively.
+    r.write_feedback(&gpu, &pattern());
+    let img = run(
+        &mut r,
+        Uniforms {
+            echo_alpha: 1.0,
+            echo_zoom: 2.0,
+            ..Uniforms::default()
+        },
+    );
+    assert_eq!(img.get_pixel(16, 16).0, [255, 255, 255, 255]);
+    assert_eq!(img.get_pixel(24, 24).0, [220, 40, 40, 255]);
+    assert_eq!(pattern().get_pixel(16, 16).0, [220, 40, 40, 255]);
+    assert_eq!(pattern().get_pixel(24, 24).0, [255, 255, 255, 255]);
 
     // Full echo flipped left-right: the image is mirrored.
     r.write_feedback(&gpu, &pattern());

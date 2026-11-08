@@ -1,16 +1,13 @@
 //! The composite pass: draws the latest feedback buffer to a display target
 //! through one or more composite shaders (spec §6.3).
 
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use crate::feedback::Renderer;
 use crate::gpu::Gpu;
 use crate::shaders::{self, Uniforms};
 use crate::warp::{self, LayerSlot};
-
-/// The target format used to create a composite shader's first pipeline at
-/// compile time, so that pipeline errors are caught there.
-const VALIDATION_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 
 /// Layer mixing: colour and alpha = src * k + dst * (1 - k), with k the blend
 /// constant, set per draw to the layer's alpha (1 for the first layer). The
@@ -35,7 +32,10 @@ const COMP_BLEND: wgpu::BlendState = wgpu::BlendState {
 
 /// A compiled composite shader (built-in or a preset's).
 ///
-/// Pipelines are created per target format on first use and cached here; a
+/// Pipelines are cached here per target format. Shader compilation (on the
+/// loader thread) creates the one for the target format it is given; any
+/// other format is created on first use in [`Renderer::composite`] (a safety
+/// net, e.g. after the window's format changed, which logs a warning), and a
 /// format whose pipeline cannot be created falls back to the built-in
 /// composite. Cheap to clone; `Send + Sync`.
 #[derive(Clone)]
@@ -51,6 +51,8 @@ struct CompInner {
     group1: Option<wgpu::BindGroup>,
     /// Pipelines by target format; `None` = creation failed.
     pipelines: Mutex<Vec<(wgpu::TextureFormat, Option<wgpu::RenderPipeline>)>>,
+    /// Pipelines created by `composite` rather than ahead of time.
+    lazy_creations: AtomicUsize,
 }
 
 impl CompShader {
@@ -67,41 +69,73 @@ impl CompShader {
                 layout,
                 group1,
                 pipelines: Mutex::new(Vec::new()),
+                lazy_creations: AtomicUsize::new(0),
             }),
         }
     }
 
-    /// Creates and caches the pipeline for [`VALIDATION_FORMAT`] without an
-    /// error scope of its own: the caller's scope sees any error.
-    pub(crate) fn create_validation_pipeline(&self, device: &wgpu::Device) {
-        let pipeline = self.create_pipeline(device, VALIDATION_FORMAT);
-        self.lock().push((VALIDATION_FORMAT, Some(pipeline)));
+    /// Creates (inside this thread's error scopes) and caches the pipeline
+    /// for `format`, unless it is cached already.
+    pub(crate) fn prepare(
+        &self,
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+    ) -> Result<(), String> {
+        let mut cache = self.lock();
+        if let Some((_, pipeline)) = cache.iter().find(|(f, _)| *f == format) {
+            return match pipeline {
+                Some(_) => Ok(()),
+                None => Err(format!("the pipeline for {format:?} failed earlier")),
+            };
+        }
+        let (pipeline, error) = shaders::scoped(device, || self.create_pipeline(device, format));
+        match error {
+            None => {
+                cache.push((format, Some(pipeline)));
+                Ok(())
+            }
+            Some(e) => {
+                cache.push((format, None));
+                Err(format!("cannot create the pipeline for {format:?}: {e}"))
+            }
+        }
     }
 
-    /// The pipeline for `format`, created (inside error scopes) and cached on
-    /// first use. `None` if it cannot be created.
+    /// The cached pipeline for `format`: `None` if not created yet,
+    /// `Some(None)` if creation failed.
+    fn cached(&self, format: wgpu::TextureFormat) -> Option<Option<wgpu::RenderPipeline>> {
+        self.lock()
+            .iter()
+            .find(|(f, _)| *f == format)
+            .map(|(_, p)| p.clone())
+    }
+
+    /// The pipeline for `format`, created now (with a warning) if shader
+    /// compilation did not prepare it. `None` if it cannot be created.
     fn pipeline(
         &self,
         device: &wgpu::Device,
         format: wgpu::TextureFormat,
     ) -> Option<wgpu::RenderPipeline> {
-        let mut cache = self.lock();
-        if let Some((_, pipeline)) = cache.iter().find(|(f, _)| *f == format) {
-            return pipeline.clone();
+        if let Some(pipeline) = self.cached(format) {
+            return pipeline;
         }
-        let (pipeline, error) = shaders::scoped(device, || self.create_pipeline(device, format));
-        let pipeline = match error {
-            None => Some(pipeline),
-            Some(e) => {
-                tracing::error!(
-                    "{}: cannot create a composite pipeline for {format:?}: {e}",
-                    self.inner.label
-                );
-                None
-            }
-        };
-        cache.push((format, pipeline.clone()));
-        pipeline
+        tracing::warn!(
+            "{}: no composite pipeline prepared for {format:?}; creating it on the render thread",
+            self.inner.label
+        );
+        self.inner.lazy_creations.fetch_add(1, Ordering::Relaxed);
+        if let Err(e) = self.prepare(device, format) {
+            tracing::error!("{}: {e}", self.inner.label);
+        }
+        self.cached(format).flatten()
+    }
+
+    /// How many pipelines [`Renderer::composite`] had to create itself
+    /// because shader compilation had not prepared them (test hook).
+    #[doc(hidden)]
+    pub fn render_thread_pipeline_creations(&self) -> usize {
+        self.inner.lazy_creations.load(Ordering::Relaxed)
     }
 
     fn lock(
@@ -120,6 +154,7 @@ impl CompShader {
         format: wgpu::TextureFormat,
     ) -> wgpu::RenderPipeline {
         let inner = &self.inner;
+        let clamp = if clamps_output(format) { 1.0 } else { 0.0 };
         device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some(&inner.label),
             layout: Some(&inner.layout),
@@ -135,7 +170,10 @@ impl CompShader {
             fragment: Some(wgpu::FragmentState {
                 module: &inner.module,
                 entry_point: Some("fs_main"),
-                compilation_options: Default::default(),
+                compilation_options: wgpu::PipelineCompilationOptions {
+                    constants: &[("ms_clamp_output", clamp)],
+                    ..Default::default()
+                },
                 targets: &[Some(wgpu::ColorTargetState {
                     format,
                     blend: Some(COMP_BLEND),
@@ -146,6 +184,23 @@ impl CompShader {
             cache: None,
         })
     }
+}
+
+/// Whether composite output is clamped to [0, 1] for `format`: yes for
+/// unorm (and every other non-float) format, no for float formats, which keep
+/// values above 1.
+fn clamps_output(format: wgpu::TextureFormat) -> bool {
+    use wgpu::TextureFormat as F;
+    !matches!(
+        format,
+        F::R16Float
+            | F::Rg16Float
+            | F::Rgba16Float
+            | F::R32Float
+            | F::Rg32Float
+            | F::Rgba32Float
+            | F::Rg11b10Ufloat
+    )
 }
 
 /// One weighted composite of the latest feedback buffer.
@@ -181,7 +236,9 @@ impl Renderer {
     /// target).
     ///
     /// A layer whose shader cannot be used for `target_format` is drawn with
-    /// the built-in composite instead. Does not block.
+    /// the built-in composite instead. Pipelines for `target_format` should
+    /// have been created by `compile_shaders(.., target_format, ..)`; any
+    /// other format is created here, with a warning. Does not block.
     pub fn composite(
         &mut self,
         gpu: &Gpu,

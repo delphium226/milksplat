@@ -28,6 +28,8 @@ pub(crate) struct Scan {
     pub textures: Vec<String>,
     /// Highest blur level used via `GetBlurN` or `sampler_blurN` (0 if none).
     pub blur_levels: u8,
+    /// Problems found while scanning (e.g. an empty texture file name).
+    pub errors: Vec<String>,
 }
 
 /// Scans a user shader body.
@@ -35,7 +37,8 @@ pub(crate) struct Scan {
 /// A user texture is an identifier `sampler_X` with `X` matching
 /// `[a-z0-9_]+` (WGSL is case-sensitive) that the prelude does not declare.
 /// `sampler_X_s` (the texture's sampler) refers to texture `X`, so texture
-/// names cannot themselves end in `_s`.
+/// names cannot themselves end in `_s`. A name that is only a prefix
+/// (`fc_`, ...) is rejected with an error.
 pub(crate) fn scan(source: &str) -> Scan {
     let mut out = Scan::default();
     for ident in identifiers(source) {
@@ -58,6 +61,15 @@ pub(crate) fn scan(source: &str) -> Scan {
             _ => rest,
         };
         if PRELUDE_TEXTURES.contains(&name) {
+            continue;
+        }
+        if split_prefix(name).1.is_empty() {
+            // `sampler_fc_` and the like: no file name after the prefix. The
+            // identifier stays undeclared, so the stage then fails to compile.
+            let e = format!("`{ident}`: empty texture name after the `{name}` prefix");
+            if !out.errors.contains(&e) {
+                out.errors.push(e);
+            }
             continue;
         }
         if !out.textures.iter().any(|t| t == name) {
@@ -197,6 +209,20 @@ mod tests {
     }
 
     #[test]
+    fn empty_file_name_is_rejected() {
+        let s = scan("sampler_fc_ sampler_fc__s sampler_pw_ sampler_ok");
+        assert_eq!(s.textures, ["ok"]);
+        assert_eq!(
+            s.errors,
+            [
+                "`sampler_fc_`: empty texture name after the `fc_` prefix",
+                "`sampler_fc__s`: empty texture name after the `fc_` prefix",
+                "`sampler_pw_`: empty texture name after the `pw_` prefix",
+            ]
+        );
+    }
+
+    #[test]
     fn comments_are_ignored() {
         let s = scan("// sampler_a GetBlur3\n/* sampler_b /* nested */ GetBlur2 */ sampler_c");
         assert_eq!(s.textures, ["c"]);
@@ -230,6 +256,7 @@ mod tests {
         let warp = Scan {
             textures: (0..10).map(|i| format!("w{i}")).collect(),
             blur_levels: 0,
+            errors: Vec::new(),
         };
         let comp = Scan {
             textures: ["w0".to_string()]
@@ -237,6 +264,7 @@ mod tests {
                 .chain((0..8).map(|i| format!("c{i}")))
                 .collect(),
             blur_levels: 0,
+            errors: Vec::new(),
         };
         let (slotted, overflow) = allocate_slots([&warp, &comp]);
         assert_eq!(slotted.len(), 16);

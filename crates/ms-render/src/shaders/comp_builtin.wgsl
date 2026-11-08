@@ -11,7 +11,9 @@
 //      echo_uv = (uv - 0.5) * flip / max(echo_zoom, 0.001) + 0.5
 //      c = mix(GetMain(uv), GetMain(echo_uv), echo_alpha)
 // 2. Gamma: c = pow(max(c, 0), 1 / max(gamma, 0.001)), then clamped to
-//    [0, 1]. (MilkDrop brightens by re-adding the image `gamma` times, which
+//    [0, 1] for unorm targets (ms_output_range; float targets keep values
+//    above 1, and steps 3-4 may then go negative, which the stage wrapper
+//    sanitises to 0). (MilkDrop brightens by re-adding the image `gamma` times, which
 //    is roughly c * gamma; the pow form is this project's ruling.)
 // 3. brighten: c = mix(c, sqrt(c), brighten)          (MilkDrop: square-root
 //                                                      filter)
@@ -24,7 +26,7 @@
 //      c = c * (1 - darken_center * 3/32 * max(0, 1 - r / 0.05)),
 //    r = length(ms_centre_offset(uv)).
 //
-// Every step keeps c in [0, 1] for [0, 1] inputs; with default uniforms
+// For unorm targets every step keeps c in [0, 1]; with default uniforms
 // (gamma 1, echo_alpha 0, all flags 0) the result is the main image.
 
 fn ms_comp_builtin(uv: vec2<f32>) -> vec3<f32> {
@@ -38,7 +40,7 @@ fn ms_comp_builtin(uv: vec2<f32>) -> vec3<f32> {
     var c = mix(GetMain(uv), GetMain(echo_uv), clamp(u.echo_alpha, 0.0, 1.0));
 
     // 2. Gamma.
-    c = clamp(pow(max(c, vec3<f32>(0.0)), vec3<f32>(1.0 / max(u.gamma, 0.001))), vec3<f32>(0.0), vec3<f32>(1.0));
+    c = ms_output_range(pow(max(c, vec3<f32>(0.0)), vec3<f32>(1.0 / max(u.gamma, 0.001))));
 
     // 3. Brighten, darken, solarize.
     c = mix(c, sqrt(c), clamp(u.brighten, 0.0, 1.0));
