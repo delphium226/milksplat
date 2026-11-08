@@ -1,0 +1,160 @@
+# Turing Reef: a living reef of bioluminescent coral that grows, branches
+# and dissolves with the music. The feedback buffer is a chemical field
+# rather than a picture: red holds an activator that a difference of blurs
+# (short-range growth, long-range inhibition) turns into Turing patterns of
+# spots and labyrinths, green tags each patch with the colour of the moment
+# it grew, and blue remembers last tick's activator so the composite can
+# light the growing edges. A slow ocean current shears the reef, every
+# kick drops spores that sprout new colonies, the bass feeds growth while
+# quiet passages let the reef melt back, and the composite lights it all
+# as glowing relief over a deep-sea gradient.
+version = 1
+
+[meta]
+name = "Turing Reef"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+feedback_format = "fp16"
+decay = 1.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [48, 36]
+
+[code]
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+sm = sm + (min(mid_att, 2.5) - sm) * 0.03;
+st = st + (min(treb, 2.5) - st) * 0.15;
+// Growth bias: fed by the bass, with a slow tide that lets the reef melt
+// back and regrow over about a minute.
+tide = sin(time * 0.105) * 0.5 + 0.5;
+q1 = -0.1 + 0.12 * min(sb, 2) / 2 - 0.12 * tide * tide;
+// Current: phase and strength of the shearing flow.
+q2 = time * 0.05;
+q3 = 0.6 + 0.6 * min(sm, 2) / 2;
+
+// The colour field's drift through the noise volume.
+q4 = time * 0.004;
+q5 = st;
+q6 = sb;
+// Spores: a short burst after each kick.
+bt = max(bt * 0.9, beat);
+q7 = bt;
+q8 = time;
+// The reef drifts outward from a wandering centre and slowly turns; the
+// motion eases in after the first few seconds, while the young reef forms.
+mo = min(1, max(0, (time - 2.5) / 2.5));
+q9 = mo;
+zoom = 1 + mo * (0.0012 + 0.0018 * min(sb, 2) / 2);
+rot = mo * 0.0012 * sin(time * 0.031);
+cx = 0.5 + 0.15 * sin(time * 0.043);
+cy = 0.5 + 0.12 * cos(time * 0.037);
+'''
+vertex = '''
+// A slow ocean current: two counter-rotating eddies that wander.
+cxv = 0.5 + 0.3 * sin(q2 * 0.7);
+cyv = 0.5 + 0.25 * cos(q2 * 0.53);
+ddx = x - cxv;
+ddy = y - cyv;
+d2 = ddx * ddx + ddy * ddy;
+swirl = 0.004 * q9 * q3 * exp(-d2 * 6) * sin(q2 * 0.31 + 1.2);
+dx = -ddy * swirl * 6 + 0.0003 * q9 * sin(y * 9 + q2 * 2);
+dy = ddx * swirl * 6 + 0.0003 * q9 * cos(x * 7 - q2 * 1.6);
+'''
+
+# Spores: after each kick a few seeds land at random and sprout.
+[[shape]]
+enabled = true
+sides = 12
+instances = 6
+rad = 0.012
+r = 1.0
+g = 0.5
+b = 0.0
+a = 1.0
+r2 = 1.0
+g2 = 0.5
+b2 = 0.0
+a2 = 0.0
+border_a = 0.0
+frame = '''
+t1 = floor(q8 * 3);
+h1 = sin((instance * 13 + t1) * 12.9898) * 43758.5453; h1 = h1 - floor(h1);
+h2 = sin((instance * 7 + t1) * 78.233) * 24634.6345; h2 = h2 - floor(h2);
+x = 0.08 + 0.84 * h1;
+y = 0.08 + 0.84 * h2;
+g = h2; g2 = h2;
+a = min(1, q7) * 0.9;
+rad = 0.008 + 0.01 * min(q6, 2);
+'''
+
+[shader]
+warp = '''
+// Reaction: a difference of blurs (blur 2 grows, blur 3 inhibits) around
+// a neutral midpoint; uniform patches are unstable, so the field breaks
+// into spots and labyrinths whose size is set by the blur radii. While the
+// reef is dormant (no motion yet) it is read texel for texel, so it holds
+// perfectly still.
+let still = u.q[2].x <= 0.0;
+let m = select(GetMain(uv), textureSampleLevel(sampler_main, s_pc, uv_orig, 0.0).rgb, still);
+let b2 = GetBlur2(uv);
+let b3 = GetBlur3(uv);
+let drive = 0.5 + 3.2 * (b2.r - b3.r) + 0.55 * (m.r - 0.5) + u.q[0].x;
+let goal = smoothstep(0.1, 0.9, drive);
+// On the first ticks the bath is seeded with smooth blobs of noise: a
+// dormant young reef that wakes (the reaction eases in, q9) after a few
+// seconds.
+// (Procedural rather than a texture lookup, so every GPU seeds exactly
+// the same reef.)
+let sq = uv_orig * vec2f(u.texsize.x * u.texsize.w, 1.0) * 9.0;
+let sv = sin(sq.x + 1.3 * sin(sq.y * 0.7)) * sin(sq.y * 1.1 + 0.8 * sin(sq.x * 0.6 + 2.0))
+    + 0.5 * sin(sq.x * 0.37 - sq.y * 1.7 + 4.0);
+let seed = smoothstep(0.35, 0.85, sv);
+let a = select(mix(m.r, goal, 0.22 * u.q[2].x), seed, u.frame < 3.0);
+// Tags: colour spreads with growth from the neighbours (so each colony
+// keeps the colour of the spore that founded it) and drifts very slowly.
+let grow = clamp((a - m.r) * 30.0, 0.0, 1.0);
+let fp = uv_orig * vec2f(5.0, 3.0);
+let ft = u.q[0].w * 6.0;
+let field = 0.5 + 0.25 * sin(fp.x + 1.7 * sin(fp.y * 0.8 + ft) + ft * 0.7) + 0.25 * sin(fp.y * 1.3 - 1.2 * sin(fp.x * 0.6 - ft * 1.3));
+let tag = select(mix(mix(m.g, b2.g, 0.02 + 0.3 * grow), field, 0.006), field, u.frame < 3.0);
+return vec3f(a, tag, m.r);
+'''
+comp = '''
+let m = GetMain(uv);
+let e = u.texsize.zw * 3.0;
+// Relief from the blurred activator.
+let hx = GetBlur1(uv + vec2f(e.x, 0.0)).r - GetBlur1(uv - vec2f(e.x, 0.0)).r;
+let hy = GetBlur1(uv + vec2f(0.0, e.y)).r - GetBlur1(uv - vec2f(0.0, e.y)).r;
+let n = normalize(vec3f(-hx * 3.0, hy * 3.0, 1.0));
+let lit = clamp(dot(n, normalize(vec3f(-0.45, 0.55, 0.7))), 0.0, 1.0);
+let spec = pow(lit, 24.0);
+// Palette along the tag: teal, cyan, violet, magenta, amber.
+let t = (m.g - 0.5) * 2.6 + u.q[0].w * 6.0;
+let hue = 0.5 + 0.5 * cos(6.2831853 * (vec3f(0.95, 0.75, 0.6) * t + vec3f(0.55, 0.35, 0.15)));
+// Shade from a slightly softened field, so edges stay smooth at any size.
+let sa = mix(m.r, GetBlur1(uv).r, 0.5);
+let body = smoothstep(0.2, 0.8, sa);
+let rim = smoothstep(0.1, 0.45, sa) * (1.0 - smoothstep(0.45, 0.85, sa));
+let front = clamp((m.r - m.b) * 10.0, 0.0, 1.0);
+let glow = GetBlur2(uv).r;
+// Deep sea: a dark gradient with drifting caustic shimmer.
+let cz = textureSample(sampler_noisevol_hq, s_fw, vec3f(uv * vec2f(1.6, 0.9), u.q[1].w * 0.02)).r;
+let sea = mix(vec3f(0.015, 0.04, 0.085), vec3f(0.025, 0.1, 0.14), 1.0 - uv.y) * (0.8 + 0.4 * cz);
+let coral = hue * body * (0.06 + 0.3 * lit) + vec3f(spec) * body * 0.25;
+let edge = (hue * 0.9 + vec3f(0.15, 0.25, 0.25)) * rim * (0.6 + 0.3 * min(u.q[1].x, 2.0));
+let halo = hue * glow * 0.25;
+let spark = vec3f(0.7, 0.95, 1.0) * front * (0.25 + 0.35 * min(u.q[1].x, 2.0) / 2.0);
+// Bioluminescence: bands of light ripple through each branch, from the
+// rims inward, faster and brighter with the bass.
+let depth = GetBlur1(uv).r;
+let pulse = 0.5 + 0.5 * sin(depth * 9.0 - u.q[1].w * (1.2 + 0.8 * min(u.q[1].y, 2.0)));
+let lum = hue * body * pulse * pulse * (0.12 + 0.2 * min(u.q[1].y, 2.0) / 2.0);
+let aura = hue * GetBlur3(uv).r * 0.3;
+// The young reef fades in over its first two seconds.
+let fade = smoothstep(0.0, 2.0, u.time);
+return sea + (coral + edge + halo + spark + lum + aura) * fade;
+'''

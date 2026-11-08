@@ -1,0 +1,197 @@
+# Ebru Tide: paper marbling, live. Drops of ink fall on a bath and spread,
+# pushing every earlier drop outward into rings; combs are drawn through
+# the bath in slow strokes, pulling the rings into feathers, chevrons and
+# waves; a stylus stirs lazy spirals; flecks of gold land on the surface.
+# The warp shader applies the real marbling transforms (an area-preserving
+# push for each growing drop, a tine-comb shear and a vortex) backwards per
+# pixel; the buffer holds how much light the inks absorb, so an empty bath
+# is clean paper and the composite prints it on warm laid paper with a wet
+# sheen. Kicks drop ink (often into the same spot, building bullseyes), the
+# bass sets the size of each drop, mids drive the combs and the stylus,
+# treble scatters gold, and the inks change mood every forty-five seconds.
+version = 1
+
+[meta]
+name = "Ebru Tide"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+feedback_format = "fp16"
+decay = 1.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [32, 24]
+
+[code]
+init = '''
+slot = 0; idle = 10; lx = 0; ly = 0; ka = 0; kb = 3;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.1;
+sm = sm + (min(mid_att, 2.5) - sm) * 0.04;
+st = st + (min(treb, 2.5) - st) * 0.25;
+aspx = 1 / aspecty;
+// Drops: on a kick (at most every 0.45 s), or after 2.2 s without one.
+cool = cool - 1 / 60;
+idle = idle + 1 / 60;
+mood = floor(time / 45);
+if((beat * below(cool, 0)) + above(idle, 2.2),
+  slot = 1 - slot;
+  same = below(rand(100), 45) * above(time, 1);
+  nx = if(same, lx, (rand(1000) / 1000 - 0.5) * aspx * 0.8);
+  ny = if(same, ly, (rand(1000) / 1000 - 0.5) * 0.75);
+  lx = nx; ly = ny;
+  rr = 0.06 + 0.1 * min(sb, 2) / 2 + 0.03 * rand(100) / 100;
+  k = if(below(rand(100), 30), 6, (rand(4) + mood * 2) % 6);
+  if(slot, xa = nx; ya = ny; ra = rr; ka = k; aga = 0, xb = nx; yb = ny; rb = rr; kb = k; agb = 0);
+  cool = 0.45; idle = 0,
+  0);
+// Each drop spreads over 0.8 s: q gives this tick's added area (r^2).
+dur = 0.8;
+fa0 = min(1, aga / dur); aga = aga + 1 / 60; fa1 = min(1, aga / dur);
+fb0 = min(1, agb / dur); agb = agb + 1 / 60; fb1 = min(1, agb / dur);
+ea0 = fa0 * fa0 * (3 - 2 * fa0); ea1 = fa1 * fa1 * (3 - 2 * fa1);
+eb0 = fb0 * fb0 * (3 - 2 * fb0); eb1 = fb1 * fb1 * (3 - 2 * fb1);
+q1 = xa; q2 = ya; q3 = ra * ra * (ea1 - ea0); q4 = 0;
+q9 = xb; q10 = yb; q11 = rb * rb * (eb1 - eb0); q12 = 0;
+// Inks, as absorbance: indigo, vermilion, ochre, teal, rose, sepia, and a
+// clear drop that opens a ring of bare paper.
+q5 = if(equal(ka, 0), 1.9, if(equal(ka, 1), 0.08, if(equal(ka, 2), 0.15, if(equal(ka, 3), 1.7, if(equal(ka, 4), 0.15, if(equal(ka, 5), 0.9, 0))))));
+q6 = if(equal(ka, 0), 1.3, if(equal(ka, 1), 1.5, if(equal(ka, 2), 0.45, if(equal(ka, 3), 0.35, if(equal(ka, 4), 1.0, if(equal(ka, 5), 1.2, 0))))));
+q7 = if(equal(ka, 0), 0.35, if(equal(ka, 1), 1.9, if(equal(ka, 2), 1.6, if(equal(ka, 3), 0.55, if(equal(ka, 4), 0.55, if(equal(ka, 5), 1.6, 0))))));
+q13 = if(equal(kb, 0), 1.9, if(equal(kb, 1), 0.08, if(equal(kb, 2), 0.15, if(equal(kb, 3), 1.7, if(equal(kb, 4), 0.15, if(equal(kb, 5), 0.9, 0))))));
+q14 = if(equal(kb, 0), 1.3, if(equal(kb, 1), 1.5, if(equal(kb, 2), 0.45, if(equal(kb, 3), 0.35, if(equal(kb, 4), 1.0, if(equal(kb, 5), 1.2, 0))))));
+q15 = if(equal(kb, 0), 0.35, if(equal(kb, 1), 1.9, if(equal(kb, 2), 1.6, if(equal(kb, 3), 0.55, if(equal(kb, 4), 0.55, if(equal(kb, 5), 1.6, 0))))));
+// Combs: a 3 s stroke every 7 s, turning a quarter (or an eighth) each
+// time; every other stroke has wavy tines.
+sc = floor(time / 7);
+sp = (time - sc * 7) / 3;
+env = if(below(sp, 1), sin(sp * 3.14159), 0);
+cang = sc * 1.5708 + (sc % 3) * 0.7854;
+q17 = cos(cang); q18 = sin(cang);
+q19 = 0.0045 * env * (0.5 + 0.8 * min(sm, 2) / 2) * if(sc % 2, 1, -1);
+q20 = 0.04 * (sc % 2);
+q21 = 0.11 + 0.05 * (sc % 3);
+q22 = time * 0.4;
+q23 = 0.025;
+// The stylus: a slow vortex that wanders.
+q25 = 0.35 * sin(time * 0.13) * aspx;
+q26 = 0.25 * cos(time * 0.11);
+q27 = 0.006 * sin(time * 0.17) * (0.4 + 0.8 * min(sm, 2) / 2);
+q28 = 0.035;
+q29 = time;
+q30 = st;
+'''
+
+# Gold flecks: treble scatters them, and the combs drag them along.
+[[wave]]
+enabled = true
+samples = 24
+usedots = 1
+thick = 1
+r = 0.12
+g = 0.38
+b = 1.3
+a = 0.0
+frame = '''
+a = 0.5 * max(0, min(q30, 2.5) - 0.7);
+t1 = floor(q29 * 4);
+'''
+point = '''
+h1 = sin((sample * 31 + t1) * 12.9898) * 43758.5453; h1 = h1 - floor(h1);
+h2 = sin((sample * 17 + t1) * 78.233) * 24634.6345; h2 = h2 - floor(h2);
+x = 0.05 + 0.9 * h1;
+y = 0.05 + 0.9 * h2;
+'''
+
+[shader]
+warp = '''
+// Every transform is applied backwards: find where this pixel's ink was
+// before this tick. Coordinates: centred, aspect-corrected, height 1.
+let asp = u.texsize.x * u.texsize.w;
+var p = (uv_orig - vec2f(0.5)) * vec2f(asp, 1.0);
+let px = u.texsize.w;
+// Drops (the newer slot is applied first): a drop that adds area D at c
+// moves every point at distance r to sqrt(r^2 + D); inside sqrt(D) is
+// new ink.
+var cov_b = 0.0;
+{
+    let dv = p - u.q[2].xy;
+    let d2 = max(dot(dv, dv), 1e-9);
+    let add = u.q[2].z;
+    cov_b = select(0.0, smoothstep(sqrt(add) + px, sqrt(add) - px, sqrt(d2)), add > 0.0);
+    p = u.q[2].xy + dv * sqrt(max(0.0, 1.0 - add / d2));
+}
+var cov_a = 0.0;
+{
+    let dv = p - u.q[0].xy;
+    let d2 = max(dot(dv, dv), 1e-9);
+    let add = u.q[0].z;
+    cov_a = select(0.0, smoothstep(sqrt(add) + px, sqrt(add) - px, sqrt(d2)), add > 0.0);
+    p = u.q[0].xy + dv * sqrt(max(0.0, 1.0 - add / d2));
+}
+// The comb: tines (straight or wavy) moving along dir drag the bath
+// beside them, less with distance from the nearest tine.
+{
+    let dir = u.q[4].xy;
+    let along = dot(p, dir);
+    let perp = dot(p, vec2f(-dir.y, dir.x)) + u.q[4].w * sin(along * 14.0 + u.q[5].y);
+    let s = u.q[5].x;
+    let dist = s * abs(fract(perp / s) - 0.5);
+    p = p - dir * u.q[4].z * u.q[5].z / (u.q[5].z + dist);
+}
+// The stylus vortex: a rotation that fades with distance.
+{
+    let sv = p - u.q[6].xy;
+    let a = -u.q[6].z * exp(-dot(sv, sv) / u.q[6].w);
+    p = u.q[6].xy + vec2f(sv.x * cos(a) - sv.y * sin(a), sv.x * sin(a) + sv.y * cos(a));
+}
+let src = p / vec2f(asp, 1.0) + vec2f(0.5);
+// Resample with a Catmull-Rom filter (sharp, so the marbling stays crisp
+// through thousands of ticks), clamped to the four nearest texels so it
+// cannot ring.
+let ts = u.texsize.xy;
+let pos = src * ts - vec2f(0.5);
+let f0 = floor(pos);
+let fr = pos - f0;
+let w0 = fr * (-0.5 + fr * (1.0 - 0.5 * fr));
+let w1 = 1.0 + fr * fr * (-2.5 + 1.5 * fr);
+let w2 = fr * (0.5 + fr * (2.0 - 1.5 * fr));
+let w3 = fr * fr * (-0.5 + 0.5 * fr);
+var wx = vec4f(w0.x, w1.x, w2.x, w3.x);
+var wy = vec4f(w0.y, w1.y, w2.y, w3.y);
+var ink = vec3f(0.0);
+var lo = vec3f(1e9);
+var hi = vec3f(-1e9);
+for (var j = 0; j < 4; j++) {
+    for (var i = 0; i < 4; i++) {
+        let tc = (f0 + vec2f(f32(i) - 0.5, f32(j) - 0.5)) / ts;
+        let c = textureSampleLevel(sampler_main, s_pc, tc, 0.0).rgb;
+        ink += c * (wx[i] * wy[j]);
+        if (i == 1 || i == 2) && (j == 1 || j == 2) {
+            lo = min(lo, c);
+            hi = max(hi, c);
+        }
+    }
+}
+ink = clamp(ink, lo, hi);
+ink = mix(ink, u.q[1].xyz, cov_a);
+ink = mix(ink, u.q[3].xyz, cov_b);
+return ink;
+'''
+comp = '''
+// Print the absorbance on warm laid paper, with a wet sheen on the inks.
+let a = GetMain(uv);
+let fib = textureSample(sampler_noise_mq, s_fw, uv * vec2f(1.8, 1.0)).r;
+let paper = vec3f(0.91, 0.87, 0.78) * (0.96 + 0.04 * fib);
+var col = paper * exp(-a * 0.8);
+let e = u.texsize.zw * 2.0;
+let hx = dot(GetBlur1(uv + vec2f(e.x, 0.0)) - GetBlur1(uv - vec2f(e.x, 0.0)), vec3f(0.33));
+let hy = dot(GetBlur1(uv + vec2f(0.0, e.y)) - GetBlur1(uv - vec2f(0.0, e.y)), vec3f(0.33));
+let sheen = clamp(-hx * 1.5 + hy * 1.2, -0.05, 0.12);
+col = col + vec3f(sheen) * 0.6;
+let v = 1.0 - 0.18 * pow(rad, 2.5);
+return col * v;
+'''

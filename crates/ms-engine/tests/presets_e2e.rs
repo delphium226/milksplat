@@ -12,7 +12,8 @@
 //! runs the tuning harness: 600 ticks of every preset (or only those named
 //! in `MS_TUNE_ONLY`, comma-separated), printing the mean luminance over
 //! time and, if `MS_TUNE_OUT` names a folder, writing the composites of
-//! ticks 60, 300 and 600 there as PNGs. With `MS_TUNE_AUDIO` naming a raw
+//! ticks 60, 300 and 600 there as PNGs (see `tune_presets` for the tick
+//! count, size, shot and timing options). With `MS_TUNE_AUDIO` naming a raw
 //! recording (interleaved little-endian f32 stereo at 48 kHz, at least 10 s;
 //! never committed), it uses that instead of the synthetic music.
 
@@ -46,7 +47,7 @@ const HAT_SEED: u64 = 0x4A75_6E6B_4861_7473;
 const RGBA8: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 
 /// The bundled presets, by file stem. `presets/` must hold exactly these.
-const BUNDLED: [&str; 11] = [
+const BUNDLED: [&str; 16] = [
     "default",
     "ink-bloom",
     "bass-tunnel",
@@ -58,6 +59,11 @@ const BUNDLED: [&str; 11] = [
     "liquid-chrome",
     "starfield-warp",
     "neon-orbit",
+    "infinite-coil",
+    "turing-reef",
+    "lumen-cathedral",
+    "ebru-tide",
+    "tesseract-drift",
 ];
 
 // ------------------------------------------------------------ synthetic audio
@@ -134,12 +140,6 @@ fn music() -> &'static [AudioFrame] {
     MUSIC.get_or_init(|| analyse(600, |n| synth_audio(n as f64 / f64::from(RATE))))
 }
 
-/// 600 ticks of the music with double-time (4 Hz) hats, for the tuning
-/// harness's flash check.
-fn music_4hz_hats() -> Vec<AudioFrame> {
-    analyse(600, |n| synth_audio_hats(n as f64 / f64::from(RATE), 0.25))
-}
-
 /// 600 ticks of analysed silence, computed once.
 fn quiet() -> &'static [AudioFrame] {
     static QUIET: OnceLock<Vec<AudioFrame>> = OnceLock::new();
@@ -176,12 +176,12 @@ fn gpu() -> TestGpu {
     test_gpu()
 }
 
-/// A renderer in the preset's feedback format.
-fn renderer(gpu: &Gpu, p: &CompiledPreset) -> Renderer {
+/// A renderer in the preset's feedback format, `size` pixels.
+fn renderer(gpu: &Gpu, p: &CompiledPreset, size: [u32; 2]) -> Renderer {
     let mut r = Renderer::new(
         gpu,
         RenderConfig {
-            internal_size: [W, H],
+            internal_size: size,
             format: ms_render::FeedbackFormat::Rgba8,
         },
     );
@@ -236,8 +236,8 @@ fn texture_roots() -> Vec<PathBuf> {
 }
 
 /// The aspect multipliers the app uses for a `w x h` image.
-fn aspect() -> [f64; 2] {
-    let (w, h) = (f64::from(W), f64::from(H));
+fn aspect([w, h]: [u32; 2]) -> [f64; 2] {
+    let (w, h) = (f64::from(w), f64::from(h));
     if w >= h {
         [1.0, h / w]
     } else {
@@ -245,12 +245,12 @@ fn aspect() -> [f64; 2] {
     }
 }
 
-fn composite_target(gpu: &Gpu) -> wgpu::Texture {
+fn composite_target(gpu: &Gpu, [width, height]: [u32; 2]) -> wgpu::Texture {
     gpu.device.create_texture(&wgpu::TextureDescriptor {
         label: Some("preset e2e target"),
         size: wgpu::Extent3d {
-            width: W,
-            height: H,
+            width,
+            height,
             depth_or_array_layers: 1,
         },
         mip_level_count: 1,
@@ -271,26 +271,42 @@ fn render(
     stem: &str,
     audio: &[AudioFrame],
     want: impl Fn(usize) -> bool,
+    capture: impl FnMut(usize, RgbaImage),
+) {
+    render_at(gpu, stem, audio, [W, H], want, capture, None);
+}
+
+/// [`render`] at `size` pixels. With `times`, also composites every tick,
+/// waits for the GPU and pushes each tick's wall-clock cost (engine tick,
+/// warp, overlays, blur and composite) in milliseconds.
+fn render_at(
+    gpu: &Gpu,
+    stem: &str,
+    audio: &[AudioFrame],
+    size: [u32; 2],
+    want: impl Fn(usize) -> bool,
     mut capture: impl FnMut(usize, RgbaImage),
+    mut times: Option<&mut Vec<f64>>,
 ) {
     let p = load(stem);
-    let mut r = renderer(gpu, &p);
+    let mut r = renderer(gpu, &p, size);
     let set = shaders(stem, &r, gpu, &p);
     let mut inst = PresetInstance::new(p, SEED, [192, 144]);
     let mut globals = Globals::default();
-    let target = composite_target(gpu);
+    let target = composite_target(gpu, size);
     let view = target.create_view(&Default::default());
     let mut ones = Vec::new();
     for (i, a) in audio.iter().enumerate() {
         let k = i + 1;
+        let start = std::time::Instant::now();
         let input = TickInput {
             time: k as f64 / TICK_HZ,
             fps: TICK_HZ,
             frame: k as u64,
             progress: 0.0,
             audio: a,
-            aspect: aspect(),
-            pixels: [W, H],
+            aspect: aspect(size),
+            pixels: size,
         };
         let out = inst.tick(&input, &mut globals);
         r.set_spectrum(gpu, &a.spectrum);
@@ -306,6 +322,20 @@ fn render(
         );
         r.draw(gpu, &out.draw, 1.0);
         r.blur(gpu, set.blur_levels);
+        if let Some(times) = times.as_deref_mut() {
+            r.composite(
+                gpu,
+                &view,
+                RGBA8,
+                &[CompositeLayer {
+                    shader: &set.comp,
+                    uniforms: &out.uniforms,
+                    alpha: 1.0,
+                }],
+            );
+            gpu.poll_wait().expect("GPU lost while timing");
+            times.push(start.elapsed().as_secs_f64() * 1000.0);
+        }
         if want(k) {
             r.composite(
                 gpu,
@@ -407,6 +437,11 @@ preset_tests! {
     preset_liquid_chrome => "liquid-chrome",
     preset_starfield_warp => "starfield-warp",
     preset_neon_orbit => "neon-orbit",
+    preset_infinite_coil => "infinite-coil",
+    preset_turing_reef => "turing-reef",
+    preset_lumen_cathedral => "lumen-cathedral",
+    preset_ebru_tide => "ebru-tide",
+    preset_tesseract_drift => "tesseract-drift",
 }
 
 /// `presets/` holds exactly the bundled set (so every file has a test
@@ -452,7 +487,7 @@ fn bundled_set_coverage() {
     ];
     for stem in BUNDLED {
         let p = load(stem);
-        let r = renderer(&gpu, &p);
+        let r = renderer(&gpu, &p, [W, H]);
         let set = shaders(stem, &r, &gpu, &p);
         let src = &p.source;
         let code_uses_megabuf = [&src.code.init, &src.code.frame, &src.code.vertex]
@@ -480,19 +515,35 @@ fn bundled_set_coverage() {
     }
 }
 
-/// Tuning harness (see the module docs): 600 ticks per preset, mean
-/// luminance every tick, PNGs of ticks 60/300/600 to `MS_TUNE_OUT`. Prints
-/// the range, the mean and the largest tick-to-tick luminance change (a
+/// Tuning harness (see the module docs): `MS_TUNE_TICKS` (default 600)
+/// ticks per preset at `MS_TUNE_SIZE` (`WxH`, default the golden size),
+/// mean luminance every tick, PNGs of the ticks in `MS_TUNE_SHOTS`
+/// (comma-separated, default 60,300,600) to `MS_TUNE_OUT`. Prints the
+/// range, the mean and the largest tick-to-tick luminance change (a
 /// full-frame flash detector), for the music and, unless `MS_TUNE_AUDIO` is
-/// set, again for the music with double-time (4 Hz) hats. Fails if a
-/// preset's mean luminance leaves [0.05, 0.85] after the first second.
+/// set, again for the music with double-time (4 Hz) hats. With
+/// `MS_TUNE_BENCH=1` it also times 600 ticks of each preset at 1920x1080
+/// (engine tick plus every GPU pass, waiting for the GPU each tick). Fails
+/// if a preset's mean luminance leaves [0.05, 0.85] after the first second.
 #[test]
 #[ignore = "tuning harness: slow, prints numbers and writes PNGs"]
 fn tune_presets() {
     let gpu = gpu();
-    let only = std::env::var("MS_TUNE_ONLY").ok();
-    let out = std::env::var("MS_TUNE_OUT").ok().map(PathBuf::from);
-    let recorded = std::env::var("MS_TUNE_AUDIO").ok().map(|path| {
+    let env = |k: &str| std::env::var(k).ok();
+    let only = env("MS_TUNE_ONLY");
+    let out = env("MS_TUNE_OUT").map(PathBuf::from);
+    let ticks: usize = env("MS_TUNE_TICKS").map_or(600, |t| t.parse().expect("MS_TUNE_TICKS"));
+    let shots: Vec<usize> = env("MS_TUNE_SHOTS").map_or(vec![60, 300, 600], |s| {
+        s.split(',')
+            .map(|k| k.trim().parse().expect("MS_TUNE_SHOTS"))
+            .collect()
+    });
+    let size = env("MS_TUNE_SIZE").map_or([W, H], |s| {
+        let (w, h) = s.split_once('x').expect("MS_TUNE_SIZE is WxH");
+        [w.parse().expect("width"), h.parse().expect("height")]
+    });
+    let bench = env("MS_TUNE_BENCH").is_some_and(|b| b == "1");
+    let recorded = env("MS_TUNE_AUDIO").map(|path| {
         let bytes = std::fs::read(&path).expect("read MS_TUNE_AUDIO");
         let samples: Vec<f32> = bytes
             .as_chunks::<4>()
@@ -500,7 +551,7 @@ fn tune_presets() {
             .iter()
             .map(|b| f32::from_le_bytes(*b))
             .collect();
-        analyse(600, |n| {
+        analyse(ticks, |n| {
             let i = n as usize * 2;
             [
                 samples.get(i).copied().unwrap_or(0.0),
@@ -508,16 +559,23 @@ fn tune_presets() {
             ]
         })
     });
-    let hats4;
-    let runs: Vec<(&str, &[AudioFrame])> = match &recorded {
-        Some(r) => vec![("recorded", r.as_slice())],
-        None => {
-            hats4 = music_4hz_hats();
-            vec![("synthetic", music()), ("4 Hz hats", hats4.as_slice())]
-        }
+    let runs: Vec<(&str, Vec<AudioFrame>)> = match recorded {
+        Some(r) => vec![("recorded", r)],
+        None => vec![
+            (
+                "synthetic",
+                analyse(ticks, |n| synth_audio(n as f64 / f64::from(RATE))),
+            ),
+            (
+                "4 Hz hats",
+                analyse(ticks, |n| {
+                    synth_audio_hats(n as f64 / f64::from(RATE), 0.25)
+                }),
+            ),
+        ],
     };
     let mut bad = Vec::new();
-    for (label, audio) in runs {
+    for (label, audio) in &runs {
         println!("--- {label}");
         for stem in BUNDLED {
             if let Some(only) = &only {
@@ -526,20 +584,22 @@ fn tune_presets() {
                 }
             }
             let mut lum = Vec::new();
-            render(
+            render_at(
                 &gpu,
                 stem,
                 audio,
+                size,
                 |_| true,
                 |k, img| {
                     lum.push((k, luminance(&img)));
-                    if let (Some(dir), "synthetic" | "recorded") = (&out, label) {
-                        if [60, 300, 600].contains(&k) {
+                    if let (Some(dir), "synthetic" | "recorded") = (&out, *label) {
+                        if shots.contains(&k) {
                             let path = dir.join(format!("{stem}-{k}.png"));
                             img.save(&path).expect("save tuning PNG");
                         }
                     }
                 },
+                None,
             );
             let settled = lum.iter().filter(|(k, _)| *k >= 60).map(|(_, l)| *l);
             let (lo, hi) = settled.fold((f64::MAX, f64::MIN), |(lo, hi), l| (lo.min(l), hi.max(l)));
@@ -555,11 +615,32 @@ fn tune_presets() {
                 .map(|(_, l)| format!("{l:.3}"))
                 .collect();
             println!(
-            "{stem:15} luminance min {lo:.3} max {hi:.3} mean {mean:.3} max-tick-delta {jump:.4}  per second: {}",
-            trace.join(" ")
-        );
+                "{stem:15} luminance min {lo:.3} max {hi:.3} mean {mean:.3} max-tick-delta {jump:.4}  per second: {}",
+                trace.join(" ")
+            );
             if !(0.05..=0.85).contains(&lo) || !(0.05..=0.85).contains(&hi) {
                 bad.push(format!("{label} {stem}: [{lo:.3}, {hi:.3}]"));
+            }
+            if bench && *label != "4 Hz hats" {
+                let mut times = Vec::new();
+                let n = audio.len().min(600);
+                render_at(
+                    &gpu,
+                    stem,
+                    &audio[..n],
+                    [1920, 1080],
+                    |_| false,
+                    |_, _| {},
+                    Some(&mut times),
+                );
+                let mut t: Vec<f64> = times.into_iter().skip(30).collect();
+                t.sort_by(f64::total_cmp);
+                let avg = t.iter().sum::<f64>() / t.len() as f64;
+                println!(
+                    "{stem:15} 1920x1080 ms/tick: mean {avg:.2} p95 {:.2} max {:.2}",
+                    t[t.len() * 95 / 100],
+                    t[t.len() - 1]
+                );
             }
         }
     }

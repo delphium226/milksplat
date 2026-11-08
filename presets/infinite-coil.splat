@@ -1,0 +1,226 @@
+# Infinite Coil: an endless self-similar spiral you fall into forever.
+# The feedback buffer is not a picture of the screen but a seamless strip
+# in log-polar space (x = angle, y = log of the distance from the centre);
+# the composite unrolls it with a conformal map, so every turn of the coil
+# holds a smaller copy of the whole image and scrolling the strip zooms
+# without end and without a seam. Orbs drawn into the strip leave comet
+# trails that spiral outward, the waveform becomes a ring repeated at every
+# depth, and every half minute the coil smoothly changes its number of arms
+# and its twist. Bass drives the fall, mids turn the coil, treble scatters
+# sparks, and each kick launches a ring of light outward through the levels.
+version = 1
+
+[meta]
+name = "Infinite Coil"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+feedback_format = "fp16"
+decay = 0.982
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [32, 24]
+
+[code]
+init = '''
+curn = 3; curt = 1; prevn = 3; prevt = 1; lastcyc = 0; blend0 = -100;
+'''
+frame = '''
+// Smoothed bands (no frame-to-frame jumps reach the shaders).
+sb = sb + (min(bass, 2.5) - sb) * 0.12;
+sm = sm + (min(mid_att, 2.5) - sm) * 0.05;
+st = st + (min(treb, 2.5) - st) * 0.2;
+// Beat envelope: a target that jumps on the kick and an envelope that
+// chases it over a few ticks, then both release over about a second.
+bt = max(bt * 0.95, beat);
+be = be + (bt - be) * 0.2;
+// Falling: zoom phase in strip periods (one period = one level of the coil).
+zp = zp + 0.0022 + 0.0045 * sb;
+// Turning: rotation phase in strip widths, drifting both ways with the mids.
+rp = rp + 0.0006 * sin(time * 0.071) + 0.0012 * sm * sin(time * 0.023 + 1);
+// Every 30 s pick a new arm count and twist; blend over 8 s.
+cyc = floor(time / 30);
+if(cyc != lastcyc,
+  prevn = curn; prevt = curt;
+  k = cyc % 5;
+  curn = if(equal(k, 0), 3, if(equal(k, 1), 4, if(equal(k, 2), 2, if(equal(k, 3), 5, 3))));
+  curt = if(equal(k, 0), 1, if(equal(k, 1), 1, if(equal(k, 2), -1, if(equal(k, 3), 2, -2))));
+  blend0 = time; lastcyc = cyc,
+  0);
+w = min(1, max(0, (time - blend0) / 8));
+w = w * w * (3 - 2 * w);
+q1 = 0.0012 + 0.0022 * sb;
+q2 = 0.0004 * sin(time * 0.13);
+q3 = zp;
+q4 = rp;
+q5 = prevn; q6 = prevt; q7 = curn; q8 = curt;
+q9 = w;
+q10 = be;
+q11 = st;
+q12 = sb;
+q13 = time * 0.013;
+q14 = sm;
+'''
+
+# Orbs: they sit in bands of the strip and drift along it; the strip's
+# scroll stretches each into a trail that spirals outward on screen.
+[[shape]]
+enabled = true
+sides = 24
+instances = 14
+rad = 0.03
+r = 1.0
+g = 0.8
+b = 0.4
+a = 0.9
+r2 = 0.1
+g2 = 0.5
+b2 = 0.6
+a2 = 0.0
+border_a = 0.0
+additive = 1
+frame = '''
+h1 = sin(instance * 12.9898 + 4.1) * 43758.5453; h1 = h1 - floor(h1);
+h2 = sin(instance * 78.233 + 1.3) * 24634.6345; h2 = h2 - floor(h2);
+f = h1 + time * (0.008 + 0.02 * h2) * if(instance % 2, 1, -1);
+f = f - floor(f);
+x = 0.06 + 0.88 * f;
+y = 0.15 + 0.7 * h2;
+edge = min(1, min(f, 1 - f) * 12);
+rad = (0.014 + 0.02 * h1) * (0.7 + 0.5 * q12);
+gold = instance % 2;
+r = 0.1 + 0.9 * gold; g = 0.75 - 0.2 * gold + 0.1 * sin(q13 * 6 + instance); b = 0.95 - 0.8 * gold;
+r2 = 0.35 * gold; g2 = 0.1 + 0.05 * gold; b2 = 0.35 - 0.3 * gold;
+a = (0.22 + 0.2 * q12) * edge;
+'''
+
+# The waveform as a ring: a line across the strip is a circle on screen,
+# repeated at every depth of the coil. Its ends taper so the seam closes.
+[[wave]]
+enabled = true
+samples = 256
+thick = 1
+additive = 1
+r = 0.6
+g = 0.9
+b = 1.0
+a = 0.6
+frame = '''
+a = 0.25 + 0.25 * min(q11, 2) / 2;
+'''
+point = '''
+x = sample;
+y = 0.5 + (0.06 + 0.05 * q11) * value1 * sin(sample * 3.14159);
+'''
+
+# A rose: a closed sine ribbon across the strip (a whole number of waves,
+# so it meets itself at the seam) blooms into petals at every depth.
+[[wave]]
+enabled = true
+samples = 256
+thick = 1
+additive = 1
+r = 1.0
+g = 0.5
+b = 0.15
+a = 0.35
+frame = '''
+t1 = time * 0.37;
+t2 = 0.05 + 0.03 * min(q14, 2);
+a = 0.18 + 0.12 * min(q14, 2) / 2;
+'''
+point = '''
+x = sample;
+y = 0.3 + t2 * sin(sample * 12.56637 + t1) + 0.4 * t2 * sin(sample * 31.41593 - t1 * 1.7);
+'''
+
+# The kick ring: a faint line across the strip that the scroll carries
+# outward, so each beat sends a ring of light down the coil.
+[[wave]]
+enabled = true
+samples = 64
+thick = 1
+additive = 1
+r = 1.0
+g = 0.55
+b = 0.85
+a = 0.0
+frame = '''
+a = 0.5 * min(q10, 1);
+'''
+point = '''
+x = sample;
+y = 0.08;
+'''
+
+# Sparks: treble scatters points through the strip.
+[[wave]]
+enabled = true
+samples = 48
+usedots = 1
+thick = 1
+additive = 1
+r = 1.0
+g = 0.95
+b = 0.8
+a = 0.0
+frame = '''
+a = 0.15 + 0.5 * max(0, min(q11, 2.5) - 0.6);
+t1 = floor(time * 6);
+'''
+point = '''
+h1 = sin((sample * 97 + t1) * 12.9898) * 43758.5453; h1 = h1 - floor(h1);
+h2 = sin((sample * 57 + t1) * 78.233) * 24634.6345; h2 = h2 - floor(h2);
+x = h1;
+y = 0.1 + 0.8 * h2;
+'''
+
+[shader]
+warp = '''
+// The strip scrolls toward +y (outward on screen) and drifts along x,
+// stirred by a slow noise flow that tiles with the strip (period 1).
+let n = textureSampleLevel(sampler_noisevol_lq, s_fw, vec3f(uv_orig * 2.0, u.time * 0.015), 0.0).xy - vec2f(0.5);
+let src = uv_orig - vec2f(u.q[0].y, u.q[0].x) - n * 0.0025;
+let c = textureSampleLevel(sampler_main, s_fw, src, 0.0).rgb;
+let soft = textureSampleLevel(sampler_blur1, s_fw, src, 0.0).rgb;
+return mix(c, soft, 0.06) * u.decay;
+'''
+comp = '''
+// Unroll the log-polar strip: angle -> strip x (n copies per turn), log of
+// the distance -> strip y. Both jump by whole strip periods across the
+// angle seam, so with wrap addressing the coil has no seam. The period in
+// log-distance, 2 pi / (aspect * n), keeps the map conformal (round orbs
+// stay round). Two arm/twist settings are blended while the coil morphs.
+let asp = u.texsize.x * u.texsize.w;
+let p = (uv - vec2f(0.5)) * vec2f(asp, 1.0);
+let r = max(length(p), 0.0005);
+let th = atan2(p.y, p.x);
+let lr = log(r);
+// Far down the coil the strip is tiny on screen: use its blurred levels.
+let m1 = smoothstep(0.16, 0.05, r);
+let m2 = smoothstep(0.05, 0.012, r);
+var col = vec3f(0.0);
+var glow = vec3f(0.0);
+for (var i = 0; i < 2; i++) {
+    let first = i == 0;
+    let n = select(u.q[1].z, u.q[1].x, first);
+    let tw = select(u.q[1].w, u.q[1].y, first);
+    let wgt = select(u.q[2].x, 1.0 - u.q[2].x, first);
+    let period = 6.2831853 / (asp * n);
+    let s = vec2f(th / 6.2831853 * n + u.q[0].w, lr / period + th / 6.2831853 * tw - u.q[0].z);
+    let c0 = textureSampleLevel(sampler_main, s_fw, s, 0.0).rgb;
+    let c1 = textureSampleLevel(sampler_blur1, s_fw, s, 0.0).rgb;
+    let c2 = textureSampleLevel(sampler_blur2, s_fw, s, 0.0).rgb;
+    col += wgt * mix(mix(c0, c1, m1), c2, m2);
+    glow += wgt * c2;
+}
+// Depth: dim toward the vanishing point, where a warm light waits.
+let depth = 0.35 + 0.65 * smoothstep(0.0, 0.3, r);
+let core = exp(-r * 14.0) * vec3f(1.0, 0.75, 0.45) * (0.35 + 0.2 * u.q[2].w);
+let bg = mix(vec3f(0.015, 0.02, 0.06), vec3f(0.05, 0.03, 0.09), smoothstep(0.0, 0.9, r));
+let tone = col * depth + glow * vec3f(0.5, 0.6, 0.9) * 0.6 + core + bg;
+// A soft filmic shoulder keeps the brightest trails from clipping.
+return tone / (1.0 + 0.35 * tone);
+'''

@@ -1,0 +1,221 @@
+# Lumen Cathedral: a great rose window of stained glass hangs in the dark
+# of a vast nave and slowly turns in depth, its light pouring toward you as
+# volumetric god rays through drifting incense. The window is drawn by the
+# warp shader, per pixel and in true perspective: a jewelled rosette, a
+# ring of lancets, a ring of roundels and a rim of small jewels, each cell
+# of mottled glass set in dark stone tracery. The composite marches forty
+# samples from every pixel back toward the window through a 3D noise fog,
+# so the tracery casts real shafts of shadow. The bass swells the light and
+# lengthens the shafts, mids thicken the incense and turn the rings, treble
+# makes the dust glint, and each kick clicks the rings half a notch round
+# (eased, like a great mechanism). Every forty seconds the window dims and
+# relights with a new symmetry and new glass, and the light drifts from
+# dawn rose to noon gold over a few minutes.
+version = 1
+
+[meta]
+name = "Lumen Cathedral"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+feedback_format = "fp16"
+decay = 0.85
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [32, 24]
+
+[code]
+init = '''
+sym = 8; nextsym = 8; lastcyc = 0; glassk = 0;
+'''
+frame = '''
+sb = sb + (min(bass, 2.5) - sb) * 0.1;
+sm = sm + (min(mid_att, 2.5) - sm) * 0.04;
+st = st + (min(treb, 2.5) - st) * 0.25;
+// Each kick (at most every 0.35 s) moves the rings' goals half a notch.
+cool = cool - 1 / 60;
+if(beat * above(0.0, cool),
+  g1 = g1 + 3.14159 / sym;
+  g2 = g2 - 3.14159 / sym;
+  g3 = g3 + 3.14159 / (sym * 2);
+  cool = 0.35,
+  0);
+// The rings ease toward their goals and drift with the mids.
+drift = 0.0008 + 0.002 * min(sm, 2) / 2;
+g1 = g1 + drift; g2 = g2 - drift * 0.7; g3 = g3 + drift * 0.45;
+a1 = a1 + (g1 - a1) * 0.08;
+a2 = a2 + (g2 - a2) * 0.07;
+a3 = a3 + (g3 - a3) * 0.06;
+// A new symmetry and new glass every 40 s: the window dims, then relights.
+cyc = floor(time / 40);
+if(cyc != lastcyc, k = cyc % 4; nextsym = if(equal(k, 0), 8, if(equal(k, 1), 6, if(equal(k, 2), 12, 10))); lastcyc = cyc, 0);
+ph = time - cyc * 40;
+build = min(1, max(0, (ph - 0.5) / 3)) * min(1, max(0, (40 - ph) / 3));
+build = if(below(time, 40), min(1, max(build, (40 - ph) / 3)), build);
+build = build * build * (3 - 2 * build);
+if(below(build, 0.02), sym = nextsym; glassk = cyc, 0);
+q1 = 0.5 + 0.02 * sin(time * 0.071);
+q2 = 0.48 + 0.015 * sin(time * 0.053 + 1);
+q3 = 0.6 + 0.25 * min(sb, 2) / 2;
+q4 = 0.5 + 0.5 * sin(time * 0.021);
+q5 = sb; q6 = sm; q7 = st;
+q8 = time;
+q9 = a1; q10 = a2; q11 = a3; q12 = sym;
+q13 = (0.25 + 0.75 * build) * (0.85 + 0.25 * min(sb, 2) / 2);
+// Yaw and pitch of the window plane: a slow turn in depth.
+q14 = 0.42 * sin(time * 0.047);
+q15 = 0.2 * sin(time * 0.061 + 2);
+q16 = glassk;
+'''
+
+# Dust motes drifting through the shafts; they glint with the treble.
+[[wave]]
+enabled = true
+samples = 120
+usedots = 1
+additive = 1
+r = 1.0
+g = 0.88
+b = 0.65
+a = 0.0
+frame = '''
+a = 0.1 + 0.3 * max(0, min(q7, 2.5) - 0.5);
+t1 = q8;
+'''
+point = '''
+h1 = sin(sample * 1234.567) * 43758.5453; h1 = h1 - floor(h1);
+h2 = sin(sample * 765.4321 + 1.7) * 24634.6345; h2 = h2 - floor(h2);
+f = h2 + t1 * (0.004 + 0.006 * h1);
+f = f - floor(f);
+x = h1 + 0.03 * sin(t1 * 0.3 + h2 * 20);
+y = f;
+'''
+
+[shader]
+warp = '''
+// The window, ray-cast onto a plane that turns in depth (yaw q14, pitch
+// q15) in front of a camera with focal length f.
+let asp = u.texsize.x * u.texsize.w;
+let c = vec2f(u.q[0].x, u.q[0].y);
+let p = (uv_orig - c) * vec2f(asp, -1.0);
+let yaw = u.q[3].y;
+let pitch = u.q[3].z;
+let f = 1.6;
+let dir = vec3f(p, f);
+let nrm = vec3f(sin(yaw) * cos(pitch), sin(pitch), cos(yaw) * cos(pitch));
+let hit = dir * (f * nrm.z / dot(dir, nrm)) - vec3f(0.0, 0.0, f);
+let e1 = normalize(cross(vec3f(0.0, 1.0, 0.0), nrm));
+let e2 = cross(nrm, e1);
+// Window coordinates: the rim is at radius 1.
+let w = vec2f(dot(hit, e1), dot(hit, e2)) / 0.47;
+let r = length(w);
+let th = atan2(w.y, w.x);
+let aa = max(length(fwidth(w)), 0.002) * 1.2;
+let sym = u.q[2].w;
+let tau = 6.2831853;
+// Signed distance to the nearest pane, and which pane: rosette petals
+// (radius 0.06-0.24), lancets (0.27-0.58), roundels (0.61-0.84), jewels
+// (0.87-0.97) and the heart. Each ring turns by its own angle.
+var d = 1.0;
+var cell = 0.0;
+var ring = 0.0;
+var lsel = vec2f(0.0);
+{
+    let n = sym;
+    let ca = (th + u.q[2].x) / tau * n;
+    let rm = 0.15;
+    let l = vec2f((fract(ca) - 0.5) * tau * rm / n, r - rm);
+    let hw = min(3.14159 * rm / n * 0.8, 0.06);
+    let lp = l * vec2f(1.0, 1.732 * hw / 0.07);
+    let arch = max(length(lp + vec2f(hw, 0.0)), length(lp - vec2f(hw, 0.0))) - 2.0 * hw;
+    let dd = select(max(abs(l.x) - hw, -l.y - 0.07), arch, l.y > 0.0);
+    if (dd < d) { d = dd; cell = floor(ca); ring = 1.0; lsel = l; }
+}
+{
+    let n = sym;
+    let ca = (th + u.q[2].y) / tau * n + 0.5;
+    let rm = 0.41;
+    let l = vec2f((fract(ca) - 0.5) * tau * rm / n, r - rm);
+    let hw = min(3.14159 * rm / n * 0.78, 0.085);
+    let la = l * vec2f(1.0, 1.732 * hw / 0.14);
+    let arch = max(length(la + vec2f(hw, 0.0)), length(la - vec2f(hw, 0.0))) - 2.0 * hw;
+    let dd = select(max(abs(l.x) - hw, -l.y - 0.15), arch, l.y > 0.0);
+    if (dd < d) { d = dd; cell = floor(ca); ring = 2.0; lsel = l; }
+}
+{
+    let n = sym * 2.0;
+    let ca = (th + u.q[2].z) / tau * n;
+    let rm = 0.725;
+    let l = vec2f((fract(ca) - 0.5) * tau * rm / n, r - rm);
+    let dd = length(l) - min(3.14159 * rm / n, 0.105) * 0.88;
+    if (dd < d) { d = dd; cell = floor(ca); ring = 3.0; lsel = l; }
+}
+{
+    let n = sym * 3.0;
+    let ca = (th - u.q[2].z) / tau * n;
+    let rm = 0.92;
+    let l = vec2f((fract(ca) - 0.5) * tau * rm / n, r - rm);
+    let dd = length(l) - min(3.14159 * rm / n, 0.05) * 0.85;
+    if (dd < d) { d = dd; cell = floor(ca); ring = 4.0; lsel = l; }
+}
+{
+    let dd = r - 0.045;
+    if (dd < d) { d = dd; cell = 0.0; ring = 5.0; }
+}
+// Glass colour: a symmetric pattern per ring, reshuffled for each window.
+let period = select(2.0, 3.0, ring > 2.5);
+let pick = fract(sin((cell - period * floor(cell / period)) * 17.31 + ring * 5.17 + u.q[3].w * 2.39) * 43758.5453);
+let k = floor(pick * 5.0);
+var glass = vec3f(0.85, 0.08, 0.1);
+glass = select(glass, vec3f(0.1, 0.25, 0.95), k == 1.0);
+glass = select(glass, vec3f(0.06, 0.62, 0.3), k == 2.0);
+glass = select(glass, vec3f(1.0, 0.62, 0.1), k == 3.0);
+glass = select(glass, vec3f(0.55, 0.15, 0.85), k == 4.0);
+glass = select(glass, vec3f(1.0, 0.85, 0.55), ring == 5.0);
+// Mottled glass, darker toward the leading of each pane.
+let mott = textureSampleLevel(sampler_noisevol_lq, s_fw, vec3f(w * vec2f(0.9, 2.2), 0.3), 0.0).r;
+let mott2 = textureSampleLevel(sampler_noisevol_lq, s_fw, vec3f(w * 0.35, 0.7), 0.0).g;
+let inner = smoothstep(0.0, -0.06, d);
+let pane = glass * (0.3 + 0.9 * mott * mott + 0.3 * mott2) * (0.45 + 0.55 * inner) * 1.8 * u.q[3].x;
+// Lead cames: a diamond lattice inside each pane, faded out where it
+// would be finer than a few pixels.
+let lk = 22.0;
+let la = aa * lk;
+let g1 = abs(fract((lsel.x + lsel.y) * lk) - 0.5);
+let g2 = abs(fract((lsel.x - lsel.y) * lk) - 0.5);
+let came = smoothstep(0.43 - la, 0.43 + la, max(g1, g2)) * (1.0 - smoothstep(0.08, 0.2, la)) * step(ring, 4.5);
+let pane_mask = smoothstep(aa, -aa, d) * (1.0 - 0.85 * came) * smoothstep(1.0 + aa, 1.0 - aa, r);
+// Stone tracery; beyond the window, the dust trails of the last frames.
+let grain = textureSampleLevel(sampler_noise_mq, s_fw, w * 0.5, 0.0).b;
+let stone = vec3f(0.035, 0.03, 0.028) * (0.6 + 0.5 * grain);
+let disk = smoothstep(1.05 + aa, 1.05 - aa, r);
+let prev = GetMain(uv_orig) * u.decay;
+return mix(prev, mix(stone, pane, pane_mask), disk);
+'''
+comp = '''
+// God rays: march from the pixel back toward the window through a drifting
+// fog; each step adds the (blurred) glass it passes, attenuated with depth.
+let c = vec2f(u.q[0].x, u.q[0].y);
+let steps = 40;
+let delta = (uv - c) * (u.q[0].z / f32(steps));
+var p = uv - delta * 4.0;
+var acc = vec3f(0.0);
+var wt = 1.0;
+let t = u.q[1].w;
+for (var i = 0; i < steps; i++) {
+    p = p - delta;
+    let fog = textureSampleLevel(sampler_noisevol_hq, s_fw, vec3f(p * vec2f(1.4, 0.8) + vec2f(t * 0.006, 0.0), t * 0.01), 0.0).r;
+    acc += textureSampleLevel(sampler_blur1, s_fc, p, 0.0).rgb * wt * (0.25 + 2.2 * fog * fog * fog);
+    wt *= 0.95;
+}
+let shafts = acc * (0.07 + 0.07 * min(u.q[1].x, 2.0) / 2.0);
+let dawn = vec3f(0.6, 0.35, 0.45);
+let gold = vec3f(0.75, 0.52, 0.25);
+let tint = mix(dawn, gold, u.q[0].w);
+let dist = length((uv - c) * vec2f(u.texsize.x * u.texsize.w, 1.0));
+let haze = tint * (0.04 + 0.1 * exp(-dist * 2.0)) * (0.8 + 0.4 * min(u.q[1].y, 2.0) / 2.0);
+let col = haze + GetMain(uv) + GetBlur2(uv) * 0.12 + shafts * mix(vec3f(1.0), tint * 1.6, 0.35);
+return col / (1.0 + 0.2 * col);
+'''

@@ -1,0 +1,222 @@
+# Tesseract Drift: a four-dimensional hypercube and its dual, the 16-cell,
+# turn through hyperspace in front of you, folding inside out as they
+# rotate through the fourth dimension, while their light streaks past in
+# prismatic hyperspace trails. Each solid is one custom wave that walks an
+# Euler circuit of its edges (stored in megabuf at init), so every edge is
+# drawn by a single line; the point code rotates each point in six planes
+# and projects it twice, 4D to 3D to 2D, coloured by its depth in the
+# fourth dimension. The warp shader pulls red, green and blue at slightly
+# different zooms, splitting the trails into spectra. The bass speeds the
+# 4D rotation and the warp; mids tumble the solids in 3D; treble lights
+# the vertices; each kick turns the tesseract a quarter-turn through a 4D
+# plane (eased, so you watch it evert). Every twenty seconds the drift
+# reverses, from flying outward to falling inward, and the rotation moves
+# to another pair of planes.
+version = 1
+
+[meta]
+name = "Tesseract Drift"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+feedback_format = "fp16"
+decay = 0.92
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [32, 24]
+
+[code]
+init = '''
+// Euler circuits: the tesseract (vertices 0-15, bit k = sign of axis k)
+// and the 16-cell (vertices 0-7: axis floor(i / 2), sign i % 2).
+megabuf(0) = 0; megabuf(1) = 8; megabuf(2) = 12; megabuf(3) = 4;
+megabuf(4) = 0; megabuf(5) = 2; megabuf(6) = 10; megabuf(7) = 14;
+megabuf(8) = 6; megabuf(9) = 2; megabuf(10) = 3; megabuf(11) = 11;
+megabuf(12) = 15; megabuf(13) = 7; megabuf(14) = 3; megabuf(15) = 1;
+megabuf(16) = 9; megabuf(17) = 11; megabuf(18) = 10; megabuf(19) = 8;
+megabuf(20) = 9; megabuf(21) = 13; megabuf(22) = 15; megabuf(23) = 14;
+megabuf(24) = 12; megabuf(25) = 13; megabuf(26) = 5; megabuf(27) = 7;
+megabuf(28) = 6; megabuf(29) = 4; megabuf(30) = 5; megabuf(31) = 1;
+megabuf(32) = 0;
+megabuf(100) = 0; megabuf(101) = 7; megabuf(102) = 5; megabuf(103) = 6;
+megabuf(104) = 4; megabuf(105) = 7; megabuf(106) = 3; megabuf(107) = 6;
+megabuf(108) = 2; megabuf(109) = 7; megabuf(110) = 1; megabuf(111) = 6;
+megabuf(112) = 0; megabuf(113) = 5; megabuf(114) = 3; megabuf(115) = 4;
+megabuf(116) = 2; megabuf(117) = 5; megabuf(118) = 1; megabuf(119) = 4;
+megabuf(120) = 0; megabuf(121) = 3; megabuf(122) = 1; megabuf(123) = 2;
+megabuf(124) = 0;
+wa = 1; wb = 0; wc = 0; zdir = 1;
+'''
+frame = '''
+sb = sb + (min(bass, 2.5) - sb) * 0.1;
+sm = sm + (min(mid_att, 2.5) - sm) * 0.05;
+st = st + (min(treb, 2.5) - st) * 0.25;
+// Which 4D planes drift (eased), and which way through hyperspace.
+mode = floor(time / 20);
+m = mode % 3;
+wa = wa + (equal(m, 0) - wa) * 0.01;
+wb = wb + (equal(m, 1) - wb) * 0.01;
+wc = wc + (equal(m, 2) - wc) * 0.01;
+zdir = zdir + (if(mode % 2, -1, 1) - zdir) * 0.012;
+spd = 0.002 + 0.008 * min(sb, 2) / 2;
+d1 = d1 + spd * (wa + 0.3);
+d2 = d2 + spd * (wb + 0.2);
+d3 = d3 + spd * (wc + 0.1);
+// 3D tumble with the mids.
+d4 = d4 + 0.003 + 0.005 * min(sm, 2) / 2;
+d5 = d5 + (0.0015 + 0.003 * min(sm, 2) / 2) * sin(time * 0.05 + 1);
+// Kicks: a quarter turn through the next 4D plane, eased.
+cool = cool - 1 / 60;
+if(beat * below(cool, 0),
+  kp = (kp + 1) % 3;
+  g1 = g1 + 1.5708 * equal(kp, 0); g2 = g2 + 1.5708 * equal(kp, 1); g3 = g3 + 1.5708 * equal(kp, 2);
+  cool = 0.5,
+  0);
+k1 = k1 + (g1 - k1) * 0.09;
+k2 = k2 + (g2 - k2) * 0.09;
+k3 = k3 + (g3 - k3) * 0.09;
+q1 = d1 + k1; q2 = d2 + k2; q3 = d3 + k3; q4 = d4; q5 = d5;
+q6 = 0.58 + 0.05 * min(sb, 2) / 2;
+// Warp: zoom of the trails (below 1 streaks outward), spectral split.
+q7 = 1 - zdir * (0.012 + 0.02 * min(sb, 2) / 2);
+q8 = 0.004 + 0.008 * min(sb, 2) / 2;
+q9 = 0.002 * sin(time * 0.07);
+q10 = st;
+q11 = time;
+'''
+
+# The tesseract: 32 edges, 8 points each, along the Euler circuit.
+[[wave]]
+enabled = true
+samples = 257
+thick = 1
+additive = 1
+a = 0.85
+frame = '''
+// Lines are a fixed number of pixels wide: dim them in small images.
+t1 = min(1, max(0.35, pixelsy / 540));
+'''
+point = '''
+j = floor(sample * 256 + 0.5);
+e = min(floor(j / 8), 31);
+f = (j - e * 8) / 8;
+va = megabuf(e); vb = megabuf(e + 1);
+xa = (va % 2) * 2 - 1; ya = (floor(va / 2) % 2) * 2 - 1;
+za = (floor(va / 4) % 2) * 2 - 1; wa4 = (floor(va / 8) % 2) * 2 - 1;
+xb = (vb % 2) * 2 - 1; yb = (floor(vb / 2) % 2) * 2 - 1;
+zb = (floor(vb / 4) % 2) * 2 - 1; wb4 = (floor(vb / 8) % 2) * 2 - 1;
+px = xa + (xb - xa) * f; py = ya + (yb - ya) * f;
+pz = za + (zb - za) * f; pw = wa4 + (wb4 - wa4) * f;
+cs = cos(q1); sn = sin(q1); tt = px * cs - pw * sn; pw = px * sn + pw * cs; px = tt;
+cs = cos(q2); sn = sin(q2); tt = py * cs - pw * sn; pw = py * sn + pw * cs; py = tt;
+cs = cos(q3); sn = sin(q3); tt = pz * cs - pw * sn; pw = pz * sn + pw * cs; pz = tt;
+cs = cos(q4); sn = sin(q4); tt = px * cs - pz * sn; pz = px * sn + pz * cs; px = tt;
+cs = cos(q5); sn = sin(q5); tt = py * cs - pz * sn; pz = py * sn + pz * cs; py = tt;
+s4 = 1 / (3.2 - pw);
+px = px * s4 * 1.6; py = py * s4 * 1.6; pz = pz * s4 * 1.6;
+s3 = 1 / (3.6 - pz);
+x = 0.5 + px * s3 * q6 * 2 * aspecty;
+y = 0.5 + py * s3 * q6 * 2;
+tw = min(1, max(0, (pw + 2) / 4));
+r = 0.15 + 0.85 * tw; g = 0.85 - 0.55 * tw; b = 1.0 - 0.2 * tw;
+a = (0.25 + 0.45 * tw) * t1;
+'''
+
+# The 16-cell: 24 edges, 8 points each.
+[[wave]]
+enabled = true
+samples = 193
+thick = 1
+additive = 1
+a = 0.6
+frame = '''
+t1 = min(1, max(0.35, pixelsy / 540));
+'''
+point = '''
+j = floor(sample * 192 + 0.5);
+e = min(floor(j / 8), 23);
+f = (j - e * 8) / 8;
+va = megabuf(100 + e); vb = megabuf(101 + e);
+sa = (va % 2) * 4 - 2; sb2 = (vb % 2) * 4 - 2;
+aa = floor(va / 2); ab = floor(vb / 2);
+px = equal(aa, 0) * sa * (1 - f) + equal(ab, 0) * sb2 * f;
+py = equal(aa, 1) * sa * (1 - f) + equal(ab, 1) * sb2 * f;
+pz = equal(aa, 2) * sa * (1 - f) + equal(ab, 2) * sb2 * f;
+pw = equal(aa, 3) * sa * (1 - f) + equal(ab, 3) * sb2 * f;
+cs = cos(-q1 * 0.7); sn = sin(-q1 * 0.7); tt = px * cs - pw * sn; pw = px * sn + pw * cs; px = tt;
+cs = cos(q2 * 0.8); sn = sin(q2 * 0.8); tt = py * cs - pw * sn; pw = py * sn + pw * cs; py = tt;
+cs = cos(-q3); sn = sin(-q3); tt = pz * cs - pw * sn; pw = pz * sn + pw * cs; pz = tt;
+cs = cos(q4); sn = sin(q4); tt = px * cs - pz * sn; pz = px * sn + pz * cs; px = tt;
+cs = cos(q5); sn = sin(q5); tt = py * cs - pz * sn; pz = py * sn + pz * cs; py = tt;
+s4 = 1 / (3.2 - pw);
+px = px * s4 * 1.6; py = py * s4 * 1.6; pz = pz * s4 * 1.6;
+s3 = 1 / (3.6 - pz);
+x = 0.5 + px * s3 * q6 * 2 * aspecty;
+y = 0.5 + py * s3 * q6 * 2;
+tw = min(1, max(0, (pw + 2) / 4));
+r = 1.0; g = 0.55 + 0.3 * tw; b = 0.15 + 0.2 * tw;
+a = (0.15 + 0.3 * tw) * t1;
+'''
+
+# The tesseract's vertices, lit by the treble.
+[[wave]]
+enabled = true
+samples = 16
+usedots = 1
+thick = 1
+additive = 1
+r = 1.0
+g = 1.0
+b = 1.0
+a = 0.0
+frame = '''
+t1 = 0.15 + 0.6 * max(0, min(q10, 2.5) - 0.5) / 2;
+'''
+point = '''
+va = floor(sample * 15 + 0.5);
+px = (va % 2) * 2 - 1; py = (floor(va / 2) % 2) * 2 - 1;
+pz = (floor(va / 4) % 2) * 2 - 1; pw = (floor(va / 8) % 2) * 2 - 1;
+cs = cos(q1); sn = sin(q1); tt = px * cs - pw * sn; pw = px * sn + pw * cs; px = tt;
+cs = cos(q2); sn = sin(q2); tt = py * cs - pw * sn; pw = py * sn + pw * cs; py = tt;
+cs = cos(q3); sn = sin(q3); tt = pz * cs - pw * sn; pw = pz * sn + pw * cs; pz = tt;
+cs = cos(q4); sn = sin(q4); tt = px * cs - pz * sn; pz = px * sn + pz * cs; px = tt;
+cs = cos(q5); sn = sin(q5); tt = py * cs - pz * sn; pz = py * sn + pz * cs; py = tt;
+s4 = 1 / (3.2 - pw);
+px = px * s4 * 1.6; py = py * s4 * 1.6; pz = pz * s4 * 1.6;
+s3 = 1 / (3.6 - pz);
+x = 0.5 + px * s3 * q6 * 2 * aspecty;
+y = 0.5 + py * s3 * q6 * 2;
+a = t1 * (0.5 + 0.5 * min(1, max(0, (pw + 2) / 4)));
+'''
+
+[shader]
+warp = '''
+// Hyperspace: the trails stream away from (or into) the centre, red,
+// green and blue at slightly different zooms, so they split into spectra.
+let c = vec2f(0.5);
+let rot = u.q[2].x;
+let d0 = uv_orig - c;
+let d = vec2f(d0.x * cos(rot) - d0.y * sin(rot), d0.x * sin(rot) + d0.y * cos(rot));
+let z = u.q[1].z;
+let ca = u.q[1].w;
+let r = textureSampleLevel(sampler_main, s_fc, c + d * z * (1.0 - ca), 0.0).r;
+let g = textureSampleLevel(sampler_main, s_fc, c + d * z, 0.0).g;
+let b = textureSampleLevel(sampler_main, s_fc, c + d * z * (1.0 + ca), 0.0).b;
+// A little of the blurred image melts the stepped copies into a glow.
+let soft = textureSampleLevel(sampler_blur1, s_fc, c + d * z, 0.0).rgb;
+return mix(vec3f(r, g, b), soft, 0.25) * u.decay;
+'''
+comp = '''
+// Deep space with a faint nebula, the trails, and a two-level bloom.
+let asp = u.texsize.x * u.texsize.w;
+let t = u.q[2].w;
+let np = vec3f(uv * vec2f(asp, 1.0), t * 0.006);
+let nb = textureSample(sampler_noisevol_lq, s_fw, np * vec3f(0.35, 0.35, 1.0)).rgb * 0.65
+    + textureSample(sampler_noisevol_lq, s_fw, np * vec3f(0.8, 0.8, 1.0) + vec3f(0.3)).rgb * 0.35;
+let neb = vec3f(0.06, 0.02, 0.1) * smoothstep(0.45, 0.75, nb.r) + vec3f(0.0, 0.04, 0.07) * smoothstep(0.45, 0.75, nb.g);
+let space = mix(vec3f(0.02, 0.01, 0.05), vec3f(0.005, 0.005, 0.02), rad) + neb;
+let col = space + GetMain(uv) + GetBlur1(uv) * vec3f(0.5, 0.45, 0.7) + GetBlur2(uv) * vec3f(0.35, 0.3, 0.6);
+return col / (1.0 + 0.3 * col);
+'''
