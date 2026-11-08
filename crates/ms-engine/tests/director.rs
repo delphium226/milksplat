@@ -1125,3 +1125,127 @@ fn release_gpu_then_recreate_on_a_new_device() {
     // The show goes on: the blend completes and the queued b follows.
     rig.wait_showing(4.0, "b.splat");
 }
+
+// ---------------------------------------------------------------- app hooks (Task 24)
+
+/// Safe mode: a loader made with `spawn_safe` ignores the preset's own
+/// shaders and compiles the built-in ones, so a broken shader reports no
+/// error and no user source is kept.
+#[test]
+fn safe_loader_compiles_no_user_shaders() {
+    let (_fx, lib) = fixture(&[("shader.splat", BAD_SHADER)]);
+    let gpu = gpu();
+    let r = renderer(&gpu);
+    let normal = Loader::spawn(r.shared(), TextureResolver::new(Vec::new()), FMT);
+    normal.request("shader.splat".into(), path_of(&lib, "shader.splat"), 1);
+    match wait_result(&normal) {
+        LoadResult::Ready { shaders, .. } => {
+            assert!(shaders.warp_source.is_some(), "the normal loader uses it");
+        }
+        LoadResult::Failed { error, .. } => panic!("load failed: {error}"),
+    }
+    let safe = Loader::spawn_safe(r.shared(), TextureResolver::new(Vec::new()), FMT);
+    safe.request("shader.splat".into(), path_of(&lib, "shader.splat"), 1);
+    match wait_result(&safe) {
+        LoadResult::Ready { shaders, .. } => {
+            assert_eq!(shaders.warp_source, None);
+            assert_eq!(shaders.comp_source, None);
+            assert!(shaders.errors.is_empty(), "{:?}", shaders.errors);
+        }
+        LoadResult::Failed { error, .. } => panic!("load failed: {error}"),
+    }
+}
+
+/// Hot reload: `reload_current` loads the shown preset's file again and
+/// cuts to it (no blend) once it is ready.
+#[test]
+fn reload_current_swaps_without_a_blend() {
+    let (fx, lib) = fixture(&[("a.splat", &good("a"))]);
+    let mut rig = make_rig(manual_cfg(), lib, Prefs::default());
+    rig.director.command(Command::Load("a.splat".into()));
+    rig.wait_showing(1.0, "a.splat");
+    rig.wait(4.0, "the blend to finish", |d| {
+        d.current() == showing("a.splat")
+    });
+    assert_eq!(
+        rig.director.frame_plan(4.0).feedback_format,
+        FeedbackFormat::Rgba8
+    );
+
+    std::fs::write(fx.dir.join("a.splat"), FP16).unwrap();
+    let before = rig.loader.request_count();
+    assert!(rig.director.reload_current());
+    rig.wait(5.0, "the reloaded preset", |d| {
+        d.frame_plan(5.0).feedback_format == FeedbackFormat::Fp16
+    });
+    assert_eq!(rig.director.current(), showing("a.splat"), "no blend");
+    assert!(rig.loader.request_count() > before);
+}
+
+/// A reload that fails keeps the running version, and does not skip the
+/// preset: fixing the file and reloading again works.
+#[test]
+fn failed_reload_keeps_the_running_version() {
+    let (fx, lib) = fixture(&[("a.splat", &good("a"))]);
+    let mut rig = make_rig(manual_cfg(), lib, Prefs::default());
+    rig.director.command(Command::Load("a.splat".into()));
+    rig.wait_showing(1.0, "a.splat");
+    rig.wait(4.0, "the blend to finish", |d| {
+        d.current() == showing("a.splat")
+    });
+
+    std::fs::write(fx.dir.join("a.splat"), BAD_TOML).unwrap();
+    assert!(rig.director.reload_current());
+    let start = Instant::now();
+    while start.elapsed() < Duration::from_millis(500) {
+        rig.update(5.0);
+        assert_eq!(rig.director.current(), showing("a.splat"));
+    }
+    assert_eq!(rig.director.consecutive_failures(), 0, "not a skip");
+
+    std::fs::write(fx.dir.join("a.splat"), FP16).unwrap();
+    assert!(rig.director.reload_current());
+    rig.wait(6.0, "the fixed preset", |d| {
+        d.frame_plan(6.0).feedback_format == FeedbackFormat::Fp16
+    });
+    assert_eq!(rig.director.current(), showing("a.splat"));
+}
+
+/// The built-in default preset has no file to reload.
+#[test]
+fn reload_current_ignores_the_default_preset() {
+    let mut rig = make_rig(manual_cfg(), Library::default(), Prefs::default());
+    rig.update(0.0);
+    assert!(!rig.director.reload_current());
+    rig.update(0.1);
+    assert_eq!(rig.loader.request_count(), 0);
+}
+
+/// `set_library`: presets added at runtime are picked up at once (even
+/// after an empty library paused the requests), and a ready next preset
+/// that was removed is dropped.
+#[test]
+fn set_library_adds_and_removes() {
+    let mut rig = make_rig(manual_cfg(), Library::default(), Prefs::default());
+    for i in 0..60 {
+        rig.update(f64::from(i) * DT);
+    }
+    assert_eq!(rig.loader.request_count(), 0);
+
+    let (_fx, lib) = fixture(&[("a.splat", &good("a"))]);
+    rig.director.set_library(lib);
+    rig.wait_ready(1.1);
+    assert_eq!(rig.director.next_ready(), Some("a.splat"));
+
+    rig.director.set_library(Library::default());
+    assert_eq!(
+        rig.director.next_ready(),
+        None,
+        "a removed preset is dropped"
+    );
+    rig.director.command(Command::Next);
+    for i in 0..60 {
+        rig.update(2.0 + f64::from(i) * DT);
+    }
+    assert_eq!(rig.director.current(), showing(DEFAULT_PRESET_ID));
+}

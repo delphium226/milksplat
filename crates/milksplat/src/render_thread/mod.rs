@@ -13,7 +13,8 @@
 //!    each due tick: analysis, spectrum upload, `director.update`, then
 //!    `director.tick_and_render` (preset code, warp, overlays, blur).
 //! 6. Composite into the surface texture at the exact (not tick) time.
-//! 7. Draw the text overlay.
+//! 7. Draw the text overlay (with the no-audio hint after 10 s of
+//!    silence).
 //! 8. Present.
 //! 9. Feed the frame's GPU time to the governor.
 //!
@@ -25,6 +26,13 @@
 //! frame deltas while frames are rendered: it stops while minimised and the
 //! first frame after resuming has a zero delta, so nothing catches up in a
 //! burst.
+//!
+//! **Files:** config changes (favourites, bans, the blocklist, quality,
+//! A/V offsets) go to the [`ConfigStore`], whose own thread writes them;
+//! the preset on screen goes to the crash slot and the run marker (also
+//! written by its own thread); preset file changes arrive from the
+//! hot-reload watcher's thread already mapped to ids. No frame waits on
+//! the disk.
 
 mod actions;
 mod audio;
@@ -32,24 +40,31 @@ mod gpu_state;
 mod gpu_timer;
 mod overlay;
 mod recovery;
+mod session;
 
 pub use gpu_state::pick_format;
 pub use overlay::display_name;
 
+use std::collections::HashSet;
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use std::sync::Arc;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use crossbeam_channel::{Receiver, RecvTimeoutError, TryRecvError};
 use ms_analysis::{Analyzer, AudioHistory};
-use ms_engine::{Director, DirectorConfig, FixedClock, Globals, Governor, TickInputBase};
+use ms_engine::{
+    Director, DirectorConfig, FixedClock, Globals, Governor, TickInputBase, DEFAULT_PRESET_ID,
+};
 use ms_preset::{Library, Prefs};
 use ms_render::TextureResolver;
 use winit::window::Window;
 
-use crate::config::{Config, Quality};
+use crate::config::{Config, ConfigStore, Quality};
+use crate::crash::RunMarker;
 use crate::hotkeys::Action;
+use crate::hotreload::Watch;
 use crate::paths::Paths;
 use audio::AudioInput;
 use gpu_state::GpuState;
@@ -69,8 +84,8 @@ const GPU_RETRY_S: f64 = 1.0;
 /// Audio history length: the 2048-sample analysis window plus the largest
 /// A/V offset, with room to spare.
 const HISTORY_SECONDS: f64 = 3.0;
-/// The A/V offset range (ms). The analysis window cannot end in the future.
-const MAX_AV_OFFSET_MS: i32 = 1000;
+/// How long the "skipped after a crash" notice stays up.
+const CRASH_NOTICE_S: f64 = 5.0;
 /// The history's sample rate until the capture reports its own.
 const DEFAULT_SAMPLE_RATE: u32 = 48_000;
 /// How often the monitor's refresh rate (the governor's budget) is re-read.
@@ -99,8 +114,13 @@ pub enum ToRender {
 #[derive(Debug, Clone, PartialEq)]
 pub enum RenderExit {
     Clean,
-    /// A fatal error (no usable GPU) or a caught panic; already logged.
+    /// A fatal error (no usable GPU); already logged.
     Failed(String),
+    /// A panic escaped the thread's body; the crash report (if it could be
+    /// written) is at `report`. The main thread shows the message box.
+    Crashed {
+        report: Option<PathBuf>,
+    },
 }
 
 /// Monotonic app time in seconds, shared with the audio capture clock.
@@ -146,6 +166,20 @@ pub struct RenderOptions {
     /// Asks the main thread for a new surface (sent back as
     /// [`ToRender::NewSurface`]); used after a device loss.
     pub request_surface: Box<dyn Fn() + Send>,
+    /// Called when 10 s of silence starts (`true`) or ends (keep-awake is
+    /// decided on the main thread).
+    pub on_silence: Box<dyn Fn(bool) + Send>,
+    /// `--safe`: the built-in default preset only, no user shaders, the
+    /// default audio device, no hot reload.
+    pub safe: bool,
+    /// The live config, saved by its own thread.
+    pub store: ConfigStore,
+    /// The run marker, told which preset is on screen.
+    pub marker: Option<Arc<RunMarker>>,
+    /// The preset on screen, for crash reports.
+    pub current_preset: Arc<Mutex<Option<String>>>,
+    /// A preset the last run crashed on: skipped this session (not saved).
+    pub crashed_preset: Option<String>,
 }
 
 /// Starts the render thread ("ms-render", 16 MB stack). `instance` must be
@@ -180,7 +214,10 @@ pub fn run_render_thread(
                         .or_else(|| payload.downcast_ref::<&str>().copied())
                         .unwrap_or("unknown panic");
                     tracing::error!("render thread panicked: {msg}");
-                    RenderExit::Failed(format!("panic: {msg}"))
+                    // On this thread, so the report picks this thread's panic.
+                    let report =
+                        crate::crash::report_escaped_panic("the render thread panicked", false);
+                    RenderExit::Crashed { report }
                 }
             };
             on_exit(exit);
@@ -198,18 +235,31 @@ fn run(
     let clock = AppClock::new();
     let resolver = TextureResolver::new(opts.paths.texture_roots());
     let roots = opts.paths.preset_roots();
-    let lib = Library::scan(&roots);
-    tracing::info!("{} presets found in {roots:?}", lib.entries.len());
+    let (lib, watch) = if opts.safe {
+        tracing::info!(
+            "safe mode: the built-in preset only, no user shaders, the default audio device"
+        );
+        (Library::default(), None)
+    } else {
+        let lib = Library::scan(&roots);
+        tracing::info!("{} presets found in {roots:?}", lib.entries.len());
+        (lib, crate::hotreload::watch(&roots))
+    };
 
     let size = opts.initial_size;
     let internal = internal_size(size, 1.0);
-    let gs = GpuState::new(&instance, surface, &resolver, internal)?;
+    let gs = GpuState::new(&instance, surface, &resolver, internal, opts.safe)?;
 
-    let prefs = Prefs {
-        favourites: cfg.favourites.iter().cloned().collect(),
-        bans: cfg.bans.iter().cloned().collect(),
-        blocklist: cfg.blocklist.iter().cloned().collect(),
-    };
+    let mut session_skip = HashSet::new();
+    let mut startup_notice = None;
+    if let Some(id) = opts.crashed_preset.filter(|id| id != DEFAULT_PRESET_ID) {
+        tracing::warn!("skipping {id} this session: the last run crashed while it was showing");
+        startup_notice = Some(format!(
+            "Skipped {id} because the last run crashed while it was showing"
+        ));
+        session_skip.insert(id);
+    }
+    let prefs = prefs_of(&cfg, &session_skip);
     let dcfg = DirectorConfig {
         auto_advance_s: cfg.auto_advance_s,
         blend_s: cfg.blend_s,
@@ -219,7 +269,9 @@ fn run(
     };
     let mut director = Director::new(dcfg, lib, prefs, seed(), &gs.renderer.shared(), gs.format);
     director.set_mesh_cap(cfg.quality.mesh_cap());
-    let audio = AudioInput::start(cfg.audio_device.clone(), Arc::new(move || clock.now()));
+    // Safe mode ignores the configured device.
+    let device = cfg.audio_device.clone().filter(|_| !opts.safe);
+    let audio = AudioInput::start(device, Arc::new(move || clock.now()));
 
     let mut rt = RenderThread {
         director,
@@ -253,7 +305,11 @@ fn run(
         next_frame_due: None,
         next_budget_check: 0.0,
         av_offset_ms: 0,
+        av_device: None,
+        silent: false,
+        on_silence: opts.on_silence,
         overlay: Overlay::default(),
+        startup_notice,
         stats: FrameStats::default(),
         gpu_ms: None,
         timings: Vec::new(),
@@ -264,11 +320,28 @@ fn run(
         surface_request_at: 0.0,
         first_frame: None,
         quit: false,
+        safe: opts.safe,
+        watch,
+        session_skip,
+        store: opts.store,
+        marker: opts.marker,
+        current_preset: opts.current_preset,
+        marked: None,
         cfg,
     };
     let result = rt.run_loop();
     rt.shutdown();
     result
+}
+
+/// The director's preferences: the config's, plus this session's skips in
+/// the blocklist.
+fn prefs_of(cfg: &Config, session_skip: &HashSet<String>) -> Prefs {
+    Prefs {
+        favourites: cfg.favourites.iter().cloned().collect(),
+        bans: cfg.bans.iter().cloned().collect(),
+        blocklist: cfg.blocklist.iter().chain(session_skip).cloned().collect(),
+    }
 }
 
 /// A seed for preset selection, different each run.
@@ -383,9 +456,16 @@ struct RenderThread {
     /// When the next frame may start (Mailbox pacing).
     next_frame_due: Option<f64>,
     next_budget_check: f64,
-    /// In memory until Task 24 stores it per device.
+    /// The A/V offset of the capture device (the config's, per device).
     av_offset_ms: i32,
+    /// The device being captured, once a capture has started.
+    av_device: Option<String>,
+    /// Whether 10 s of silence has passed (the hint shows; keep-awake off).
+    silent: bool,
+    on_silence: Box<dyn Fn(bool) + Send>,
     overlay: Overlay,
+    /// Shown for 5 s from the first presented frame.
+    startup_notice: Option<String>,
     stats: FrameStats,
     gpu_ms: Option<f64>,
     timings: Vec<f64>,
@@ -401,8 +481,19 @@ struct RenderThread {
 
     first_frame: Option<f64>,
     quit: bool,
-    /// The config with this session's in-memory changes (favourites, bans,
-    /// blocklist, quality); Task 24 saves it.
+    safe: bool,
+    /// The hot-reload watcher (none in safe mode).
+    watch: Option<Watch>,
+    /// Presets skipped this session only (the one a crash was blamed on).
+    session_skip: HashSet<String>,
+    store: ConfigStore,
+    marker: Option<Arc<RunMarker>>,
+    current_preset: Arc<Mutex<Option<String>>>,
+    /// The preset last given to the marker and the crash slot.
+    marked: Option<String>,
+    /// The config with this session's changes; the render thread's fields
+    /// (favourites, bans, blocklist, quality, A/V offsets) are copied to
+    /// the store on every change (`persist`).
     cfg: Config,
 }
 
@@ -413,6 +504,7 @@ impl RenderThread {
             if self.quit {
                 return Ok(());
             }
+            self.poll_reload();
             let wall = self.clock.now();
             if let (Some(limit), Some(start)) = (self.exit_after, self.first_frame) {
                 if wall - start >= limit {
@@ -515,7 +607,7 @@ impl RenderThread {
         self.last_wall = None;
         self.next_frame_due = None;
         self.stats.reset();
-        self.audio.drain(&mut self.hist);
+        self.drain_audio();
         self.idle_wait();
     }
 
@@ -615,8 +707,9 @@ impl RenderThread {
             t.begin(&gs.gpu);
         }
 
-        self.audio.drain(&mut self.hist);
+        self.drain_audio();
         self.hist.fill_silence_until(wall);
+        self.check_silence(wall);
 
         let dt = self
             .last_wall
@@ -628,7 +721,9 @@ impl RenderThread {
 
         let period = 1.0 / SIM_HZ;
         let aspect = aspect(self.size);
-        let av_offset = f64::from(self.av_offset_ms) / 1000.0;
+        // The analysis window cannot end in the future: a negative offset
+        // (kept in the config) analyses the newest audio.
+        let av_offset = f64::from(self.av_offset_ms.max(0)) / 1000.0;
         for _ in 0..ticks.run {
             self.tick_time += period;
             // The tick's moment on the app clock (ticks trail the frame).
@@ -665,6 +760,7 @@ impl RenderThread {
 
         let shown = self.shown_id();
         self.overlay.set_shown(&shown, wall);
+        self.mark_shown(&shown);
         let target = [frame.texture.width(), frame.texture.height()];
         let debug = if self.overlay.show_debug {
             self.debug_line(gs, &shown)
@@ -684,6 +780,11 @@ impl RenderThread {
         let cpu_ms = cpu_start.elapsed().as_secs_f64() * 1000.0;
 
         self.feed_governor(gs, wall, cpu_ms);
+        if self.first_frame.is_none() {
+            if let Some(text) = self.startup_notice.take() {
+                self.overlay.notice_for(text, wall, CRASH_NOTICE_S);
+            }
+        }
         self.first_frame.get_or_insert(wall);
         if self.stats.frame(wall) && self.log_fps {
             eprintln!(

@@ -102,3 +102,23 @@ fn unmapped_keys_give_none() {
         assert_eq!(map_key(&key, mods), None, "{key:?} with {mods:?}");
     }
 }
+
+/// `Ctrl+Shift+F12` crashes the render thread on purpose, in debug builds
+/// only; nothing else maps to it.
+#[test]
+fn debug_crash_chord() {
+    let f12 = Key::Named(NamedKey::F12);
+    let want = cfg!(debug_assertions).then_some(Action::DebugCrash);
+    assert_eq!(
+        map_key(&f12, ModifiersState::CONTROL | ModifiersState::SHIFT),
+        want
+    );
+    for mods in [
+        none(),
+        ModifiersState::CONTROL,
+        ModifiersState::SHIFT,
+        ModifiersState::CONTROL | ModifiersState::SHIFT | ModifiersState::ALT,
+    ] {
+        assert_eq!(map_key(&f12, mods), None, "F12 with {mods:?}");
+    }
+}

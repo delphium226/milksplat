@@ -22,6 +22,9 @@ pub enum Action {
     NextMonitor,
     /// Leave fullscreen, or quit when windowed.
     EscapeKey,
+    /// `Ctrl+Shift+F12`, debug builds only: panic on the render thread, to
+    /// test the crash path. Not in the help panel.
+    DebugCrash,
 }
 
 impl Action {
@@ -56,6 +59,11 @@ pub const HELP: &[(&str, &str)] = &[
 /// Ctrl+Alt, and AltGr is how `[`, `]` and others are typed on many
 /// layouts.
 pub fn map_key(key: &Key, mods: ModifiersState) -> Option<Action> {
+    #[cfg(debug_assertions)]
+    if mods == ModifiersState::CONTROL | ModifiersState::SHIFT && *key == Key::Named(NamedKey::F12)
+    {
+        return Some(Action::DebugCrash);
+    }
     let altgr = mods.control_key() && mods.alt_key() && !mods.super_key();
     let chord = mods.control_key() || mods.alt_key() || mods.super_key();
     if chord && !(altgr && matches!(key, Key::Character(_))) {

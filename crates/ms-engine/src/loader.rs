@@ -146,6 +146,9 @@ struct Context {
     shared: RendererShared,
     resolver: TextureResolver,
     comp_format: wgpu::TextureFormat,
+    /// Compile the preset's own warp and composite shaders (false in safe
+    /// mode: every preset gets the built-in ones).
+    user_shaders: bool,
     control: Arc<Control>,
 }
 
@@ -176,6 +179,26 @@ impl Loader {
         resolver: TextureResolver,
         comp_format: wgpu::TextureFormat,
     ) -> Self {
+        Self::start(shared, resolver, comp_format, true)
+    }
+
+    /// Like [`spawn`](Self::spawn), for safe mode: the presets' own warp
+    /// and composite shaders are ignored (compiled as `None`, so every
+    /// preset gets the built-in ones); their code and parameters still run.
+    pub fn spawn_safe(
+        shared: RendererShared,
+        resolver: TextureResolver,
+        comp_format: wgpu::TextureFormat,
+    ) -> Self {
+        Self::start(shared, resolver, comp_format, false)
+    }
+
+    fn start(
+        shared: RendererShared,
+        resolver: TextureResolver,
+        comp_format: wgpu::TextureFormat,
+        user_shaders: bool,
+    ) -> Self {
         let (jobs_tx, jobs_rx) = crossbeam_channel::unbounded::<Job>();
         let (results_tx, results_rx) = crossbeam_channel::unbounded();
         let control = Arc::new(Control::default());
@@ -183,6 +206,7 @@ impl Loader {
             shared,
             resolver,
             comp_format,
+            user_shaders,
             control: Arc::clone(&control),
         };
         let tx = results_tx.clone();
@@ -361,12 +385,14 @@ fn load(ctx: &Context, job: &Job) -> Result<Loaded, String> {
     let picks = RefCell::new(PresetPicks::new(job.seed ^ PICKS_SALT));
     let tex = |name: &str| ctx.resolver.resolve_with(name, &mut picks.borrow_mut());
     let shader = &preset.source.shader;
-    let shaders = ctx.shared.compile_shaders(
-        shader.warp.as_deref(),
-        shader.comp.as_deref(),
-        ctx.comp_format,
-        &tex,
-    );
+    let (warp, comp) = if ctx.user_shaders {
+        (shader.warp.as_deref(), shader.comp.as_deref())
+    } else {
+        (None, None)
+    };
+    let shaders = ctx
+        .shared
+        .compile_shaders(warp, comp, ctx.comp_format, &tex);
     let feedback = feedback_format(preset.source.params.feedback_format);
     ctx.shared
         .warm_up(&shaders, feedback, ctx.comp_format)

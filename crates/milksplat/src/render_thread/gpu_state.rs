@@ -50,15 +50,23 @@ struct SurfaceChoice {
 
 impl GpuState {
     /// Opens a device for `surface` (created from `instance`) and builds
-    /// the renderer (at `internal_size`), the loader and the frame timer.
+    /// the renderer (at `internal_size`), the loader (`safe`: without the
+    /// presets' own shaders) and the frame timer. The adapter is recorded
+    /// for crash reports.
     pub(super) fn new(
         instance: &wgpu::Instance,
         surface: wgpu::Surface<'static>,
         resolver: &TextureResolver,
         internal_size: [u32; 2],
+        safe: bool,
     ) -> Result<GpuState, String> {
         let gpu =
             Gpu::with_instance(instance.clone(), Some(&surface)).map_err(|e| e.to_string())?;
+        let info = gpu.adapter.get_info();
+        crate::crash::set_adapter_info(format!(
+            "{} ({:?}, {:?}), driver {} {}",
+            info.name, info.backend, info.device_type, info.driver, info.driver_info
+        ));
         let choice = choose(&surface, &gpu)?;
         let renderer = Renderer::new(
             &gpu,
@@ -67,7 +75,11 @@ impl GpuState {
                 format: FeedbackFormat::Rgba8,
             },
         );
-        let loader = Loader::spawn(renderer.shared(), resolver.clone(), choice.format);
+        let loader = if safe {
+            Loader::spawn_safe(renderer.shared(), resolver.clone(), choice.format)
+        } else {
+            Loader::spawn(renderer.shared(), resolver.clone(), choice.format)
+        };
         let timer = GpuTimer::new(&gpu);
         Ok(GpuState {
             loader,

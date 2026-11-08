@@ -3,7 +3,8 @@
 
 use ms_engine::{Command, State, DEFAULT_PRESET_ID};
 
-use super::{display_name, RenderThread, MAX_AV_OFFSET_MS};
+use super::{display_name, RenderThread};
+use crate::config::{AV_OFFSET_MAX_MS, AV_OFFSET_MIN_MS};
 use crate::hotkeys::Action;
 
 impl RenderThread {
@@ -34,18 +35,12 @@ impl RenderThread {
             }
             Action::Favourite => self.favourite(now),
             Action::Ban => self.ban(now),
-            Action::AvOffset(d) => {
-                self.av_offset_ms = self
-                    .av_offset_ms
-                    .saturating_add(d)
-                    .clamp(0, MAX_AV_OFFSET_MS);
-                let text = format!("A/V offset: {} ms", self.av_offset_ms);
-                self.overlay.notice(text, now);
-            }
+            Action::AvOffset(d) => self.av_offset(d, now),
             Action::CycleQuality => {
                 self.quality = self.quality.next();
                 self.cfg.quality = self.quality;
                 self.director.set_mesh_cap(self.quality.mesh_cap());
+                self.persist();
                 let text = format!("Quality: {}", self.quality.name());
                 self.overlay.notice(text, now);
             }
@@ -54,7 +49,30 @@ impl RenderThread {
             Action::ToggleHelp => self.overlay.show_help = !self.overlay.show_help,
             // The main thread handles these.
             Action::ToggleFullscreen | Action::NextMonitor | Action::EscapeKey => {}
+            Action::DebugCrash => {
+                // Only mapped in debug builds (Ctrl+Shift+F12).
+                #[cfg(debug_assertions)]
+                panic!("debug crash hotkey (Ctrl+Shift+F12)");
+            }
         }
+    }
+
+    /// `[` / `]`: changes the capture device's A/V offset by `d` ms
+    /// (clamped to -500..=2000) and saves it for that device. Before any
+    /// capture has started there is no device to save it for.
+    fn av_offset(&mut self, d: i32, now: f64) {
+        self.av_offset_ms = self
+            .av_offset_ms
+            .saturating_add(d)
+            .clamp(AV_OFFSET_MIN_MS, AV_OFFSET_MAX_MS);
+        if let Some(device) = &self.av_device {
+            self.cfg
+                .av_offsets_ms
+                .insert(device.clone(), self.av_offset_ms);
+            self.persist();
+        }
+        let text = format!("A/V offset: {} ms", self.av_offset_ms);
+        self.overlay.notice(text, now);
     }
 
     /// The library id on screen, or `None` for the built-in default.
@@ -79,6 +97,7 @@ impl RenderThread {
             format!("Favourite: {}", display_name(&id))
         };
         self.director.set_prefs(prefs);
+        self.persist();
         self.overlay.notice(text, now);
     }
 
@@ -94,6 +113,7 @@ impl RenderThread {
         self.cfg.bans.insert(id.clone());
         self.cfg.favourites.remove(&id);
         self.director.set_prefs(prefs);
+        self.persist();
         self.director.command(Command::Next);
         self.overlay
             .notice(format!("Banned: {}", display_name(&id)), now);

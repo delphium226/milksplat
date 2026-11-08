@@ -37,8 +37,11 @@ impl RenderThread {
                 // `--debug-lose-device`: no preset is to blame.
                 tracing::info!("the loss was forced; no preset is blocklisted");
             } else if let Some(id) = self.director.on_device_lost(self.tick_time) {
-                // Task 24 persists the blocklist.
+                // Saved in the config's blocklist; the director's prefs are
+                // rebuilt from the config (plus this session's skips).
                 self.cfg.blocklist.insert(id);
+                self.director.set_prefs(self.prefs());
+                self.persist();
             }
             // The director keeps only shader sources from here on.
             self.director.release_gpu();
@@ -63,7 +66,13 @@ impl RenderThread {
             self.idle_wait();
             return;
         };
-        match GpuState::new(&self.instance, surface, &self.resolver, self.internal) {
+        match GpuState::new(
+            &self.instance,
+            surface,
+            &self.resolver,
+            self.internal,
+            self.safe,
+        ) {
             Ok(gs) => {
                 self.director.on_renderer_recreated(
                     &gs.renderer.shared(),

@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use milksplat::app::{Args, DoubleClick};
 use milksplat::config::{Config, Quality, WindowState};
-use milksplat::paths::{user_presets_in, Paths};
+use milksplat::paths::{user_presets_in, KnownDirs, Paths};
 use milksplat::render_thread::{aspect, display_name, internal_size, pick_format};
 use wgpu::TextureFormat as F;
 
@@ -25,8 +25,10 @@ fn args_parse() {
     assert_eq!(a.exit_after, Some(8.0));
     assert!(a.log_fps);
     assert_eq!(a.debug_lose_device, None);
+    assert!(!a.safe);
     let a = parse(&["--debug-lose-device", "2.5"]).unwrap().unwrap();
     assert_eq!(a.debug_lose_device, Some(2.5));
+    assert!(parse(&["--safe"]).unwrap().unwrap().safe);
     assert_eq!(parse(&["--help"]), Ok(None));
     assert_eq!(parse(&["-h"]), Ok(None));
     for bad in [
@@ -135,13 +137,40 @@ fn quality_cycles_and_caps_the_mesh() {
     }
 }
 
+fn dirs() -> KnownDirs {
+    KnownDirs {
+        roaming_app_data: Some(PathBuf::from("roam")),
+        local_app_data: Some(PathBuf::from("local")),
+        documents: Some(PathBuf::from("docs")),
+        exe_dir: PathBuf::from("dist"),
+    }
+}
+
 #[test]
 fn paths_layout() {
-    let p = Paths::new(PathBuf::from("dist").join("presets"), None);
+    let p = Paths::from_dirs(&dirs(), None);
+    assert_eq!(
+        p.config,
+        PathBuf::from("roam").join("Milksplat").join("config.toml")
+    );
+    assert_eq!(
+        p.logs,
+        PathBuf::from("local").join("Milksplat").join("logs")
+    );
+    assert_eq!(p.crash_dir, p.logs, "crash reports go next to the logs");
+    assert_eq!(
+        p.user_presets,
+        Some(PathBuf::from("docs").join("Milksplat").join("Presets"))
+    );
+    assert_eq!(p.bundled_presets, PathBuf::from("dist").join("presets"));
     assert_eq!(p.bundled_textures, PathBuf::from("dist").join("textures"));
     assert_eq!(
         p.preset_roots(),
-        vec![PathBuf::from("dist").join("presets")]
+        vec![
+            PathBuf::from("docs").join("Milksplat").join("Presets"),
+            PathBuf::from("dist").join("presets")
+        ],
+        "user presets first"
     );
     assert_eq!(
         p.texture_roots(),
@@ -149,21 +178,55 @@ fn paths_layout() {
     );
 
     // `--presets presets`: textures beside it, in the current directory.
-    let p = Paths::new(PathBuf::from("presets"), Some(PathBuf::from("user")));
+    let p = Paths::from_dirs(&dirs(), Some(PathBuf::from("presets")));
+    assert_eq!(p.bundled_presets, PathBuf::from("presets"));
     assert_eq!(p.bundled_textures, PathBuf::from("textures"));
+
+    // Missing folders: roaming and local stand in for each other, then the
+    // exe directory; no Documents means no user presets.
+    let p = Paths::from_dirs(
+        &KnownDirs {
+            roaming_app_data: None,
+            local_app_data: Some(PathBuf::from("local")),
+            documents: None,
+            exe_dir: PathBuf::from("dist"),
+        },
+        None,
+    );
+    assert_eq!(
+        p.config,
+        PathBuf::from("local").join("Milksplat").join("config.toml")
+    );
+    assert_eq!(p.user_presets, None);
     assert_eq!(
         p.preset_roots(),
-        vec![PathBuf::from("user"), PathBuf::from("presets")],
-        "user presets first"
+        vec![PathBuf::from("dist").join("presets")]
     );
+    let p = Paths::from_dirs(
+        &KnownDirs {
+            exe_dir: PathBuf::from("dist"),
+            ..KnownDirs::default()
+        },
+        None,
+    );
+    assert_eq!(p.logs, PathBuf::from("dist").join("Milksplat").join("logs"));
 
     assert_eq!(
-        user_presets_in(&PathBuf::from("home")),
-        PathBuf::from("home")
-            .join("Documents")
-            .join("Milksplat")
-            .join("Presets")
+        user_presets_in(&PathBuf::from("docs")),
+        PathBuf::from("docs").join("Milksplat").join("Presets")
     );
     assert_eq!(display_name("dir/ink-bloom.splat"), "dir/ink-bloom");
     assert_eq!(display_name("<default>"), "<default>");
+}
+
+/// The real known folders resolve on this machine (read only; nothing is
+/// created).
+#[test]
+fn known_folders_resolve() {
+    let d = KnownDirs::system();
+    if cfg!(windows) {
+        assert!(d.roaming_app_data.is_some_and(|p| p.is_absolute()));
+        assert!(d.local_app_data.is_some_and(|p| p.is_absolute()));
+        assert!(d.documents.is_some_and(|p| p.is_absolute()));
+    }
 }

@@ -11,6 +11,8 @@
 //!   one [`Director::frame_plan`] wants).
 //! - Each display frame: [`Director::composite`].
 //! - Input: [`Director::command`] (applied by the next `update`).
+//! - Files: [`Director::reload_current`] (hot reload of the preset on
+//!   screen) and [`Director::set_library`] (presets added or removed).
 //! - Device loss: [`Director::on_device_lost`] (returns an id for the
 //!   persistent blocklist), then, once the renderer and the loader have been
 //!   recreated, [`Director::on_renderer_recreated`].
@@ -656,6 +658,42 @@ impl Director {
         {
             self.pending = None;
         }
+    }
+
+    /// Hot reload: loads the file of the preset on screen (during a blend,
+    /// the incoming one) again and, once it is ready, cuts to it without a
+    /// blend (a fresh instance with the same seed; the feedback image
+    /// carries over, the display time restarts). If the load fails, the
+    /// running version stays and the preset is not skipped. Returns false
+    /// (and does nothing) for the built-in default preset, or while a
+    /// switch the user asked for is still loading. A newer request (a
+    /// command) supersedes the reload.
+    pub fn reload_current(&mut self) -> bool {
+        let active = self.blend.as_ref().map_or(&self.cur, |b| &b.to);
+        if active.id == DEFAULT_PRESET_ID
+            || self
+                .pending
+                .as_ref()
+                .is_some_and(|p| matches!(p.goal, Goal::Switch { .. }))
+        {
+            return false;
+        }
+        self.pending = Some(Pending::new(active.id.clone(), active.seed, Goal::Reload));
+        true
+    }
+
+    /// Replaces the library (presets added or removed at runtime). The
+    /// preset on screen stays. A ready next preset that is no longer in
+    /// the library is dropped; a pending request for one is dropped by the
+    /// next `update`. A pause in requests (after finding nothing to pick)
+    /// ends, so new presets are picked up at once.
+    pub fn set_library(&mut self, lib: Library) {
+        self.lib = lib;
+        let gone = |id: &str, lib: &Library| !lib.entries.iter().any(|e| e.id == id);
+        if self.ready.as_ref().is_some_and(|l| gone(&l.id, &self.lib)) {
+            self.ready = None;
+        }
+        self.retry_at = f64::NEG_INFINITY;
     }
 
     /// Every shader set the director holds.

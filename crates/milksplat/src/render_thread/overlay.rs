@@ -1,6 +1,6 @@
 //! The on-screen text: the preset name after a change (and on `N`), short
-//! notices for hotkeys, the fps/debug line (`` ` ``) and the help panel
-//! (`H`).
+//! notices for hotkeys, the fps/debug line (`` ` ``), the help panel
+//! (`H`) and the no-audio hint (§8.2).
 
 use ms_render::TextItem;
 
@@ -10,6 +10,9 @@ use crate::hotkeys::HELP;
 pub const NAME_SECONDS: f64 = 3.0;
 /// How long a notice ("Locked", "Quality: Low", ...) stays up.
 pub const NOTICE_SECONDS: f64 = 2.0;
+/// Shown at the bottom centre after 10 s of silence (an ASCII hyphen:
+/// font8x8 has no em dash).
+pub const NO_AUDIO_HINT: &str = "No audio detected - is something playing?";
 
 const WHITE: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
 const YELLOW: [f32; 4] = [1.0, 0.9, 0.4, 1.0];
@@ -24,6 +27,8 @@ pub(super) struct Overlay {
     notice: Option<(String, f64)>,
     pub show_debug: bool,
     pub show_help: bool,
+    /// Show [`NO_AUDIO_HINT`].
+    pub no_audio: bool,
 }
 
 impl Overlay {
@@ -42,7 +47,12 @@ impl Overlay {
 
     /// Shows a short notice.
     pub(super) fn notice(&mut self, text: impl Into<String>, now: f64) {
-        self.notice = Some((text.into(), now + NOTICE_SECONDS));
+        self.notice_for(text, now, NOTICE_SECONDS);
+    }
+
+    /// Shows a notice for `seconds`.
+    pub(super) fn notice_for(&mut self, text: impl Into<String>, now: f64, seconds: f64) {
+        self.notice = Some((text.into(), now + seconds));
     }
 
     /// The text items for a `size` target at `now`; `scale` is the glyph
@@ -67,6 +77,11 @@ impl Overlay {
                 let y = (name_y - line * 1.5).max(MARGIN);
                 items.push(item(text, [MARGIN, y], scale, YELLOW));
             }
+        }
+        if self.no_audio {
+            let width = NO_AUDIO_HINT.len() as f32 * line;
+            let x = ((size[0] as f32 - width) / 2.0).max(MARGIN);
+            items.push(item(NO_AUDIO_HINT, [x, bottom - line], scale, GREY));
         }
         if self.show_help {
             let top = if self.show_debug {

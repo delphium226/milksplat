@@ -24,6 +24,10 @@ pub(super) enum Goal {
     /// Switch to it as soon as it is ready. `repick`: on failure, request
     /// another pick (for `Next`/`HardCut`) instead of giving up.
     Switch { cut: bool, hist: Hist, repick: bool },
+    /// Hot reload of the preset on screen: cut to it when ready (a fresh
+    /// instance, no blend, its history entry kept); if it fails, keep the
+    /// running version and do not skip it.
+    Reload,
 }
 
 pub(super) struct Pending {
@@ -260,6 +264,14 @@ impl Director {
                 match pending.goal {
                     Goal::Prefetch => self.ready = Some(loaded),
                     Goal::Switch { cut, hist, .. } => self.switch(loaded, cut, hist, now),
+                    Goal::Reload => {
+                        let hist = match self.cursor {
+                            Some(i) if self.history.get(i) == Some(&loaded.id) => Hist::Back(i),
+                            _ => Hist::Push,
+                        };
+                        tracing::info!("reloaded {}", loaded.id);
+                        self.switch(loaded, true, hist, now);
+                    }
                 }
             }
             LoadResult::Failed {
@@ -276,6 +288,10 @@ impl Director {
                     parked: true,
                     ..pending
                 });
+            }
+            LoadResult::Failed { id, error, .. } if pending.goal == Goal::Reload => {
+                // The file is being edited: keep showing the running version.
+                tracing::warn!("reloading {id} failed; keeping the running version: {error}");
             }
             LoadResult::Failed { id, error, .. } => {
                 tracing::warn!("preset {id} failed to load, skipping it: {error}");

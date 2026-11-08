@@ -1,11 +1,19 @@
 //! The main thread (spec §3.2, §9.1): command line, logging, the window and
 //! the winit event loop. It never renders; it forwards input and window
 //! events to the render thread and handles fullscreen, monitors and quit.
+//!
+//! Startup order: arguments, paths (creating the directories), logging,
+//! the config, the panic hook, the run marker, the config saver, then the
+//! event loop. On exit: the render thread is joined, the window state is
+//! saved, the saver finishes, the marker is removed (only if nothing
+//! crashed), and after a crash the message box is shown and the exit code
+//! is 1. Keep-awake requests are made here, on the main thread.
 
 use std::ffi::OsString;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::PathBuf;
 use std::process::ExitCode;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crossbeam_channel::{Receiver, Sender};
@@ -18,8 +26,10 @@ use winit::keyboard::ModifiersState;
 use winit::monitor::MonitorHandle;
 use winit::window::{Fullscreen, Window, WindowId};
 
-use crate::config::Config;
+use crate::config::{load_config, Config, ConfigStore, WindowState};
+use crate::crash::{install_panic_hook, report_escaped_panic, show_crash_box, RunMarker};
 use crate::hotkeys::{map_key, Action};
+use crate::keepawake::KeepAwake;
 use crate::paths::Paths;
 use crate::render_thread::{run_render_thread, RenderExit, RenderOptions, ToRender};
 
@@ -35,6 +45,8 @@ Options:
   --presets <dir>        bundled preset directory (default: presets\\ next to the exe)
   --exit-after <secs>    quit after this many seconds of rendering
   --log-fps              print fps, frame time, scale and preset to stderr every second
+  --safe                 safe mode: the built-in preset only, no user shaders,
+                         the default audio device
   -h, --help             show this help";
 
 /// Command-line options.
@@ -43,6 +55,8 @@ pub struct Args {
     pub presets: Option<PathBuf>,
     pub exit_after: Option<f64>,
     pub log_fps: bool,
+    /// `--safe`.
+    pub safe: bool,
     /// Hidden `--debug-lose-device <secs>`: destroy the GPU device after
     /// this many seconds of rendering, to exercise recovery.
     pub debug_lose_device: Option<f64>,
@@ -59,6 +73,7 @@ impl Args {
             match name.as_str() {
                 "-h" | "--help" => return Ok(None),
                 "--log-fps" => out.log_fps = true,
+                "--safe" => out.safe = true,
                 "--presets" => {
                     let dir = it.next().ok_or("--presets needs a directory")?;
                     out.presets = Some(PathBuf::from(dir));
@@ -101,33 +116,8 @@ impl DoubleClick {
     }
 }
 
-/// Sends logs to stderr: info and up, and only warnings from wgpu, naga
-/// and winit. Task 24 adds the log files.
-pub fn init_logging() {
-    use std::io::IsTerminal;
-    use tracing::Level;
-    use tracing_subscriber::filter::Targets;
-    use tracing_subscriber::prelude::*;
-
-    let filter = Targets::new()
-        .with_default(Level::INFO)
-        .with_target("wgpu", Level::WARN)
-        .with_target("wgpu_core", Level::WARN)
-        .with_target("wgpu_hal", Level::WARN)
-        .with_target("naga", Level::WARN)
-        .with_target("winit", Level::WARN);
-    let layer = tracing_subscriber::fmt::layer()
-        .with_writer(std::io::stderr)
-        .with_ansi(std::io::stderr().is_terminal());
-    let _ = tracing_subscriber::registry()
-        .with(layer)
-        .with(filter)
-        .try_init();
-}
-
 /// The app entry point (see `main.rs`).
 pub fn main() -> ExitCode {
-    init_logging();
     let args = match Args::parse(std::env::args_os().skip(1)) {
         Ok(Some(args)) => args,
         Ok(None) => {
@@ -139,34 +129,88 @@ pub fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    let cfg = Config::default();
-    let paths = Paths::discover(args.presets.clone());
+    let mut paths = Paths::discover(args.presets.clone());
+    let dir_warnings = paths.create_dirs();
+    // Flushes the log file when dropped, at the end of `main`.
+    let _log_guard = crate::logging::init_logging(&paths.logs);
     tracing::info!("milksplat {} starting", env!("CARGO_PKG_VERSION"));
+    for w in dir_warnings {
+        tracing::warn!("{w}");
+    }
+    tracing::info!(
+        "config {}, logs {}",
+        paths.config.display(),
+        paths.logs.display()
+    );
+    let (cfg, warnings) = load_config(&paths.config);
+    for w in warnings {
+        tracing::warn!("{w}");
+    }
+    let current_preset = Arc::new(Mutex::new(None));
+    install_panic_hook(&paths, Arc::clone(&current_preset));
+    let (marker, crashed_preset) = RunMarker::begin(&paths.logs);
+    let (store, saver) = ConfigStore::start(paths.config.clone(), cfg.clone());
 
     let event_loop = match EventLoop::<UserEvent>::with_user_event().build() {
         Ok(event_loop) => event_loop,
         Err(e) => {
             tracing::error!("cannot create the event loop: {e}");
+            marker.end();
             return ExitCode::FAILURE;
         }
     };
+    let marker = Arc::new(marker);
     let mut app = App::new(cfg, paths, args, event_loop.create_proxy());
-    if let Err(e) = event_loop.run_app(&mut app) {
-        tracing::error!("the event loop failed: {e}");
-        app.failed = true;
+    app.store = Some(store);
+    app.marker = Some(Arc::clone(&marker));
+    app.current_preset = current_preset;
+    app.crashed_preset = crashed_preset;
+    let app_ref = &mut app;
+    // winit hands a panic in an event handler back from `run_app`.
+    match catch_unwind(AssertUnwindSafe(move || event_loop.run_app(app_ref))) {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => {
+            tracing::error!("the event loop failed: {e}");
+            app.failed = true;
+        }
+        Err(_) => {
+            tracing::error!("the main thread panicked");
+            app.crash = Some(report_escaped_panic("the main thread panicked", false));
+            app.send(ToRender::Quit);
+        }
     }
-    app.finish()
+    let code = app.finish();
+    saver.finish();
+    // The marker stays after a crash, so the next run skips the preset.
+    // The render thread (joined by `finish`, unless it hung) and `app` hold
+    // the other references.
+    let crash = app.crash.take();
+    drop(app.marker.take());
+    match (&crash, Arc::try_unwrap(marker)) {
+        (None, Ok(marker)) => marker.end(),
+        (None, Err(_)) => tracing::warn!(
+            "the render thread did not stop, so the run marker stays; the next run will skip the \
+             preset it names"
+        ),
+        (Some(_), _) => {}
+    }
+    if let Some(report) = crash {
+        show_crash_box(report.as_deref());
+        return ExitCode::FAILURE;
+    }
+    code
 }
 
 /// Events the render thread sends the main thread.
 #[derive(Debug)]
 pub enum UserEvent {
-    /// The render thread has ended (`clean` is false after a fatal error or
-    /// a panic).
-    RenderExited { clean: bool },
+    /// The render thread has ended.
+    RenderExited(RenderExit),
     /// After a device loss the render thread needs a new window surface;
     /// winit only gives out the window handle on the main thread.
     NeedSurface,
+    /// 10 s of silence started (`true`) or ended: keep-awake follows.
+    Silence(bool),
 }
 
 struct App {
@@ -186,12 +230,26 @@ struct App {
     /// Set once quitting has begun: when to stop waiting for the render thread.
     quit_deadline: Option<Instant>,
     failed: bool,
+    /// Set when a panic escaped (render or main thread): the crash report's
+    /// path, if it was written.
+    crash: Option<Option<PathBuf>>,
+    store: Option<ConfigStore>,
+    marker: Option<Arc<RunMarker>>,
+    current_preset: Arc<Mutex<Option<String>>>,
+    crashed_preset: Option<String>,
+    /// The last windowed (not fullscreen, not minimised) size and
+    /// position, saved on exit.
+    windowed: WindowState,
+    /// Whether the render thread reports 10 s of silence.
+    silent: bool,
+    keep_awake: KeepAwake,
 }
 
 impl App {
     fn new(cfg: Config, paths: Paths, args: Args, proxy: EventLoopProxy<UserEvent>) -> App {
         let (tx, rx) = crossbeam_channel::unbounded();
         App {
+            windowed: cfg.window.clone(),
             cfg,
             paths,
             args,
@@ -205,6 +263,13 @@ impl App {
             clicks: DoubleClick::default(),
             quit_deadline: None,
             failed: false,
+            crash: None,
+            store: None,
+            marker: None,
+            current_preset: Arc::new(Mutex::new(None)),
+            crashed_preset: None,
+            silent: false,
+            keep_awake: KeepAwake::default(),
         }
     }
 
@@ -215,7 +280,8 @@ impl App {
             .with_title("Milksplat")
             .with_inner_size(LogicalSize::new(ws.size[0].max(1), ws.size[1].max(1)))
             .with_min_inner_size(LogicalSize::new(160, 120));
-        if let Some([x, y]) = ws.position {
+        // A saved position is only used if it is on a connected monitor.
+        if let Some([x, y]) = ws.position.filter(|&p| on_a_monitor(event_loop, p)) {
             attrs = attrs.with_position(PhysicalPosition::new(x, y));
         }
         let window = Arc::new(
@@ -234,6 +300,11 @@ impl App {
         let size = window.inner_size();
         let proxy = self.proxy.clone();
         let surface_proxy = self.proxy.clone();
+        let silence_proxy = self.proxy.clone();
+        let store = self
+            .store
+            .clone()
+            .ok_or_else(|| "the config store is missing".to_string())?;
         let opts = RenderOptions {
             paths: self.paths.clone(),
             initial_size: [size.width, size.height],
@@ -242,13 +313,20 @@ impl App {
             log_fps: self.args.log_fps,
             lose_device_after: self.args.debug_lose_device,
             on_exit: Box::new(move |exit| {
-                let clean = exit == RenderExit::Clean;
                 // The loop may already be gone if the main thread quit first.
-                let _ = proxy.send_event(UserEvent::RenderExited { clean });
+                let _ = proxy.send_event(UserEvent::RenderExited(exit));
             }),
             request_surface: Box::new(move || {
                 let _ = surface_proxy.send_event(UserEvent::NeedSurface);
             }),
+            on_silence: Box::new(move |silent| {
+                let _ = silence_proxy.send_event(UserEvent::Silence(silent));
+            }),
+            safe: self.args.safe,
+            store,
+            marker: self.marker.clone(),
+            current_preset: Arc::clone(&self.current_preset),
+            crashed_preset: self.crashed_preset.take(),
         };
         self.instance = Some(instance.clone());
         let handle = run_render_thread(
@@ -341,7 +419,7 @@ impl App {
     }
 
     /// `M`: moves to the next monitor, fullscreen or centred there, and
-    /// remembers it as the fullscreen monitor (Task 24 saves it).
+    /// remembers it as the fullscreen monitor (saved in the config).
     fn next_monitor(&mut self, event_loop: &ActiveEventLoop) {
         let Some(w) = self.window.clone() else {
             return;
@@ -357,6 +435,10 @@ impl App {
             .unwrap_or(0);
         let next = monitors[(i + 1) % monitors.len()].clone();
         self.cfg.fullscreen_monitor = next.name();
+        if let Some(store) = &self.store {
+            let monitor = self.cfg.fullscreen_monitor.clone();
+            store.update(move |c| c.fullscreen_monitor = monitor);
+        }
         if w.fullscreen().is_some() {
             w.set_fullscreen(Some(Fullscreen::Borderless(Some(next))));
         } else {
@@ -374,9 +456,48 @@ impl App {
         }
     }
 
-    /// After the event loop: waits (bounded) for the render thread and
-    /// gives the exit code.
+    /// Remembers the window's size and position while it is windowed (not
+    /// fullscreen or minimised), to save on exit.
+    fn track_window(&mut self) {
+        let Some(w) = &self.window else {
+            return;
+        };
+        if w.fullscreen().is_some() || w.is_minimized() == Some(true) {
+            return;
+        }
+        let size = w.inner_size();
+        if size.width > 0 && size.height > 0 {
+            let logical = size.to_logical::<f64>(w.scale_factor());
+            self.windowed.size = [
+                logical.width.round().max(1.0) as u32,
+                logical.height.round().max(1.0) as u32,
+            ];
+        }
+        // Windows parks minimised windows at -32000.
+        if let Ok(pos) = w.outer_position().map(|p| [p.x, p.y]) {
+            if pos.iter().all(|&v| v > -30_000) {
+                self.windowed.position = Some(pos);
+            }
+        }
+        if let Some(name) = w.current_monitor().and_then(|m| m.name()) {
+            self.windowed.monitor = Some(name);
+        }
+    }
+
+    /// Keeps the display awake while fullscreen with audio playing.
+    fn update_keep_awake(&mut self) {
+        let fullscreen = self
+            .window
+            .as_ref()
+            .is_some_and(|w| w.fullscreen().is_some());
+        let on = fullscreen && !self.silent && self.quit_deadline.is_none();
+        self.keep_awake.update(on);
+    }
+
+    /// After the event loop: waits (bounded) for the render thread, saves
+    /// the window state and gives the exit code.
     fn finish(&mut self) -> ExitCode {
+        self.keep_awake.update(false);
         if let Some(handle) = self.render.take() {
             let deadline = self
                 .quit_deadline
@@ -395,9 +516,18 @@ impl App {
                 self.failed = true;
             }
         }
+        self.track_window();
+        if let Some(store) = &self.store {
+            let window = self.windowed.clone();
+            let monitor = self.cfg.fullscreen_monitor.clone();
+            store.update(move |c| {
+                c.window = window;
+                c.fullscreen_monitor = monitor;
+            });
+        }
         self.instance = None;
         self.window = None;
-        if self.failed {
+        if self.failed || self.crash.is_some() {
             ExitCode::FAILURE
         } else {
             ExitCode::SUCCESS
@@ -419,13 +549,16 @@ impl ApplicationHandler<UserEvent> for App {
 
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: UserEvent) {
         match event {
-            UserEvent::RenderExited { clean } => {
-                if !clean {
-                    self.failed = true;
+            UserEvent::RenderExited(exit) => {
+                match exit {
+                    RenderExit::Clean => {}
+                    RenderExit::Failed(_) => self.failed = true,
+                    RenderExit::Crashed { report } => self.crash = Some(report),
                 }
                 event_loop.exit();
             }
             UserEvent::NeedSurface => self.send_new_surface(),
+            UserEvent::Silence(silent) => self.silent = silent,
         }
     }
 
@@ -438,7 +571,9 @@ impl ApplicationHandler<UserEvent> for App {
                     size: [size.width, size.height],
                     scale,
                 });
+                self.track_window();
             }
+            WindowEvent::Moved(_) => self.track_window(),
             WindowEvent::Occluded(occluded) => self.send(ToRender::Suspend(occluded)),
             WindowEvent::ModifiersChanged(m) => self.mods = m.state(),
             WindowEvent::KeyboardInput {
@@ -462,6 +597,7 @@ impl ApplicationHandler<UserEvent> for App {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        self.update_keep_awake();
         if let Some(deadline) = self.quit_deadline {
             if Instant::now() >= deadline {
                 // `finish` reports it and sets the exit code.
@@ -469,4 +605,17 @@ impl ApplicationHandler<UserEvent> for App {
             }
         }
     }
+}
+
+/// Whether a window placed at `pos` (physical) would have its top-left
+/// corner area on a connected monitor.
+fn on_a_monitor(event_loop: &ActiveEventLoop, [x, y]: [i32; 2]) -> bool {
+    // Some of the title bar must be reachable.
+    let (x, y) = (i64::from(x) + 40, i64::from(y) + 10);
+    event_loop.available_monitors().any(|m| {
+        let p = m.position();
+        let s = m.size();
+        let (left, top) = (i64::from(p.x), i64::from(p.y));
+        x >= left && y >= top && x < left + i64::from(s.width) && y < top + i64::from(s.height)
+    })
 }

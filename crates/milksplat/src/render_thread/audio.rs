@@ -5,6 +5,13 @@ use std::sync::Arc;
 
 use ms_analysis::AudioHistory;
 
+/// A capture that (re)started on a device.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct DeviceStarted {
+    pub name: String,
+    pub bluetooth: bool,
+}
+
 /// The capture service and the consuming end of its ring. Without capture
 /// (other platforms) the history only ever gets silence.
 pub(super) struct AudioInput {
@@ -50,10 +57,12 @@ impl AudioInput {
 
     /// Handles capture events (a new sample rate resets `hist`; the
     /// analyzer follows the history's rate by itself), then moves every
-    /// queued packet into `hist`.
-    pub(super) fn drain(&mut self, hist: &mut AudioHistory) {
+    /// queued packet into `hist`. Returns the device a capture started on,
+    /// if one did.
+    pub(super) fn drain(&mut self, hist: &mut AudioHistory) -> Option<DeviceStarted> {
         #[cfg(windows)]
         {
+            let mut started = None;
             let c = &mut self.capture;
             while let Ok(ev) = c.events.try_recv() {
                 match ev {
@@ -70,6 +79,7 @@ impl AudioInput {
                         if sample_rate != hist.sample_rate() {
                             hist.reset(sample_rate);
                         }
+                        started = Some(DeviceStarted { name, bluetooth });
                     }
                     ms_audio::AudioEvent::Stopped { reason } => {
                         tracing::info!("audio capture stopped: {reason}");
@@ -80,8 +90,12 @@ impl AudioInput {
                 }
             }
             c.ring.drain_into(hist);
+            started
         }
         #[cfg(not(windows))]
-        let _ = hist;
+        {
+            let _ = hist;
+            None
+        }
     }
 }
