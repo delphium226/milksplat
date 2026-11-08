@@ -33,18 +33,19 @@ sb = sb + (min(bass_att, 2.5) - sb) * 0.1;
 sm = sm + (min(mid_att, 2.5) - sm) * 0.04;
 st = st + (min(treb, 2.5) - st) * 0.25;
 aspx = 1 / aspecty;
-// Drops: on a kick (at most every 0.45 s), or after 2.2 s without one.
+// Drops: on a kick (at most every 0.45 s), or after 2.2 s without one;
+// in the first 1.5 s a few drops fall quickly to set the scene.
 cool = cool - 1 / 60;
 idle = idle + 1 / 60;
 mood = floor(time / 45);
-if((beat * below(cool, 0)) + above(idle, 2.2),
+if((beat * below(cool, 0)) + above(idle, if(below(time, 1.5), 0.4, 2.2)),
   slot = 1 - slot;
   same = below(rand(100), 45) * above(time, 1);
   nx = if(same, lx, (rand(1000) / 1000 - 0.5) * aspx * 0.8);
   ny = if(same, ly, (rand(1000) / 1000 - 0.5) * 0.75);
   lx = nx; ly = ny;
-  rr = 0.06 + 0.1 * min(sb, 2) / 2 + 0.03 * rand(100) / 100;
-  k = if(below(rand(100), 30), 6, (rand(4) + mood * 2) % 6);
+  rr = 0.06 + 0.1 * min(sb, 2) / 2 + 0.03 * rand(100) / 100 + 0.05 * below(time, 1.5);
+  k = if(below(rand(100), 30) * above(time, 1.5), 6, (rand(4) + mood * 2) % 6);
   if(slot, xa = nx; ya = ny; ra = rr; ka = k; aga = 0, xb = nx; yb = ny; rb = rr; kb = k; agb = 0);
   cool = 0.45; idle = 0,
   0);
@@ -185,7 +186,7 @@ comp = '''
 // Print the absorbance on warm laid paper, with a wet sheen on the inks.
 let a = GetMain(uv);
 let fib = textureSample(sampler_noise_mq, s_fw, uv * vec2f(1.8, 1.0)).r;
-let paper = vec3f(0.91, 0.87, 0.78) * (0.96 + 0.04 * fib);
+let paper = vec3f(0.89, 0.85, 0.76) * (0.96 + 0.04 * fib);
 var col = paper * exp(-a * 0.8);
 let e = u.texsize.zw * 2.0;
 let hx = dot(GetBlur1(uv + vec2f(e.x, 0.0)) - GetBlur1(uv - vec2f(e.x, 0.0)), vec3f(0.33));

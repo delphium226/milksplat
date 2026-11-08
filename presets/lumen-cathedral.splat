@@ -179,17 +179,21 @@ let mott = textureSampleLevel(sampler_noisevol_lq, s_fw, vec3f(w * vec2f(0.9, 2.
 let mott2 = textureSampleLevel(sampler_noisevol_lq, s_fw, vec3f(w * 0.35, 0.7), 0.0).g;
 let inner = smoothstep(0.0, -0.06, d);
 let pane = glass * (0.3 + 0.9 * mott * mott + 0.3 * mott2) * (0.45 + 0.55 * inner) * 1.8 * u.q[3].x;
-// Lead cames: a diamond lattice inside each pane, faded out where it
-// would be finer than a few pixels.
-let lk = 22.0;
+// Lead cames: a soft diamond lattice inside each pane, faded out well
+// before it would be finer than a few pixels.
+let lk = 15.0;
 let la = aa * lk;
 let g1 = abs(fract((lsel.x + lsel.y) * lk) - 0.5);
 let g2 = abs(fract((lsel.x - lsel.y) * lk) - 0.5);
-let came = smoothstep(0.43 - la, 0.43 + la, max(g1, g2)) * (1.0 - smoothstep(0.08, 0.2, la)) * step(ring, 4.5);
-let pane_mask = smoothstep(aa, -aa, d) * (1.0 - 0.85 * came) * smoothstep(1.0 + aa, 1.0 - aa, r);
-// Stone tracery; beyond the window, the dust trails of the last frames.
+let came = smoothstep(0.4 - la, 0.47 + la, max(g1, g2)) * (1.0 - smoothstep(0.04, 0.1, la)) * step(ring, 4.5);
+let pane_mask = smoothstep(aa, -aa, d) * (1.0 - 0.45 * came) * smoothstep(1.0 + aa, 1.0 - aa, r);
+// Stone tracery, lit by the nave and catching the glass's glow along each
+// pane, with a bevelled outer rim lit from the upper left; beyond the
+// window, the dust trails of the last frames.
 let grain = textureSampleLevel(sampler_noise_mq, s_fw, w * 0.5, 0.0).b;
-let stone = vec3f(0.035, 0.03, 0.028) * (0.6 + 0.5 * grain);
+let spill = smoothstep(0.04, 0.0, d) * (0.5 + 0.5 * u.q[3].x);
+let bevel = smoothstep(0.06, 0.0, abs(r - 1.0)) * (0.55 + 0.45 * dot(w / max(r, 0.001), vec2f(-0.6, 0.8)));
+let stone = vec3f(0.1, 0.085, 0.07) * (0.55 + 0.6 * grain) + glass * 0.12 * spill + vec3f(0.16, 0.13, 0.1) * bevel;
 let disk = smoothstep(1.05 + aa, 1.05 - aa, r);
 let prev = GetMain(uv_orig) * u.decay;
 return mix(prev, mix(stone, pane, pane_mask), disk);

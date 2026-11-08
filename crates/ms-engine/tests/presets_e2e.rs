@@ -14,8 +14,9 @@
 //! time and, if `MS_TUNE_OUT` names a folder, writing the composites of
 //! ticks 60, 300 and 600 there as PNGs (see `tune_presets` for the tick
 //! count, size, shot and timing options). With `MS_TUNE_AUDIO` naming a raw
-//! recording (interleaved little-endian f32 stereo at 48 kHz, at least 10 s;
-//! never committed), it uses that instead of the synthetic music.
+//! recording (interleaved little-endian f32 stereo at 48 kHz, at least 10 s,
+//! looped if shorter than the run; never committed), it uses that instead
+//! of the synthetic music.
 
 use ms_render::test_support::{test_gpu, TestGpu};
 use std::cell::RefCell;
@@ -273,21 +274,37 @@ fn render(
     want: impl Fn(usize) -> bool,
     capture: impl FnMut(usize, RgbaImage),
 ) {
-    render_at(gpu, stem, audio, [W, H], want, capture, None);
+    render_at(gpu, stem, audio, At::size([W, H]), want, capture, None);
 }
 
-/// [`render`] at `size` pixels. With `times`, also composites every tick,
-/// waits for the GPU and pushes each tick's wall-clock cost (engine tick,
-/// warp, overlays, blur and composite) in milliseconds.
+/// Where and when [`render_at`] renders.
+#[derive(Clone, Copy)]
+struct At {
+    /// Internal and composite size in pixels.
+    size: [u32; 2],
+    /// Preset time (seconds) of tick 0; tick k is at `start + k / 60`.
+    start: f64,
+}
+
+impl At {
+    fn size(size: [u32; 2]) -> Self {
+        At { size, start: 0.0 }
+    }
+}
+
+/// [`render`] at `at`. With `times`, also composites every tick, waits for
+/// the GPU and pushes each tick's wall-clock cost (engine tick, warp,
+/// overlays, blur and composite) in milliseconds.
 fn render_at(
     gpu: &Gpu,
     stem: &str,
     audio: &[AudioFrame],
-    size: [u32; 2],
+    at: At,
     want: impl Fn(usize) -> bool,
     mut capture: impl FnMut(usize, RgbaImage),
     mut times: Option<&mut Vec<f64>>,
 ) {
+    let size = at.size;
     let p = load(stem);
     let mut r = renderer(gpu, &p, size);
     let set = shaders(stem, &r, gpu, &p);
@@ -300,7 +317,7 @@ fn render_at(
         let k = i + 1;
         let start = std::time::Instant::now();
         let input = TickInput {
-            time: k as f64 / TICK_HZ,
+            time: at.start + k as f64 / TICK_HZ,
             fps: TICK_HZ,
             frame: k as u64,
             progress: 0.0,
@@ -470,6 +487,71 @@ fn bundled_set_is_complete() {
     }
 }
 
+/// Presets with long-running state (accumulated phases, state machines),
+/// checked by [`no_late_flashing`].
+const LONG_RUN: [&str; 5] = [
+    "infinite-coil",
+    "turing-reef",
+    "lumen-cathedral",
+    "ebru-tide",
+    "tesseract-drift",
+];
+
+/// A cheap guard against flashing that only develops over time (for
+/// example a phase computed as time times an audio-driven speed, which
+/// jumps further every tick as time grows): each long-running preset is
+/// ticked for a minute of the synthetic music at 64x36, starting with the
+/// preset clock at 15 minutes. Over the last two seconds no tick may change
+/// the mean luminance by more than 0.06, and it may not flicker (step one
+/// way and straight back by more than 0.005).
+#[test]
+fn no_late_flashing() {
+    const TICKS: usize = 3600;
+    const LAST: usize = 120;
+    let gpu = gpu();
+    let audio = analyse(TICKS, |n| synth_audio(n as f64 / f64::from(RATE)));
+    for stem in LONG_RUN {
+        let mut lum = Vec::with_capacity(LAST + 1);
+        render_at(
+            &gpu,
+            stem,
+            &audio,
+            At {
+                size: [64, 36],
+                start: 900.0,
+            },
+            |k| k >= TICKS - LAST,
+            |_, img| lum.push(luminance(&img)),
+            None,
+        );
+        let jump = lum
+            .windows(2)
+            .map(|w| (w[1] - w[0]).abs())
+            .fold(0.0, f64::max);
+        // A flicker: the luminance steps one way and straight back, both
+        // steps large. Smooth motion only reverses where its steps are small.
+        let flicker = lum
+            .windows(3)
+            .map(|w| (w[1] - w[0], w[2] - w[1]))
+            .filter(|(a, b)| a * b < 0.0)
+            .map(|(a, b)| a.abs().min(b.abs()))
+            .fold(0.0, f64::max);
+        println!(
+            "{stem}: near tick {TICKS}, largest step {jump:.4}, largest reversal {flicker:.4}"
+        );
+        assert!(
+            jump <= 0.06,
+            "{stem}: mean luminance jumps by {jump:.4} between ticks near tick {TICKS}"
+        );
+        // Healthy presets stay under 0.0025 here; the old Turing Reef pulse
+        // bug (phase = time x bass-driven speed) flickered at 0.0074.
+        assert!(
+            flicker <= 0.005,
+            "{stem}: mean luminance flickers (steps {flicker:.4} and back) near tick {TICKS}"
+        );
+    }
+}
+
 /// The bundled set covers the engine's features (task 25's coverage list).
 #[test]
 fn bundled_set_coverage() {
@@ -551,8 +633,10 @@ fn tune_presets() {
             .iter()
             .map(|b| f32::from_le_bytes(*b))
             .collect();
+        // Loop the recording if the run is longer than it.
+        let frames = (samples.len() / 2).max(1);
         analyse(ticks, |n| {
-            let i = n as usize * 2;
+            let i = n as usize % frames * 2;
             [
                 samples.get(i).copied().unwrap_or(0.0),
                 samples.get(i + 1).copied().unwrap_or(0.0),
@@ -588,7 +672,7 @@ fn tune_presets() {
                 &gpu,
                 stem,
                 audio,
-                size,
+                At::size(size),
                 |_| true,
                 |k, img| {
                     lum.push((k, luminance(&img)));
@@ -628,7 +712,7 @@ fn tune_presets() {
                     &gpu,
                     stem,
                     &audio[..n],
-                    [1920, 1080],
+                    At::size([1920, 1080]),
                     |_| false,
                     |_, _| {},
                     Some(&mut times),

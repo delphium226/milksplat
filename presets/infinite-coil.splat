@@ -40,7 +40,7 @@ be = be + (bt - be) * 0.2;
 zp = zp + 0.0022 + 0.0045 * sb;
 // Turning: rotation phase in strip widths, drifting both ways with the mids.
 rp = rp + 0.0006 * sin(time * 0.071) + 0.0012 * sm * sin(time * 0.023 + 1);
-// Every 30 s pick a new arm count and twist; blend over 8 s.
+// Every 30 s pick a new arm count and twist; blend over 3 s.
 cyc = floor(time / 30);
 if(cyc != lastcyc,
   prevn = curn; prevt = curt;
@@ -49,7 +49,7 @@ if(cyc != lastcyc,
   curt = if(equal(k, 0), 1, if(equal(k, 1), 1, if(equal(k, 2), -1, if(equal(k, 3), 2, -2))));
   blend0 = time; lastcyc = cyc,
   0);
-w = min(1, max(0, (time - blend0) / 8));
+w = min(1, max(0, (time - blend0) / 3));
 w = w * w * (3 - 2 * w);
 q1 = 0.0012 + 0.0022 * sb;
 q2 = 0.0004 * sin(time * 0.13);
