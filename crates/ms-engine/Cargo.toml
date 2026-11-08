@@ -14,6 +14,8 @@ tracing.workspace = true
 
 [dev-dependencies]
 criterion.workspace = true
+image.workspace = true
+wgpu.workspace = true
 
 [[bench]]
 name = "tick"

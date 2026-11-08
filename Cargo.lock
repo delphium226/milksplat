@@ -935,12 +935,14 @@ name = "ms-engine"
 version = "0.1.0"
 dependencies = [
  "criterion",
+ "image",
  "ms-analysis",
  "ms-expr",
  "ms-preset",
  "ms-render",
  "rayon",
  "tracing",
+ "wgpu",
 ]
 
 [[package]]
