@@ -14,7 +14,8 @@
 //!
 //! The result is sent back as [`LoadResult::Ready`]; any error (including a
 //! panic in a dependency, caught per request) becomes
-//! [`LoadResult::Failed`]. Requests are answered in order. Every request gets
+//! [`LoadResult::Failed`] (with `device_lost` set if the GPU device was lost
+//! at the time). Requests are answered in order. Every request gets
 //! a ticket (`req`) that is unique across all loaders of the process, so a
 //! caller can tell a stale answer from the one it is waiting for.
 
@@ -46,6 +47,8 @@ const JOIN_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Request tickets, unique across every loader in the process.
 static NEXT_REQ: AtomicU64 = AtomicU64::new(1);
+/// Loader ids, unique across every loader in the process.
+static NEXT_LOADER: AtomicU64 = AtomicU64::new(1);
 
 /// The answer to one [`Loader::request`].
 pub enum LoadResult {
@@ -62,8 +65,16 @@ pub enum LoadResult {
         /// skipped when the preset runs).
         warnings: Vec<String>,
     },
-    /// The preset cannot be shown.
-    Failed { req: u64, id: String, error: String },
+    /// The preset could not be prepared.
+    Failed {
+        req: u64,
+        id: String,
+        error: String,
+        /// The GPU device was lost when the load failed: the preset itself
+        /// is probably fine, so it should be tried again on a new device
+        /// rather than skipped.
+        device_lost: bool,
+    },
 }
 
 impl LoadResult {
@@ -93,11 +104,17 @@ impl std::fmt::Debug for LoadResult {
                 .field("id", id)
                 .field("warnings", warnings)
                 .finish_non_exhaustive(),
-            LoadResult::Failed { req, id, error } => f
+            LoadResult::Failed {
+                req,
+                id,
+                error,
+                device_lost,
+            } => f
                 .debug_struct("Failed")
                 .field("req", req)
                 .field("id", id)
                 .field("error", error)
+                .field("device_lost", device_lost)
                 .finish(),
         }
     }
@@ -143,6 +160,7 @@ pub struct Loader {
     thread: Option<JoinHandle<()>>,
     control: Arc<Control>,
     requests: AtomicU64,
+    id: u64,
 }
 
 impl Loader {
@@ -186,7 +204,15 @@ impl Loader {
             thread,
             control,
             requests: AtomicU64::new(0),
+            id: NEXT_LOADER.fetch_add(1, Ordering::Relaxed),
         }
+    }
+
+    /// This loader's id, unique in the process. A request made to one
+    /// loader is never answered by another, so a caller that is handed a
+    /// different loader knows to send its pending request again.
+    pub fn loader_id(&self) -> u64 {
+        self.id
     }
 
     /// Queues preset `id` (file `path`) for loading; `seed` seeds its random
@@ -211,6 +237,7 @@ impl Loader {
                 req,
                 id: job.id,
                 error: "the preset loader thread is not running".into(),
+                device_lost: false,
             });
         }
         req
@@ -293,6 +320,7 @@ fn run(ctx: &Context, jobs: &Receiver<Job>, results: &Sender<LoadResult>) {
                     req: job.req,
                     id: job.id,
                     error,
+                    device_lost: ctx.shared.is_lost(),
                 },
                 Err(payload) => {
                     let msg = payload
@@ -304,6 +332,7 @@ fn run(ctx: &Context, jobs: &Receiver<Job>, results: &Sender<LoadResult>) {
                         req: job.req,
                         id: job.id,
                         error: format!("the loader panicked: {msg}"),
+                        device_lost: ctx.shared.is_lost(),
                     }
                 }
             };

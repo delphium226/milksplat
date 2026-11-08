@@ -27,11 +27,34 @@ pub(super) enum Goal {
 }
 
 pub(super) struct Pending {
-    /// The loader ticket, or `None` if not sent yet.
+    /// The loader ticket, or `None` if not sent (or to be sent again).
     pub(super) req: Option<u64>,
+    /// [`Loader::loader_id`](crate::Loader::loader_id) of the loader it was
+    /// sent to (0: none yet).
+    pub(super) loader: u64,
+    /// When it was sent.
+    pub(super) sent_at: f64,
+    /// Held back after a load failed on a lost device: sent again only to
+    /// a different loader (the one made for the new device).
+    pub(super) parked: bool,
     pub(super) id: String,
     pub(super) seed: u64,
     pub(super) goal: Goal,
+}
+
+impl Pending {
+    /// A request not sent yet.
+    pub(super) fn new(id: String, seed: u64, goal: Goal) -> Self {
+        Pending {
+            req: None,
+            loader: 0,
+            sent_at: 0.0,
+            parked: false,
+            id,
+            seed,
+            goal,
+        }
+    }
 }
 
 /// A switch waiting for the current blend to finish.
@@ -86,11 +109,19 @@ impl Director {
                 }
             }
             Command::Prev => {
-                let Some(i) = self.cursor.filter(|&i| i > 0) else {
+                // The closest earlier entry that may still be shown (not
+                // banned, blocklisted, failed this session, or on screen).
+                let Some(i) = self.cursor else {
                     return;
                 };
-                if let Some(id) = self.history.get(i - 1).cloned() {
-                    self.want(id, Hist::Back(i - 1), now);
+                let shown = self.shown_id();
+                let back = (0..i).rev().find_map(|j| {
+                    let id = self.history.get(j)?;
+                    (id != shown && self.allowed(id) && !self.skip.contains(id))
+                        .then(|| (j, id.clone()))
+                });
+                if let Some((j, id)) = back {
+                    self.want(id, Hist::Back(j), now);
                 }
             }
             Command::Random => {
@@ -123,7 +154,7 @@ impl Director {
         }
     }
 
-    fn allowed(&self, id: &str) -> bool {
+    pub(super) fn allowed(&self, id: &str) -> bool {
         !self.prefs.bans.contains(id) && !self.prefs.blocklist.contains(id)
     }
 
@@ -137,16 +168,12 @@ impl Director {
             return;
         }
         let seed = self.rng.next_u64();
-        self.pending = Some(Pending {
-            req: None,
-            id,
-            seed,
-            goal: Goal::Switch {
-                cut: false,
-                hist,
-                repick: false,
-            },
-        });
+        let goal = Goal::Switch {
+            cut: false,
+            hist,
+            repick: false,
+        };
+        self.pending = Some(Pending::new(id, seed, goal));
     }
 
     /// Whether requests are allowed at `now` (not paused after failures).
@@ -173,12 +200,7 @@ impl Director {
         match pick {
             Some(id) => {
                 let seed = self.rng.next_u64();
-                self.pending = Some(Pending {
-                    req: None,
-                    id,
-                    seed,
-                    goal,
-                });
+                self.pending = Some(Pending::new(id, seed, goal));
             }
             None => {
                 self.pending = None;
@@ -233,6 +255,21 @@ impl Director {
                     Goal::Prefetch => self.ready = Some(loaded),
                     Goal::Switch { cut, hist, .. } => self.switch(loaded, cut, hist, now),
                 }
+            }
+            LoadResult::Failed {
+                device_lost: true,
+                id,
+                error,
+                ..
+            } => {
+                // Not the preset's fault: keep the request, and send it again
+                // to the loader made for the new device.
+                tracing::warn!("preset {id} could not load (device lost): {error}");
+                self.pending = Some(Pending {
+                    req: None,
+                    parked: true,
+                    ..pending
+                });
             }
             LoadResult::Failed { id, error, .. } => {
                 tracing::warn!("preset {id} failed to load, skipping it: {error}");

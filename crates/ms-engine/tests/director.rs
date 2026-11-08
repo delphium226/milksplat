@@ -661,7 +661,17 @@ fn consecutive_failures_capped() {
 #[test]
 fn bad_shader_preset_still_shows() {
     let (_fx, lib) = fixture(&[("shader.splat", BAD_SHADER)]);
-    let mut rig = make_rig(manual_cfg(), lib, Prefs::default());
+    let mut rig = make_rig(manual_cfg(), lib.clone(), Prefs::default());
+    // The loader reports the shader error and falls back to the built-in.
+    rig.loader
+        .request("shader.splat".into(), path_of(&lib, "shader.splat"), 1);
+    match wait_result(&rig.loader) {
+        LoadResult::Ready { shaders, .. } => {
+            assert!(!shaders.errors.is_empty(), "no shader error reported");
+            assert!(shaders.warp_source.is_some());
+        }
+        LoadResult::Failed { error, .. } => panic!("load failed: {error}"),
+    }
     rig.director.command(Command::Load("shader.splat".into()));
     rig.wait_showing(1.0, "shader.splat");
     // It renders (with the built-in warp in place of the broken one).
@@ -684,7 +694,11 @@ fn bad_shader_preset_still_shows() {
 
 #[test]
 fn device_lost_blocklists_recent() {
-    let (_fx, lib) = fixture(&[("a.splat", &good("a")), ("b.splat", &good("b"))]);
+    let (_fx, lib) = fixture(&[
+        ("a.splat", &good("a")),
+        ("b.splat", &good("b")),
+        ("c.splat", &good("c")),
+    ]);
     let config = DirectorConfig {
         blend_s: 0.0,
         ..manual_cfg()
@@ -694,27 +708,207 @@ fn device_lost_blocklists_recent() {
     rig.update(0.0);
     assert_eq!(rig.director.on_device_lost(0.5), None);
 
+    // 5 s after `a` started: not blamed.
     rig.director.command(Command::Load("a.splat".into()));
     rig.wait_showing(100.0, "a.splat");
-    assert_eq!(
-        rig.director.on_device_lost(101.0),
-        Some("a.splat".to_string())
-    );
-    // It is taken off screen and never requested again.
-    assert_eq!(rig.director.current(), showing(DEFAULT_PRESET_ID));
+    assert_eq!(rig.director.on_device_lost(105.0), None);
+    assert_eq!(rig.director.current(), showing("a.splat"));
 
+    // 1 s after `b` started: blamed, and taken off screen.
     rig.director.command(Command::Load("b.splat".into()));
     rig.wait_showing(200.0, "b.splat");
-    assert_eq!(rig.director.on_device_lost(205.0), None);
-    assert_eq!(rig.director.current(), showing("b.splat"));
+    assert_eq!(
+        rig.director.on_device_lost(201.0),
+        Some("b.splat".to_string())
+    );
+    assert_eq!(rig.director.current(), showing(DEFAULT_PRESET_ID));
 
-    // `a` is skipped from now on, even when asked for.
-    rig.director.command(Command::Load("a.splat".into()));
+    // History is [a, b, c]: `Prev` from `c` walks past the blocklisted `b`.
+    rig.director.command(Command::Load("c.splat".into()));
+    rig.wait_showing(300.0, "c.splat");
+    rig.director.command(Command::Prev);
+    rig.wait(310.0, "Prev to land", |d| shown(d) != "c.splat");
+    assert_eq!(rig.director.current(), showing("a.splat"));
+
+    // `b` is skipped from now on, even when asked for.
+    rig.director.command(Command::Load("b.splat".into()));
     for _ in 0..100 {
-        rig.update(206.0);
+        rig.update(320.0);
         std::thread::sleep(Duration::from_millis(1));
     }
-    assert_eq!(rig.director.current(), showing("b.splat"));
+    assert_eq!(rig.director.current(), showing("a.splat"));
+    // Nothing allowed before `a`: `Prev` does nothing.
+    rig.director.command(Command::Prev);
+    for _ in 0..50 {
+        rig.update(330.0);
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    assert_eq!(rig.director.current(), showing("a.splat"));
+}
+
+#[test]
+fn device_lost_mid_blend_handles_queued() {
+    let (_fx, lib) = fixture(&[("a.splat", &good("a")), ("b.splat", &good("b"))]);
+    let mut rig = make_rig(manual_cfg(), lib, Prefs::default());
+    rig.director.command(Command::Load("a.splat".into()));
+    rig.wait_showing(10.0, "a.splat");
+    rig.director.command(Command::Load("b.splat".into()));
+    rig.wait(10.5, "b to be queued", |d| d.queued() == Some("b.splat"));
+    // The incoming `a` is blamed: the blend is abandoned, and the queued `b`
+    // (allowed, and loaded) blends in from the outgoing preset at once.
+    assert_eq!(
+        rig.director.on_device_lost(11.0),
+        Some("a.splat".to_string())
+    );
+    assert_eq!(rig.director.queued(), None);
+    match rig.director.current() {
+        State::Blending {
+            from, to, start, ..
+        } => assert_eq!(
+            (from.as_str(), to.as_str(), start),
+            (DEFAULT_PRESET_ID, "b.splat", 11.0)
+        ),
+        s => panic!("{s:?}"),
+    }
+    // `b` again, queued behind its own blend; then `b` is blamed, so the
+    // queued switch (now blocklisted) is dropped, not applied later.
+    rig.director.command(Command::Load("b.splat".into()));
+    rig.wait(11.2, "b to be queued again", |d| {
+        d.queued() == Some("b.splat")
+    });
+    assert_eq!(
+        rig.director.on_device_lost(11.5),
+        Some("b.splat".to_string())
+    );
+    assert_eq!(rig.director.queued(), None);
+    assert_eq!(rig.director.current(), showing(DEFAULT_PRESET_ID));
+    for i in 0..600 {
+        rig.update(12.0 + i as f64 * DT);
+    }
+    assert_eq!(rig.director.current(), showing(DEFAULT_PRESET_ID));
+}
+
+#[test]
+fn loader_swapped_mid_request() {
+    let (_fx, lib) = fixture(&[("a.splat", &good("a")), ("b.splat", &good("b"))]);
+    let mut rig = make_rig(manual_cfg(), lib, Prefs::default());
+    rig.loader.set_paused(true);
+    rig.director.command(Command::Load("a.splat".into()));
+    rig.update(0.0);
+    assert_eq!(rig.loader.request_count(), 1);
+    // The app replaces the loader (e.g. a new surface format). The old
+    // one's queued job is dropped with it; the request goes to the new one.
+    let old_id = rig.loader.loader_id();
+    rig.loader = Loader::spawn(rig.renderer.shared(), TextureResolver::new(Vec::new()), FMT);
+    assert_ne!(rig.loader.loader_id(), old_id);
+    rig.wait_showing(1.0, "a.splat");
+    // Prefetching carries on with the new loader.
+    rig.wait_ready(2.0);
+}
+
+#[test]
+fn unanswered_request_times_out() {
+    let (_fx, lib) = fixture(&[("a.splat", &good("a")), ("b.splat", &good("b"))]);
+    let mut rig = make_rig(manual_cfg(), lib, Prefs::default());
+    rig.loader.set_paused(true);
+    rig.director.command(Command::Load("a.splat".into()));
+    rig.update(0.0);
+    assert_eq!(rig.loader.request_count(), 1);
+    for i in 1..(30 * 60) {
+        rig.update(i as f64 * DT);
+    }
+    assert_eq!(rig.loader.request_count(), 1, "re-requested before 30 s");
+    rig.update(30.0);
+    assert_eq!(rig.loader.request_count(), 2, "not re-requested after 30 s");
+    assert_eq!(rig.director.consecutive_failures(), 0);
+    // Once the loader answers, the first (stale) answer is ignored and
+    // the second one shows.
+    rig.loader.set_paused(false);
+    rig.wait_showing(31.0, "a.splat");
+}
+
+#[test]
+fn device_lost_failure_is_retried_on_new_loader() {
+    let (_fx, lib) = fixture(&[("a.splat", &good("a"))]);
+    let mut rig = make_rig(manual_cfg(), lib.clone(), Prefs::default());
+    // The device is lost: the warm-up's poll fails.
+    rig.gpu.lost.store(true, Ordering::SeqCst);
+    rig.loader
+        .request("a.splat".into(), path_of(&lib, "a.splat"), 1);
+    match wait_result(&rig.loader) {
+        LoadResult::Failed { device_lost, .. } => assert!(device_lost),
+        LoadResult::Ready { .. } => panic!("loaded on a lost device"),
+    }
+    rig.director.command(Command::Load("a.splat".into()));
+    let start = Instant::now();
+    while start.elapsed() < Duration::from_millis(500) {
+        rig.update(1.0);
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    // Not skipped, not counted, and not sent again to the lost loader.
+    assert_eq!(rig.loader.request_count(), 2);
+    assert_eq!(rig.director.consecutive_failures(), 0);
+    assert_eq!(rig.director.current(), showing(DEFAULT_PRESET_ID));
+    // The app recreates the device and the loader: the request goes out
+    // again and the preset shows.
+    rig.gpu.lost.store(false, Ordering::SeqCst);
+    rig.renderer.recreate(&rig.gpu);
+    rig.loader = Loader::spawn(rig.renderer.shared(), TextureResolver::new(Vec::new()), FMT);
+    rig.director.on_renderer_recreated(
+        &rig.renderer.shared(),
+        &TextureResolver::new(Vec::new()),
+        FMT,
+    );
+    rig.wait_showing(2.0, "a.splat");
+}
+
+#[test]
+fn manual_request_suppresses_auto_advance_and_cuts() {
+    let (_fx, lib) = fixture(&[
+        ("a.splat", &good("a")),
+        ("b.splat", &good("b")),
+        ("c.splat", &good("c")),
+    ]);
+    let mut rig = make_rig(cfg(), lib, Prefs::default());
+    rig.wait_ready(0.0);
+    let next = rig.director.next_ready().unwrap().to_string();
+    let wanted = ["a.splat", "b.splat", "c.splat"]
+        .into_iter()
+        .find(|id| *id != next)
+        .unwrap();
+    rig.loader.set_paused(true);
+    rig.director.command(Command::Load(wanted.into()));
+    rig.update(0.5);
+    // Past the auto-advance deadline (at most 25 s), with strong beats after
+    // the hard-cut gap: the ready next preset is not used while the manual
+    // request waits.
+    for i in 0..(28 * 60) {
+        rig.update_beat(1.0 + i as f64 * DT, 9.0);
+        assert_eq!(rig.director.current(), showing(DEFAULT_PRESET_ID));
+    }
+    rig.loader.set_paused(false);
+    rig.wait_showing(29.0, wanted);
+}
+
+#[test]
+fn non_finite_now_is_ignored() {
+    let (_fx, lib) = fixture(&[("a.splat", &good("a")), ("b.splat", &good("b"))]);
+    let config = DirectorConfig {
+        auto_advance_s: 1.0e6,
+        ..DirectorConfig::default()
+    };
+    let mut rig = make_rig(config, lib, Prefs::default());
+    // A NaN first update must not become the default preset's start time.
+    rig.update(f64::NAN);
+    rig.update(f64::INFINITY);
+    rig.wait_ready(0.0);
+    rig.update_beat(10.5, 9.0);
+    let first = shown(&rig.director);
+    assert_ne!(first, DEFAULT_PRESET_ID, "the hard cut never came");
+    // NaN neither blames the preset nor moves its start time.
+    assert_eq!(rig.director.on_device_lost(f64::NAN), None);
+    rig.update(f64::NAN);
+    assert_eq!(rig.director.on_device_lost(11.0), Some(first));
 }
 
 #[test]

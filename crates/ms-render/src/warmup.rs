@@ -12,6 +12,12 @@ use crate::warp::{self, Vertex};
 const SIZE: u32 = 64;
 
 impl RendererShared {
+    /// Whether the device this handle was made from has been lost (the
+    /// [`Gpu::lost`](crate::Gpu::lost) flag). Safe to call from any thread.
+    pub fn is_lost(&self) -> bool {
+        self.lost.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
     /// Draws `set` once, off screen: a warp pass (with the pipeline for
     /// `feedback`) over a 1x1 mesh into a private 64x64 feedback-format
     /// target, then a composite into a private 64x64 `comp_format` target

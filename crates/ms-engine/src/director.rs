@@ -29,17 +29,24 @@
 //!   the current preset became current, and a next preset is ready, blend to
 //!   it. **Hard cut:** a beat with `beat_strength > hard_cut_strength`, at
 //!   least `hard_cut_min_gap_s` after the last change, switches to the ready
-//!   next preset instantly. Neither happens while locked or blending.
+//!   next preset instantly. Neither happens while locked, blending, or
+//!   waiting for a manually requested preset.
 //! - **Commands:** `Next`/`HardCut` take the ready next preset (or wait for
 //!   the one being loaded); `Random`, `Load(id)` and `Prev` request a
-//!   specific preset. The current preset stays on screen until the
+//!   specific preset (`Prev` walks back past entries that are now banned,
+//!   blocklisted or failed). The current preset stays on screen until the
 //!   requested one is ready. A newer request supersedes an older pending
 //!   one; answers to superseded requests are ignored (matched by ticket).
 //!   A switch requested during a blend waits for the blend to finish.
+//! - **Requests** remember the loader they went to
+//!   ([`Loader::loader_id`]): if `update` is given a different loader (the
+//!   app replaced it), the pending request is sent again to that one. A
+//!   request with no answer after 30 s (of `now`) is sent again.
 //! - **Failures:** a preset that fails to load is logged and skipped for the
 //!   rest of the session, and another is requested. After 10 consecutive
 //!   failures the director stays on the current preset and tries again 10 s
-//!   later.
+//!   later. A load that failed because the GPU device was lost is neither
+//!   skipped nor counted: it is sent again to the next loader.
 //! - The built-in default preset is shown at startup and whenever nothing
 //!   else can be (empty library, everything banned, blocklisted or failed).
 
@@ -61,7 +68,7 @@ use crate::blend::{composite_layers, render_blend, BlendPattern, BlendScratch};
 use crate::env::Globals;
 use crate::loader::{Loader, PICKS_SALT};
 use active::{clone_set, compile_default, Active, Blend, Loaded};
-use switching::{Hist, Pending, Queued};
+use switching::{Goal, Hist, Pending, Queued};
 
 /// The id of the built-in default preset (never a library id: library ids
 /// end in `.splat`).
@@ -81,6 +88,9 @@ const BLOCKLIST_WINDOW_S: f64 = 2.0;
 const HISTORY_CAP: usize = 50;
 /// Default mesh cap (spec §6.6: at most 192x144).
 const DEFAULT_MESH_CAP: [u32; 2] = [192, 144];
+/// A request with no answer after this long (seconds of `now`) is sent
+/// again.
+const REQUEST_TIMEOUT_S: f64 = 30.0;
 
 /// A user or app command, applied by the next [`Director::update`].
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -274,9 +284,14 @@ impl Director {
     /// the queued commands, takes the loader's answers, finishes a blend
     /// that is done, auto-advances or hard-cuts, and makes the requests
     /// that are due. Call it once per tick, before
-    /// [`tick_and_render`](Self::tick_and_render), always with the same
-    /// loader (or the replacement made after a device loss). Never blocks.
+    /// [`tick_and_render`](Self::tick_and_render). `loader` may be replaced
+    /// at any time (see the module docs). A non-finite `now` is ignored
+    /// (the call does nothing). Never blocks.
     pub fn update(&mut self, now: f64, audio: &AudioFrame, loader: &Loader) {
+        if !now.is_finite() {
+            tracing::warn!("director: ignoring an update with a non-finite time ({now})");
+            return;
+        }
         if !self.started {
             self.started = true;
             self.cur.since = now;
@@ -287,8 +302,26 @@ impl Director {
         while let Some(r) = loader.poll() {
             self.on_result(r, now);
         }
+        if let Some(p) = &mut self.pending {
+            if p.loader != loader.loader_id() && (p.req.is_some() || p.parked) {
+                // Sent to (or held for) another loader, which will never
+                // answer here: send it to this one.
+                p.req = None;
+                p.parked = false;
+            } else if p.req.is_some() && now - p.sent_at >= REQUEST_TIMEOUT_S {
+                tracing::warn!(
+                    "loading {} got no answer in {REQUEST_TIMEOUT_S} s; requesting it again",
+                    p.id
+                );
+                p.req = None;
+            }
+        }
         self.finish_blend(now);
-        if self.blend.is_none() && !self.locked && self.ready.is_some() {
+        let switch_pending = self
+            .pending
+            .as_ref()
+            .is_some_and(|p| matches!(p.goal, Goal::Switch { .. }));
+        if self.blend.is_none() && !self.locked && !switch_pending && self.ready.is_some() {
             let since = self.cur.since;
             let cut = self.cfg.hard_cuts
                 && audio.beat_strength > self.cfg.hard_cut_strength
@@ -302,9 +335,13 @@ impl Director {
         }
         self.prefetch(now);
         if let Some(p) = &mut self.pending {
-            if p.req.is_none() {
+            if p.req.is_none() && !p.parked {
                 match self.lib.entries.iter().find(|e| e.id == p.id) {
-                    Some(e) => p.req = Some(loader.request(p.id.clone(), e.path.clone(), p.seed)),
+                    Some(e) => {
+                        p.req = Some(loader.request(p.id.clone(), e.path.clone(), p.seed));
+                        p.loader = loader.loader_id();
+                        p.sent_at = now;
+                    }
                     None => {
                         tracing::warn!("preset {} is no longer in the library", p.id);
                         self.pending = None;
@@ -467,9 +504,16 @@ impl Director {
     /// outgoing preset stays; otherwise the default preset is shown), and
     /// its id is returned for the app to add to the persistent blocklist.
     /// The default preset is never blamed. Otherwise returns `None`.
+    ///
+    /// A switch queued behind an abandoned blend is applied at once if its
+    /// preset is still allowed, and dropped otherwise. A non-finite `now`
+    /// blames nothing.
     pub fn on_device_lost(&mut self, now: f64) -> Option<String> {
         let active = self.blend.as_ref().map_or(&self.cur, |b| &b.to);
-        if active.id == DEFAULT_PRESET_ID || now - active.since >= BLOCKLIST_WINDOW_S {
+        if !now.is_finite()
+            || active.id == DEFAULT_PRESET_ID
+            || now - active.since >= BLOCKLIST_WINDOW_S
+        {
             return None;
         }
         let id = active.id.clone();
@@ -492,8 +536,13 @@ impl Director {
         if self.ready.as_ref().is_some_and(|l| l.id == id) {
             self.ready = None;
         }
-        if self.queued.as_ref().is_some_and(|q| q.loaded.id == id) {
-            self.queued = None;
+        // Only a blend can have a queued switch, and the blend is gone.
+        if let Some(q) = self.queued.take() {
+            if self.allowed(&q.loaded.id) {
+                self.switch(q.loaded, q.cut, q.hist, now);
+            } else {
+                tracing::info!("dropping the queued switch to {}", q.loaded.id);
+            }
         }
         Some(id)
     }
@@ -530,6 +579,7 @@ impl Director {
         recompile(&mut self.default_shaders, 0);
         if let Some(p) = &mut self.pending {
             p.req = None;
+            p.parked = false;
         }
     }
 
