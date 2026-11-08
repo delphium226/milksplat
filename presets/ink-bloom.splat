@@ -9,7 +9,7 @@ author = "Milksplat"
 license = "MIT OR Apache-2.0"
 
 [params]
-decay = 0.982
+decay = 0.988
 zoom = 1.0
 warp = 0.0
 wave_mode = 0
@@ -46,10 +46,11 @@ let c = GetMain(uv);
 let halo = GetBlur1(uv);
 let v = max(c.r, max(c.g, c.b));
 let warm = c.r / max(c.r + c.g + c.b, 0.001);
-let paper = vec3f(0.06, 0.08, 0.13) + 0.05 * hue_shader * (1.0 - rad);
-let ink = mix(vec3f(0.05, 0.42, 0.52), vec3f(0.98, 0.78, 0.38), smoothstep(0.25, 0.55, warm));
-var col = mix(paper, ink, smoothstep(0.03, 0.45, v));
-col = col + vec3f(0.9, 0.95, 1.0) * smoothstep(0.75, 1.0, v) * 0.35;
-col = col + halo * vec3f(0.18, 0.32, 0.4);
+// Dusk-blue paper, lit warmer toward the middle.
+let paper = mix(vec3f(0.08, 0.17, 0.34), vec3f(0.2, 0.25, 0.42), 1.0 - rad) + 0.08 * hue_shader * (1.0 - rad);
+let ink = mix(vec3f(0.05, 0.62, 0.72), vec3f(1.0, 0.8, 0.36), smoothstep(0.25, 0.55, warm));
+var col = mix(paper, ink, smoothstep(0.03, 0.4, v));
+col = col + vec3f(0.9, 0.95, 1.0) * smoothstep(0.7, 1.0, v) * 0.35;
+col = col + halo * vec3f(0.3, 0.6, 0.7);
 return col;
 '''

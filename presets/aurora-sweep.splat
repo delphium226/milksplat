@@ -11,7 +11,7 @@ license = "MIT OR Apache-2.0"
 
 [params]
 feedback_format = "fp16"
-decay = 0.975
+decay = 0.982
 warp = 0.0
 wave_a = 0.0
 mesh = [48, 36]
@@ -36,7 +36,7 @@ thick = 1
 additive = 1
 frame = '''
 t1 = time;
-a = 0.35 + 0.3 * min(bass, 2) / 2;
+a = 0.5 + 0.3 * min(bass, 2) / 2;
 '''
 point = '''
 // The curtain's foot: a slow swaying line, rippled by the waveform.
@@ -63,9 +63,10 @@ comp = '''
 let rays = textureSampleLevel(sampler_clouds, sampler_clouds_s, vec2f(uv.x * 2.5 + u.q[0].x * 3.0, uv.y * 0.12), 0.0).r;
 let c = GetMain(uv) * (0.5 + 1.1 * rays) * (0.9 + 0.4 * u.q[0].z);
 // Tone-map (the fp16 feedback may exceed 1).
-let light = vec3f(1.0) - exp(-c * 1.8);
-let sky = mix(vec3f(0.02, 0.04, 0.12), vec3f(0.06, 0.03, 0.1), uv.y) + 0.03 * hue_shader;
+let light = vec3f(1.0) - exp(-c * 2.6);
+// A twilight sky: deep blue overhead, violet glow at the horizon.
+let sky = mix(vec3f(0.08, 0.14, 0.32), vec3f(0.26, 0.14, 0.36), uv.y) + 0.06 * hue_shader;
 // Sparse stars from the fine noise, only in the upper sky.
 let s = textureSampleLevel(sampler_noise_hq, s_pw, uv * vec2f(1.0, 0.5625), 0.0).r;
-return sky + light + vec3f(smoothstep(0.985, 1.0, s) * 0.6 * (1.0 - uv.y));
+return sky * (1.0 - 0.4 * light) + light + vec3f(smoothstep(0.985, 1.0, s) * 0.6 * (1.0 - uv.y));
 '''

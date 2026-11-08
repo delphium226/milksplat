@@ -9,7 +9,7 @@ author = "Milksplat"
 license = "MIT OR Apache-2.0"
 
 [params]
-decay = 0.95
+decay = 0.96
 zoom = 1.02
 rot = 0.02
 warp = 0.3
@@ -71,5 +71,9 @@ let q = vec2f(cos(a), sin(a)) * r;
 let src = q * vec2f(u.aspect_y, u.aspect_x) + vec2f(0.5);
 let c = GetMain(src);
 let glass = textureSampleLevel(sampler_rand00, sampler_rand00_s, q * 1.5 + vec2f(0.5), 0.0).rgb;
-return c + glass * (0.06 + 0.1 * (1.0 - r)) + vec3f(0.02, 0.0, 0.03);
+// Stained glass: rose toward the centre, sky blue toward the rim.
+let tint = mix(vec3f(1.0, 0.45, 0.85), vec3f(0.45, 0.75, 1.1), smoothstep(0.1, 0.6, r));
+let col = c * 1.15 + glass * tint * (0.2 + 0.22 * (1.0 - r)) + vec3f(0.12, 0.03, 0.14);
+// Roll off the highlights so the bright centre does not blow out.
+return col / (vec3f(1.0) + 0.35 * col);
 '''

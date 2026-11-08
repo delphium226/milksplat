@@ -487,40 +487,52 @@ fn bundled_set_is_complete() {
     }
 }
 
-/// Presets with long-running state (accumulated phases, state machines),
-/// checked by [`no_late_flashing`].
-const LONG_RUN: [&str; 5] = [
-    "infinite-coil",
-    "turing-reef",
-    "lumen-cathedral",
-    "ebru-tide",
-    "tesseract-drift",
+/// The presets checked by [`no_late_flashing`], with how many ticks each
+/// runs: a minute for those with long-running state (accumulated phases,
+/// state machines), twenty seconds for the rest (enough for their feedback
+/// to settle; every bundled preset but the gentle default is covered).
+const LONG_RUN: [(&str, usize); 15] = [
+    ("ink-bloom", 1200),
+    ("bass-tunnel", 1200),
+    ("prism-drift", 1200),
+    ("pulse-grid", 1200),
+    ("aurora-sweep", 1200),
+    ("kaleido-spin", 1200),
+    ("ember-rain", 1200),
+    ("liquid-chrome", 1200),
+    ("starfield-warp", 1200),
+    ("neon-orbit", 1200),
+    ("infinite-coil", 3600),
+    ("turing-reef", 3600),
+    ("lumen-cathedral", 3600),
+    ("ebru-tide", 3600),
+    ("tesseract-drift", 3600),
 ];
 
 /// A cheap guard against flashing that only develops over time (for
 /// example a phase computed as time times an audio-driven speed, which
-/// jumps further every tick as time grows): each long-running preset is
-/// ticked for a minute of the synthetic music at 64x36, starting with the
-/// preset clock at 15 minutes. Over the last two seconds no tick may change
-/// the mean luminance by more than 0.06, and it may not flicker (step one
-/// way and straight back by more than 0.005).
+/// jumps further every tick as time grows): each preset in [`LONG_RUN`] is
+/// ticked for its tick count of the synthetic music at 64x36, starting with
+/// the preset clock at 15 minutes. Over the last two seconds no tick may
+/// change the mean luminance by more than 0.06, and it may not flicker
+/// (step one way and straight back by more than 0.005).
 #[test]
 fn no_late_flashing() {
-    const TICKS: usize = 3600;
     const LAST: usize = 120;
     let gpu = gpu();
-    let audio = analyse(TICKS, |n| synth_audio(n as f64 / f64::from(RATE)));
-    for stem in LONG_RUN {
+    let longest = LONG_RUN.iter().map(|(_, t)| *t).max().unwrap_or(0);
+    let all = analyse(longest, |n| synth_audio(n as f64 / f64::from(RATE)));
+    for (stem, ticks) in LONG_RUN {
         let mut lum = Vec::with_capacity(LAST + 1);
         render_at(
             &gpu,
             stem,
-            &audio,
+            &all[..ticks],
             At {
                 size: [64, 36],
                 start: 900.0,
             },
-            |k| k >= TICKS - LAST,
+            |k| k >= ticks - LAST,
             |_, img| lum.push(luminance(&img)),
             None,
         );
@@ -537,17 +549,17 @@ fn no_late_flashing() {
             .map(|(a, b)| a.abs().min(b.abs()))
             .fold(0.0, f64::max);
         println!(
-            "{stem}: near tick {TICKS}, largest step {jump:.4}, largest reversal {flicker:.4}"
+            "{stem}: near tick {ticks}, largest step {jump:.4}, largest reversal {flicker:.4}"
         );
         assert!(
             jump <= 0.06,
-            "{stem}: mean luminance jumps by {jump:.4} between ticks near tick {TICKS}"
+            "{stem}: mean luminance jumps by {jump:.4} between ticks near tick {ticks}"
         );
-        // Healthy presets stay under 0.0025 here; the old Turing Reef pulse
-        // bug (phase = time x bass-driven speed) flickered at 0.0074.
+        // Healthy presets stay under about 0.004 here; the old Turing Reef
+        // pulse bug (phase = time x bass-driven speed) flickered at 0.0074.
         assert!(
             flicker <= 0.005,
-            "{stem}: mean luminance flickers (steps {flicker:.4} and back) near tick {TICKS}"
+            "{stem}: mean luminance flickers (steps {flicker:.4} and back) near tick {ticks}"
         );
     }
 }
@@ -601,7 +613,8 @@ fn bundled_set_coverage() {
 /// ticks per preset at `MS_TUNE_SIZE` (`WxH`, default the golden size),
 /// mean luminance every tick, PNGs of the ticks in `MS_TUNE_SHOTS`
 /// (comma-separated, default 60,300,600) to `MS_TUNE_OUT`. Prints the
-/// range, the mean and the largest tick-to-tick luminance change (a
+/// range, the mean, the range and mean after the first five seconds (the
+/// settled look) and the largest tick-to-tick luminance change (a
 /// full-frame flash detector), for the music and, unless `MS_TUNE_AUDIO` is
 /// set, again for the music with double-time (4 Hz) hats. With
 /// `MS_TUNE_BENCH=1` it also times 600 ticks of each preset at 1920x1080
@@ -688,6 +701,21 @@ fn tune_presets() {
             let settled = lum.iter().filter(|(k, _)| *k >= 60).map(|(_, l)| *l);
             let (lo, hi) = settled.fold((f64::MAX, f64::MIN), |(lo, hi), l| (lo.min(l), hi.max(l)));
             let mean = lum.iter().map(|(_, l)| l).sum::<f64>() / lum.len() as f64;
+            // After the first five seconds (the settled look).
+            let late: Vec<f64> = lum
+                .iter()
+                .filter(|(k, _)| *k > 300)
+                .map(|(_, l)| *l)
+                .collect();
+            let (late_lo, late_hi, late_mean) = if late.is_empty() {
+                (mean, mean, mean)
+            } else {
+                (
+                    late.iter().copied().fold(f64::MAX, f64::min),
+                    late.iter().copied().fold(f64::MIN, f64::max),
+                    late.iter().sum::<f64>() / late.len() as f64,
+                )
+            };
             // Largest change from one tick to the next (a flash detector).
             let jump = lum
                 .windows(2)
@@ -699,7 +727,7 @@ fn tune_presets() {
                 .map(|(_, l)| format!("{l:.3}"))
                 .collect();
             println!(
-                "{stem:15} luminance min {lo:.3} max {hi:.3} mean {mean:.3} max-tick-delta {jump:.4}  per second: {}",
+                "{stem:15} luminance min {lo:.3} max {hi:.3} mean {mean:.3} settled {late_lo:.3}..{late_hi:.3} mean {late_mean:.3} max-tick-delta {jump:.4}  per second: {}",
                 trace.join(" ")
             );
             if !(0.05..=0.85).contains(&lo) || !(0.05..=0.85).contains(&hi) {

@@ -10,7 +10,7 @@ author = "Milksplat"
 license = "MIT OR Apache-2.0"
 
 [params]
-decay = 0.955
+decay = 0.97
 zoom = 1.0
 warp = 0.6
 wave_mode = 6
@@ -53,5 +53,11 @@ let k = vec3f(0.57735);
 let cs = cos(a);
 c = c * cs + cross(k, c) * sin(a) + k * dot(k, c) * (1.0 - cs);
 let glow = GetBlur1(uv);
-return max(c, vec3f(0.0)) + glow * u.q[0].z + vec3f(0.02, 0.015, 0.035);
+// A pale prism wash behind the line, its hues sliding slowly.
+let h = 6.2832 * (uv.x * 0.8 - uv.y * 0.45 + u.q[0].y * 0.4);
+let wash = 0.5 + 0.5 * cos(vec3f(h, h + 2.1, h + 4.2));
+let w2 = wash * wash;
+let back = vec3f(0.07, 0.05, 0.14) + mix(vec3f(dot(w2, vec3f(0.333))), w2, 0.7) * 0.3;
+let light = vec3f(1.0) - exp(-max(c, vec3f(0.0)) * 1.8 - glow * u.q[0].z * 2.2);
+return back * (1.0 - 0.5 * light) + light;
 '''

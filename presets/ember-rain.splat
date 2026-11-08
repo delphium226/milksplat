@@ -1,6 +1,8 @@
 # Ember Rain: forty embers drift down through rising heat, each remembering
 # its own position and speed in the preset's megabuf; the kick makes them
-# flare and fall faster, and a low glowing waveform smoulders below.
+# flare and fall faster, and a low glowing waveform smoulders below. The
+# composite sets them against a glowing dusk (hot near the ground) and
+# blooms them with the first blur level.
 version = 1
 
 [meta]
@@ -9,7 +11,7 @@ author = "Milksplat"
 license = "MIT OR Apache-2.0"
 
 [params]
-decay = 0.93
+decay = 0.94
 zoom = 1.0
 warp = 0.35
 dy = 0.004
@@ -66,4 +68,14 @@ y = megabuf(base + 1);
 rad = (0.008 + megabuf(base + 2) * 2) * (0.8 + 0.4 * q1);
 ang = q2 * 0.5 + instance;
 g = 0.55 + 0.35 * sin(instance * 1.9);
+'''
+
+[shader]
+comp = '''
+let c = GetMain(uv);
+let bloom = GetBlur1(uv);
+// Dusk over a fire: plum overhead, a deep orange glow near the ground.
+let dusk = mix(vec3f(0.5, 0.17, 0.06), vec3f(0.17, 0.06, 0.2), smoothstep(0.95, 0.15, uv.y));
+let light = c * 1.3 + bloom * vec3f(1.1, 0.7, 0.4);
+return dusk * (1.0 - 0.5 * min(light, vec3f(1.0))) + light;
 '''

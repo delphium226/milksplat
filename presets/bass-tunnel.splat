@@ -8,7 +8,9 @@ author = "Milksplat"
 license = "MIT OR Apache-2.0"
 
 [params]
-decay = 0.92
+feedback_format = "fp16"
+decay = 0.96
+gamma = 1.7
 zoom = 1.03
 warp = 0.15
 wave_mode = 0
@@ -33,15 +35,15 @@ sides = 6
 instances = 8
 rad = 0.035
 r = 1.0
-g = 0.4
-b = 0.05
+g = 0.3
+b = 0.04
 a = 0.55
 r2 = 0.8
-g2 = 0.08
+g2 = 0.03
 b2 = 0.02
 a2 = 0.15
 border_r = 1.0
-border_g = 0.55
+border_g = 0.45
 border_b = 0.15
 border_a = 0.4
 additive = 1
@@ -52,7 +54,7 @@ x = 0.5 + ring * cos(a0) * aspecty;
 y = 0.5 + ring * sin(a0);
 ang = -a0;
 rad = 0.025 + 0.02 * min(bass, 2);
-g = 0.3 + 0.25 * min(treb, 1);
+g = 0.2 + 0.25 * min(treb, 1);
 '''
 
 [[shape]]

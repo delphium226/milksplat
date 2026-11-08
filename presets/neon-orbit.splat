@@ -9,7 +9,7 @@ author = "Milksplat"
 license = "MIT OR Apache-2.0"
 
 [params]
-decay = 0.95
+decay = 0.962
 zoom = 0.99
 rot = 0.006
 warp = 0.0
@@ -88,6 +88,8 @@ a = 0.25 + 0.4 * q2;
 comp = '''
 // A violet haze behind the trails, warmer toward the centre and swelling
 // with the mids.
-let haze = mix(vec3f(0.03, 0.03, 0.09), vec3f(0.16, 0.04, 0.2), smoothstep(0.9, 0.0, rad));
-return GetMain(uv) + haze * (0.7 + 0.3 * u.q[0].z);
+let haze = mix(vec3f(0.23, 0.14, 0.47), vec3f(0.6, 0.2, 0.66), smoothstep(0.95, 0.0, rad));
+// Neon bloom from the first blur level.
+let glow = GetBlur1(uv) * vec3f(1.0, 0.8, 1.2);
+return GetMain(uv) * 1.2 + glow + haze * (0.75 + 0.25 * u.q[0].z);
 '''
