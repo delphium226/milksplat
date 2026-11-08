@@ -12,6 +12,11 @@ lto = "fat"
 codegen-units = 1
 
 [workspace.dependencies]
+bytemuck = { version = "1.25.2", features = ["derive"] }
+half = "2.7.1"
+image = { version = "0.25.10", default-features = false, features = ["png"] }
+pollster = "1.0.1"
+wgpu = "30.0.1"
 cpal = "0.18.2"
 criterion = "0.8.2"
 crossbeam-channel = "0.5.17"

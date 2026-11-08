@@ -5,3 +5,9 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+bytemuck.workspace = true
+half.workspace = true
+image.workspace = true
+pollster.workspace = true
+tracing.workspace = true
+wgpu.workspace = true
