@@ -80,13 +80,19 @@ fn noise(seed: u64, n: u64) -> f64 {
 ///   so X-Y scopes draw a figure, not a line);
 /// - noise hi-hats on the off-beats (seeded, so every run is identical).
 pub fn synth_audio(t: f64) -> Frame {
+    synth_audio_hats(t, 0.5)
+}
+
+/// [`synth_audio`] with a hi-hat every `hat_period` seconds, half a period
+/// after the kick grid (0.5 s: off-beats; 0.25 s: double-time, 4 Hz).
+fn synth_audio_hats(t: f64, hat_period: f64) -> Frame {
     use std::f64::consts::TAU;
     let tk = t.rem_euclid(0.5);
     let kick = 0.7 * (TAU * 55.0 * tk).sin() * (-tk * 7.0).exp();
     let swell = 0.65 + 0.35 * (TAU * t / 4.0).sin();
     let pad_l = 0.12 * swell * (TAU * 440.0 * t).sin();
     let pad_r = 0.12 * swell * (TAU * 440.0 * t + 0.9).sin();
-    let th = (t - 0.25).rem_euclid(0.5);
+    let th = (t - hat_period / 2.0).rem_euclid(hat_period);
     let n = (t * f64::from(RATE)).round() as u64;
     let env = 0.22 * (-th * 40.0).exp();
     let hat_l = env * noise(HAT_SEED, n);
@@ -125,6 +131,12 @@ fn analyse(ticks: usize, mut sig: impl FnMut(u64) -> Frame) -> Vec<AudioFrame> {
 fn music() -> &'static [AudioFrame] {
     static MUSIC: OnceLock<Vec<AudioFrame>> = OnceLock::new();
     MUSIC.get_or_init(|| analyse(600, |n| synth_audio(n as f64 / f64::from(RATE))))
+}
+
+/// 600 ticks of the music with double-time (4 Hz) hats, for the tuning
+/// harness's flash check.
+fn music_4hz_hats() -> Vec<AudioFrame> {
+    analyse(600, |n| synth_audio_hats(n as f64 / f64::from(RATE), 0.25))
 }
 
 /// 600 ticks of analysed silence, computed once.
@@ -185,7 +197,7 @@ fn renderer(gpu: &Gpu, p: &CompiledPreset) -> Renderer {
 /// `textures/` folder (random picks seeded as the loader does). Any error,
 /// including a fallback to a built-in shader, fails the test.
 fn shaders(stem: &str, r: &Renderer, gpu: &Gpu, p: &CompiledPreset) -> ShaderSet {
-    let resolver = TextureResolver::new(vec![repo().join("textures")]);
+    let resolver = TextureResolver::new(texture_roots());
     let picks = RefCell::new(PresetPicks::new(SEED ^ PICKS_SALT));
     let tex = |name: &str| resolver.resolve_with(name, &mut picks.borrow_mut());
     let s = &p.source.shader;
@@ -196,6 +208,32 @@ fn shaders(stem: &str, r: &Renderer, gpu: &Gpu, p: &CompiledPreset) -> ShaderSet
         set.errors
     );
     set
+}
+
+/// The random textures the goldens were made with. `randNN` picks among
+/// exactly these (copied into a test-owned folder), so adding a file to
+/// `textures/random/` cannot change an unrelated golden.
+const RANDOM_TEXTURES: [&str; 3] = ["cells.png", "marble.png", "weave.png"];
+
+/// Texture roots for the tests: first a folder whose `random/` holds only
+/// [`RANDOM_TEXTURES`] (so random picks come from there), then the bundled
+/// `textures/` (for named textures such as `clouds`).
+fn texture_roots() -> Vec<PathBuf> {
+    static PINNED: OnceLock<PathBuf> = OnceLock::new();
+    let pinned = PINNED.get_or_init(|| {
+        let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join("presets_e2e_textures");
+        let random = root.join("random");
+        let _ = std::fs::remove_dir_all(&random);
+        std::fs::create_dir_all(&random).expect("create pinned random-texture folder");
+        for name in RANDOM_TEXTURES {
+            let from = repo().join("textures").join("random").join(name);
+            std::fs::copy(&from, random.join(name)).unwrap_or_else(|e| {
+                panic!("pinned random texture {} is missing: {e}", from.display())
+            });
+        }
+        root
+    });
+    vec![pinned.clone(), repo().join("textures")]
 }
 
 /// The aspect multipliers the app uses for a `w x h` image.
@@ -328,10 +366,18 @@ fn luminance(img: &RgbaImage) -> f64 {
 fn check_preset(stem: &str) {
     let gpu = gpu();
     let with_music = image_after(&gpu, stem, music());
+    let lum = luminance(&with_music);
+    assert!(
+        (0.04..=0.9).contains(&lum),
+        "{stem}: tick-{TICKS} mean luminance {lum:.3} is outside [0.04, 0.9]"
+    );
     assert_golden!(with_music, &format!("preset_{}", stem.replace('-', "_")));
     let with_silence = image_after(&gpu, stem, quiet());
     let d = diff_fraction(&with_music, &with_silence);
-    println!("{stem}: {:.1}% of pixels differ from silence", d * 100.0);
+    println!(
+        "{stem}: tick-{TICKS} luminance {lum:.3}; {:.1}% of pixels differ from silence",
+        d * 100.0
+    );
     assert!(
         d > 0.05,
         "{stem}: tick-{TICKS} image with music differs from silence on only {:.2}% of pixels",
@@ -436,9 +482,11 @@ fn bundled_set_coverage() {
 }
 
 /// Tuning harness (see the module docs): 600 ticks per preset, mean
-/// luminance every 10 ticks, PNGs of ticks 60/300/600 to `MS_TUNE_OUT`.
-/// Fails if a preset's mean luminance leaves [0.05, 0.85] after the first
-/// second.
+/// luminance every tick, PNGs of ticks 60/300/600 to `MS_TUNE_OUT`. Prints
+/// the range, the mean and the largest tick-to-tick luminance change (a
+/// full-frame flash detector), for the music and, unless `MS_TUNE_AUDIO` is
+/// set, again for the music with double-time (4 Hz) hats. Fails if a
+/// preset's mean luminance leaves [0.05, 0.85] after the first second.
 #[test]
 #[ignore = "tuning harness: slow, prints numbers and writes PNGs"]
 fn tune_presets() {
@@ -461,49 +509,59 @@ fn tune_presets() {
             ]
         })
     });
-    let audio = recorded.as_deref().unwrap_or(music());
-    let mut bad = Vec::new();
-    for stem in BUNDLED {
-        if let Some(only) = &only {
-            if !only.split(',').any(|s| s.trim() == stem) {
-                continue;
-            }
+    let hats4;
+    let runs: Vec<(&str, &[AudioFrame])> = match &recorded {
+        Some(r) => vec![("recorded", r.as_slice())],
+        None => {
+            hats4 = music_4hz_hats();
+            vec![("synthetic", music()), ("4 Hz hats", hats4.as_slice())]
         }
-        let mut lum = Vec::new();
-        render(
-            &gpu,
-            stem,
-            audio,
-            |k| k % 10 == 0,
-            |k, img| {
-                lum.push((k, luminance(&img)));
-                if let Some(dir) = &out {
-                    if [60, 300, 600].contains(&k) {
-                        let path = dir.join(format!("{stem}-{k}.png"));
-                        img.save(&path).expect("save tuning PNG");
-                    }
+    };
+    let mut bad = Vec::new();
+    for (label, audio) in runs {
+        println!("--- {label}");
+        for stem in BUNDLED {
+            if let Some(only) = &only {
+                if !only.split(',').any(|s| s.trim() == stem) {
+                    continue;
                 }
-            },
-        );
-        let settled = lum.iter().filter(|(k, _)| *k >= 60).map(|(_, l)| *l);
-        let (lo, hi) = settled.fold((f64::MAX, f64::MIN), |(lo, hi), l| (lo.min(l), hi.max(l)));
-        let mean = lum.iter().map(|(_, l)| l).sum::<f64>() / lum.len() as f64;
-        // Largest change between samples 10 ticks apart (a flash detector).
-        let jump = lum
-            .windows(2)
-            .map(|w| (w[1].1 - w[0].1).abs())
-            .fold(0.0, f64::max);
-        let trace: Vec<String> = lum
-            .iter()
-            .filter(|(k, _)| k % 60 == 0)
-            .map(|(_, l)| format!("{l:.3}"))
-            .collect();
-        println!(
-            "{stem:15} luminance min {lo:.3} max {hi:.3} mean {mean:.3} max-step {jump:.3}  per second: {}",
+            }
+            let mut lum = Vec::new();
+            render(
+                &gpu,
+                stem,
+                audio,
+                |_| true,
+                |k, img| {
+                    lum.push((k, luminance(&img)));
+                    if let (Some(dir), "synthetic" | "recorded") = (&out, label) {
+                        if [60, 300, 600].contains(&k) {
+                            let path = dir.join(format!("{stem}-{k}.png"));
+                            img.save(&path).expect("save tuning PNG");
+                        }
+                    }
+                },
+            );
+            let settled = lum.iter().filter(|(k, _)| *k >= 60).map(|(_, l)| *l);
+            let (lo, hi) = settled.fold((f64::MAX, f64::MIN), |(lo, hi), l| (lo.min(l), hi.max(l)));
+            let mean = lum.iter().map(|(_, l)| l).sum::<f64>() / lum.len() as f64;
+            // Largest change from one tick to the next (a flash detector).
+            let jump = lum
+                .windows(2)
+                .map(|w| (w[1].1 - w[0].1).abs())
+                .fold(0.0, f64::max);
+            let trace: Vec<String> = lum
+                .iter()
+                .filter(|(k, _)| k % 60 == 0)
+                .map(|(_, l)| format!("{l:.3}"))
+                .collect();
+            println!(
+            "{stem:15} luminance min {lo:.3} max {hi:.3} mean {mean:.3} max-tick-delta {jump:.4}  per second: {}",
             trace.join(" ")
         );
-        if !(0.05..=0.85).contains(&lo) || !(0.05..=0.85).contains(&hi) {
-            bad.push(format!("{stem}: [{lo:.3}, {hi:.3}]"));
+            if !(0.05..=0.85).contains(&lo) || !(0.05..=0.85).contains(&hi) {
+                bad.push(format!("{label} {stem}: [{lo:.3}, {hi:.3}]"));
+            }
         }
     }
     assert!(bad.is_empty(), "luminance out of [0.05, 0.85]: {bad:?}");
