@@ -53,7 +53,9 @@
 
 use std::sync::Arc;
 
-use ms_expr::{BatchScratch, BatchShared, Lanes, LoopBudget, Megabuf, Program, Rng, TICK_LOOP_BUDGET};
+use ms_expr::{
+    BatchScratch, BatchShared, Lanes, LoopBudget, Megabuf, Program, Rng, TICK_LOOP_BUDGET,
+};
 use ms_preset::CompiledPreset;
 use ms_render::{Borders, DrawList, MainWave, MeshData, MotionVectors, Uniforms};
 use rayon::prelude::*;

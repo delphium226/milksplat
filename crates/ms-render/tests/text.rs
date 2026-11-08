@@ -4,8 +4,8 @@
 //! These run on the machine's real adapter, or on WARP with
 //! `MS_FORCE_WARP=1`.
 
-use ms_render::test_support::{test_gpu, TestGpu};
 use image::RgbaImage;
+use ms_render::test_support::{test_gpu, TestGpu};
 use ms_render::{read_texture, FeedbackFormat, Gpu, RenderConfig, Renderer, TextItem};
 
 const RGBA8: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;

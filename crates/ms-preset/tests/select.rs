@@ -6,7 +6,10 @@ use std::path::PathBuf;
 fn lib(n: usize) -> Library {
     Library {
         entries: (0..n)
-            .map(|i| Entry { id: format!("p{i:02}.splat"), path: PathBuf::from(format!("p{i:02}.splat")) })
+            .map(|i| Entry {
+                id: format!("p{i:02}.splat"),
+                path: PathBuf::from(format!("p{i:02}.splat")),
+            })
             .collect(),
     }
 }
@@ -40,7 +43,9 @@ fn all_banned_none() {
 fn no_recent_repeat() {
     let l = lib(10);
     let mut s = Selector::new(7);
-    let picks: Vec<String> = (0..1000).map(|_| s.next(&l, &Prefs::default()).unwrap()).collect();
+    let picks: Vec<String> = (0..1000)
+        .map(|_| s.next(&l, &Prefs::default()).unwrap())
+        .collect();
     for w in picks.windows(4) {
         for i in 0..4 {
             for j in i + 1..4 {
@@ -61,7 +66,12 @@ fn favourites_twice_as_often() {
         *counts.entry(s.next(&l, &prefs).unwrap()).or_default() += 1.0;
     }
     let fav = counts["p03.splat"];
-    let others: f64 = counts.iter().filter(|(k, _)| *k != "p03.splat").map(|(_, v)| v).sum::<f64>() / 9.0;
+    let others: f64 = counts
+        .iter()
+        .filter(|(k, _)| *k != "p03.splat")
+        .map(|(_, v)| v)
+        .sum::<f64>()
+        / 9.0;
     let ratio = fav / others;
     assert!((1.5..=2.5).contains(&ratio), "ratio {ratio}");
 }

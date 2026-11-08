@@ -217,11 +217,7 @@ impl Program {
 /// Returns false when no more iterations are allowed; a per-run cap hit
 /// latches `capped`, a spent budget latches the budget's exhausted flag.
 #[inline]
-pub(crate) fn start_iteration(
-    iters: &mut u64,
-    capped: &mut bool,
-    budget: &mut LoopBudget,
-) -> bool {
+pub(crate) fn start_iteration(iters: &mut u64, capped: &mut bool, budget: &mut LoopBudget) -> bool {
     if *capped {
         return false;
     }

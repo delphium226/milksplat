@@ -5,7 +5,12 @@ fn eval(src: &str) -> f64 {
     let p = compile(src, &mut vt).unwrap();
     let mut vars = vec![0.0; vt.len()];
     let (mut mb, mut gm, mut rng) = (Megabuf::new(), Megabuf::new(), Rng::seeded(1));
-    let mut env = ExecEnv { vars: &mut vars, megabuf: &mut mb, gmegabuf: &mut gm, rng: &mut rng };
+    let mut env = ExecEnv {
+        vars: &mut vars,
+        megabuf: &mut mb,
+        gmegabuf: &mut gm,
+        rng: &mut rng,
+    };
     let r = p.run(&mut env);
     assert!(!r.loop_cap_hit);
     r.value
@@ -112,8 +117,12 @@ fn vars_persist_between_runs() {
     let (mut mb, mut gm, mut rng) = (Megabuf::new(), Megabuf::new(), Rng::seeded(1));
     let mut last = 0.0;
     for _ in 0..3 {
-        let mut env =
-            ExecEnv { vars: &mut vars, megabuf: &mut mb, gmegabuf: &mut gm, rng: &mut rng };
+        let mut env = ExecEnv {
+            vars: &mut vars,
+            megabuf: &mut mb,
+            gmegabuf: &mut gm,
+            rng: &mut rng,
+        };
         last = p.run(&mut env).value;
     }
     assert_eq!(last, 3.0);

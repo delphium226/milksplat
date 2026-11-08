@@ -192,7 +192,14 @@ impl WaveState {
         if self.regs {
             regs_in(vars, &g.regs);
         }
-        let capped = run(w.frame.as_ref(), vars, megabuf, &mut g.gmegabuf, rng, budget);
+        let capped = run(
+            w.frame.as_ref(),
+            vars,
+            megabuf,
+            &mut g.gmegabuf,
+            rng,
+            budget,
+        );
         note_cap(capped, &mut self.warned[1], &self.name[1], warnings);
 
         let samples = match self.samples_var.map(|id| get(vars, id)) {
@@ -219,7 +226,14 @@ impl WaveState {
             vars[SAMPLE] = s;
             vars[VALUE1] = resample(&input.audio.wave[0], s);
             vars[VALUE2] = resample(&input.audio.wave[1], s);
-            capped |= run(w.point.as_ref(), vars, megabuf, &mut g.gmegabuf, rng, budget);
+            capped |= run(
+                w.point.as_ref(),
+                vars,
+                megabuf,
+                &mut g.gmegabuf,
+                rng,
+                budget,
+            );
             draw.points.push([gpu(vars[X]), gpu(vars[Y])]);
             draw.colors
                 .push([unit(vars[R]), unit(vars[G]), unit(vars[B]), unit(vars[A])]);
@@ -320,7 +334,14 @@ impl ShapeState {
             if self.regs {
                 regs_in(vars, &g.regs);
             }
-            capped |= run(s.frame.as_ref(), vars, megabuf, &mut g.gmegabuf, rng, budget);
+            capped |= run(
+                s.frame.as_ref(),
+                vars,
+                megabuf,
+                &mut g.gmegabuf,
+                rng,
+                budget,
+            );
             if self.regs {
                 regs_out(vars, &mut g.regs);
             }

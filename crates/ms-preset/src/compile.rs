@@ -383,5 +383,14 @@ pub fn compile_preset(p: Preset) -> CompiledPreset {
         .enumerate()
         .map(|(i, s)| compile_shape(i, s, &mut errors))
         .collect();
-    CompiledPreset { source: p, vars, init, frame, vertex, waves, shapes, errors }
+    CompiledPreset {
+        source: p,
+        vars,
+        init,
+        frame,
+        vertex,
+        waves,
+        shapes,
+        errors,
+    }
 }

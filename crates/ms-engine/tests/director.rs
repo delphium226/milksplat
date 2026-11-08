@@ -1364,7 +1364,11 @@ fn device_lost_during_a_load_blames_the_loading_preset() {
     rig.wait_showing(10.0, "a.splat");
     rig.wait_ready(10.0);
     let ready = rig.director.next_ready().unwrap().to_string();
-    let culprit = if ready == "b.splat" { "c.splat" } else { "b.splat" };
+    let culprit = if ready == "b.splat" {
+        "c.splat"
+    } else {
+        "b.splat"
+    };
     // The culprit's request is with the (stuck) loader.
     rig.loader.set_paused(true);
     rig.director.command(Command::Load(culprit.into()));
@@ -1411,7 +1415,11 @@ fn device_lost_failure_of_a_load_blames_it_and_is_not_resent() {
     rig.wait_showing(10.0, "x.splat");
     rig.wait_ready(10.0);
     let ready = rig.director.next_ready().unwrap().to_string();
-    let culprit = if ready == "a.splat" { "b.splat" } else { "a.splat" };
+    let culprit = if ready == "a.splat" {
+        "b.splat"
+    } else {
+        "a.splat"
+    };
 
     let events: Arc<Mutex<Vec<Option<String>>>> = Arc::default();
     let ev = Arc::clone(&events);
@@ -1430,10 +1438,7 @@ fn device_lost_failure_of_a_load_blames_it_and_is_not_resent() {
     );
 
     // `x` became current 0.5 s ago, but the culprit is blamed.
-    assert_eq!(
-        rig.director.on_device_lost(10.5),
-        Some(culprit.to_string())
-    );
+    assert_eq!(rig.director.on_device_lost(10.5), Some(culprit.to_string()));
     assert!(!rig.director.prefs().blocklist.contains("x.splat"));
     assert_eq!(rig.director.current(), showing("x.splat"));
     assert_eq!(events.lock().unwrap().last(), Some(&None), "marker cleared");

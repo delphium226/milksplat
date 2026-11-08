@@ -26,7 +26,9 @@ pub struct Token {
 }
 
 /// Two-char operators; tried before the one-char ones (longest match).
-const OPS2: [&str; 11] = ["+=", "-=", "*=", "/=", "%=", "==", "!=", "<=", ">=", "&&", "||"];
+const OPS2: [&str; 11] = [
+    "+=", "-=", "*=", "/=", "%=", "==", "!=", "<=", ">=", "&&", "||",
+];
 const OPS1: [&str; 12] = ["=", "<", ">", "+", "-", "*", "/", "%", "^", "&", "|", "!"];
 
 struct Lexer {
@@ -57,7 +59,11 @@ impl Lexer {
     }
 
     fn err(&self, line: u32, col: u32, message: impl Into<String>) -> CompileError {
-        CompileError { line, col, message: message.into() }
+        CompileError {
+            line,
+            col,
+            message: message.into(),
+        }
     }
 
     fn skip_trivia(&mut self) -> Result<(), CompileError> {
@@ -117,7 +123,9 @@ impl Lexer {
 
     fn dollar(&mut self, line: u32, col: u32) -> Result<Tok, CompileError> {
         self.bump(); // '$'
-        let word = self.take_while(|c| c.is_ascii_alphanumeric() || c == '_').to_lowercase();
+        let word = self
+            .take_while(|c| c.is_ascii_alphanumeric() || c == '_')
+            .to_lowercase();
         match word.as_str() {
             "pi" => Ok(Tok::Num(std::f64::consts::PI)),
             "e" => Ok(Tok::Num(std::f64::consts::E)),
@@ -172,7 +180,9 @@ impl Lexer {
 
     fn next_tok(&mut self) -> Result<Tok, CompileError> {
         let (line, col) = (self.line, self.col);
-        let Some(c) = self.peek(0) else { return Ok(Tok::Eof) };
+        let Some(c) = self.peek(0) else {
+            return Ok(Tok::Eof);
+        };
         if c == '$' {
             return self.dollar(line, col);
         }
@@ -206,7 +216,12 @@ impl Lexer {
 
 /// Tokenise `src`. The result always ends with a `Tok::Eof` token.
 pub fn lex(src: &str) -> Result<Vec<Token>, CompileError> {
-    let mut lx = Lexer { chars: src.chars().collect(), pos: 0, line: 1, col: 1 };
+    let mut lx = Lexer {
+        chars: src.chars().collect(),
+        pos: 0,
+        line: 1,
+        col: 1,
+    };
     if lx.peek(0) == Some('\u{feff}') {
         lx.pos += 1;
     }

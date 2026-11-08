@@ -442,8 +442,12 @@ fn loop_budget_charged_with_total_lane_iterations() {
         rng: &mut rng,
     };
     let mut budget = LoopBudget::new(1_000_000);
-    let capped =
-        p.run_batched_budget(&mut lanes, &mut shared, &mut BatchScratch::default(), &mut budget);
+    let capped = p.run_batched_budget(
+        &mut lanes,
+        &mut shared,
+        &mut BatchScratch::default(),
+        &mut budget,
+    );
     assert!(!capped);
     assert!(budget.exhausted());
     let total: f64 = lanes.cols[0].iter().sum();

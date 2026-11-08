@@ -398,7 +398,8 @@ impl Program {
                         let (iters, capped) = (&mut blk.iters, &mut blk.capped);
                         let (body, out) = split(m, |i| {
                             let left = regs[c + i];
-                            if left >= 1.0 && start_iteration(&mut iters[i], &mut capped[i], budget) {
+                            if left >= 1.0 && start_iteration(&mut iters[i], &mut capped[i], budget)
+                            {
                                 regs[c + i] = left - 1.0;
                                 true
                             } else {
@@ -411,8 +412,9 @@ impl Program {
                     }
                     Op::LoopGuard { exit } => {
                         let (iters, capped) = (&mut blk.iters, &mut blk.capped);
-                        let (body, out) =
-                            split(m, |i| start_iteration(&mut iters[i], &mut capped[i], budget));
+                        let (body, out) = split(m, |i| {
+                            start_iteration(&mut iters[i], &mut capped[i], budget)
+                        });
                         push(work, pc + 1, body);
                         push(work, exit as usize, out);
                         break;

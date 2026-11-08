@@ -368,7 +368,10 @@ fn nonfinite_inputs_never_give_nan() {
     assert_eq!(eval("sigmoid(0, 1e999)"), 0.5);
     assert_eq!(eval("a=0; b=1e999; sigmoid(a,b)"), 0.5);
     assert_eq!(eval("a=1e999; b=0; sigmoid(a,b)"), 0.5);
-    assert_eq!(eval("a=1e999; b=1e999; atan2(a,b)"), std::f64::consts::FRAC_PI_4);
+    assert_eq!(
+        eval("a=1e999; b=1e999; atan2(a,b)"),
+        std::f64::consts::FRAC_PI_4
+    );
     assert!(!eval("a=1e999; sin(a)").is_nan());
     assert!(!eval("a=-1e999; b=1e999; pow(a,b)").is_nan());
 }
@@ -386,8 +389,12 @@ fn deep_call_nesting() {
             let p = compile(&nested_sin(120), &mut vt).unwrap();
             let mut vars = vec![0.5; vt.len()];
             let (mut mb, mut gm, mut rng) = (Megabuf::new(), Megabuf::new(), Rng::seeded(1));
-            let mut env =
-                ExecEnv { vars: &mut vars, megabuf: &mut mb, gmegabuf: &mut gm, rng: &mut rng };
+            let mut env = ExecEnv {
+                vars: &mut vars,
+                megabuf: &mut mb,
+                gmegabuf: &mut gm,
+                rng: &mut rng,
+            };
             assert!(p.run(&mut env).value.is_finite());
             assert!(compile(&nested_sin(2000), &mut VarTable::new()).is_err());
         })

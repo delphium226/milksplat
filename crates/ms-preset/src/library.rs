@@ -71,12 +71,17 @@ fn walk(root: &Path, dir: &Path, out: &mut Vec<Entry>) {
             if !is_splat {
                 continue;
             }
-            let Ok(rel) = path.strip_prefix(root) else { continue };
+            let Ok(rel) = path.strip_prefix(root) else {
+                continue;
+            };
             let parts: Vec<String> = rel
                 .components()
                 .map(|c| c.as_os_str().to_string_lossy().into_owned())
                 .collect();
-            out.push(Entry { id: parts.join("/").to_lowercase(), path });
+            out.push(Entry {
+                id: parts.join("/").to_lowercase(),
+                path,
+            });
         }
     }
 }

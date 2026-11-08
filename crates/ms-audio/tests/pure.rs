@@ -29,7 +29,10 @@ fn layouts() {
 #[test]
 fn stereo_passthrough() {
     let l = layout_for(2);
-    assert_eq!(run(&l, &[0.1, 0.2, 0.3, 0.4], 2), vec![[0.1, 0.2], [0.3, 0.4]]);
+    assert_eq!(
+        run(&l, &[0.1, 0.2, 0.3, 0.4], 2),
+        vec![[0.1, 0.2], [0.3, 0.4]]
+    );
 }
 
 #[test]
@@ -91,7 +94,9 @@ fn no_clamping() {
 }
 
 fn frames(start: usize, n: usize) -> Vec<Frame> {
-    (start..start + n).map(|i| [i as f32, -(i as f32)]).collect()
+    (start..start + n)
+        .map(|i| [i as f32, -(i as f32)])
+        .collect()
 }
 
 #[test]

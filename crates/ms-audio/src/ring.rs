@@ -52,10 +52,7 @@ impl RingProducer {
         if self.stamps.is_full() {
             return;
         }
-        let n = frames
-            .len()
-            .min(self.frames.slots())
-            .min(u32::MAX as usize);
+        let n = frames.len().min(self.frames.slots()).min(u32::MAX as usize);
         if n == 0 {
             return;
         }

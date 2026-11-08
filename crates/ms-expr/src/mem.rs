@@ -18,7 +18,9 @@ impl Default for Megabuf {
 
 impl Megabuf {
     pub fn new() -> Self {
-        Megabuf { pages: vec![None; PAGES] }
+        Megabuf {
+            pages: vec![None; PAGES],
+        }
     }
 
     /// Floors `i`; returns `None` for NaN or out-of-range.
@@ -77,7 +79,15 @@ mod tests {
         assert_eq!(m.get(0.0), 1.0);
         assert_eq!(m.get(1_048_575.0), 2.0);
         assert_eq!(m.get(1_048_575.9), 2.0);
-        for bad in [1_048_576.0, -1.0, -0.5, f64::NAN, f64::INFINITY, f64::NEG_INFINITY, 1e300] {
+        for bad in [
+            1_048_576.0,
+            -1.0,
+            -0.5,
+            f64::NAN,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            1e300,
+        ] {
             m.set(bad, 7.0);
             assert_eq!(m.get(bad), 0.0, "{bad}");
         }

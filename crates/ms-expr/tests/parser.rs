@@ -46,21 +46,34 @@ fn assign_chain() {
     let want = Expr::Assign {
         op: AssignOp::Set,
         name: "a".into(),
-        value: Box::new(Expr::Assign { op: AssignOp::Set, name: "b".into(), value: n(3.0) }),
+        value: Box::new(Expr::Assign {
+            op: AssignOp::Set,
+            name: "b".into(),
+            value: n(3.0),
+        }),
     };
     assert_eq!(one("a=b=3"), want);
 }
 
 #[test]
 fn compound() {
-    let want = Expr::Assign { op: AssignOp::Add, name: "a".into(), value: n(1.0) };
+    let want = Expr::Assign {
+        op: AssignOp::Add,
+        name: "a".into(),
+        value: n(1.0),
+    };
     assert_eq!(one("a+=1"), want);
 }
 
 #[test]
 fn call_args() {
     match one("if(a,b,c)") {
-        Expr::Call { name, args, line, col } => {
+        Expr::Call {
+            name,
+            args,
+            line,
+            col,
+        } => {
             assert_eq!(name, "if");
             assert_eq!(args.len(), 3);
             assert_eq!((line, col), (1, 1));
@@ -104,13 +117,18 @@ fn unary_and_logic_levels() {
         one("-a^2"),
         Expr::Binary(
             BinOp::Pow,
-            Box::new(Expr::Unary(ms_expr::UnOp::Neg, Box::new(Expr::Var("a".into())))),
+            Box::new(Expr::Unary(
+                ms_expr::UnOp::Neg,
+                Box::new(Expr::Var("a".into()))
+            )),
             n(2.0)
         )
     );
     // || is lower than &&
     match one("a||b&&c") {
-        Expr::Binary(BinOp::LogOr, _, r) => assert!(matches!(*r, Expr::Binary(BinOp::LogAnd, _, _))),
+        Expr::Binary(BinOp::LogOr, _, r) => {
+            assert!(matches!(*r, Expr::Binary(BinOp::LogAnd, _, _)))
+        }
         other => panic!("{other:?}"),
     }
 }
@@ -133,7 +151,10 @@ fn nesting_cap() {
     let e = parse(&deep).unwrap_err();
     assert!(e.message.contains("nesting too deep"));
     let unary = format!("{}1", "-".repeat(1000));
-    assert!(parse(&unary).unwrap_err().message.contains("nesting too deep"));
+    assert!(parse(&unary)
+        .unwrap_err()
+        .message
+        .contains("nesting too deep"));
     let ok = format!("{}1{}", "(".repeat(100), ")".repeat(100));
     assert!(parse(&ok).is_ok());
 }

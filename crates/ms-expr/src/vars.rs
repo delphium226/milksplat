@@ -44,6 +44,9 @@ impl VarTable {
 
     /// Lowercased name of `id`; empty string if `id` is out of range.
     pub fn name(&self, id: VarId) -> &str {
-        self.names.get(id.0 as usize).map(String::as_str).unwrap_or("")
+        self.names
+            .get(id.0 as usize)
+            .map(String::as_str)
+            .unwrap_or("")
     }
 }

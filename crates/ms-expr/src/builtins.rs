@@ -95,72 +95,83 @@ pub fn lookup(name: &str) -> Option<(Builtin, usize)> {
 /// (`sqrt` takes the absolute value, as EEL2 does).
 #[inline]
 pub fn call1(f: Fn1, x: f64) -> f64 {
-    nan_guard1(x, match f {
-        Fn1::Sin => x.sin(),
-        Fn1::Cos => x.cos(),
-        Fn1::Tan => x.tan(),
-        Fn1::Asin => {
-            if x.abs() > 1.0 {
-                0.0
-            } else {
-                x.asin()
+    nan_guard1(
+        x,
+        match f {
+            Fn1::Sin => x.sin(),
+            Fn1::Cos => x.cos(),
+            Fn1::Tan => x.tan(),
+            Fn1::Asin => {
+                if x.abs() > 1.0 {
+                    0.0
+                } else {
+                    x.asin()
+                }
             }
-        }
-        Fn1::Acos => {
-            if x.abs() > 1.0 {
-                0.0
-            } else {
-                x.acos()
+            Fn1::Acos => {
+                if x.abs() > 1.0 {
+                    0.0
+                } else {
+                    x.acos()
+                }
             }
-        }
-        Fn1::Atan => x.atan(),
-        Fn1::Sqrt => x.abs().sqrt(),
-        Fn1::Exp => x.exp(),
-        Fn1::Log => {
-            if x > 0.0 {
-                x.ln()
-            } else {
-                0.0
+            Fn1::Atan => x.atan(),
+            Fn1::Sqrt => x.abs().sqrt(),
+            Fn1::Exp => x.exp(),
+            Fn1::Log => {
+                if x > 0.0 {
+                    x.ln()
+                } else {
+                    0.0
+                }
             }
-        }
-        Fn1::Log10 => {
-            if x > 0.0 {
-                x.log10()
-            } else {
-                0.0
+            Fn1::Log10 => {
+                if x > 0.0 {
+                    x.log10()
+                } else {
+                    0.0
+                }
             }
-        }
-        Fn1::Abs => x.abs(),
-        Fn1::Sign => {
-            if x > 0.0 {
-                1.0
-            } else if x < 0.0 {
-                -1.0
-            } else {
-                0.0
+            Fn1::Abs => x.abs(),
+            Fn1::Sign => {
+                if x > 0.0 {
+                    1.0
+                } else if x < 0.0 {
+                    -1.0
+                } else {
+                    0.0
+                }
             }
-        }
-        Fn1::Floor => x.floor(),
-        Fn1::Ceil => x.ceil(),
-        Fn1::Sqr => x * x,
-    })
+            Fn1::Floor => x.floor(),
+            Fn1::Ceil => x.ceil(),
+            Fn1::Sqr => x * x,
+        },
+    )
 }
 
 /// Evaluates a two-argument function.
 #[inline]
 pub fn call2(f: Fn2, a: f64, b: f64) -> f64 {
-    nan_guard2(a, b, match f {
-        Fn2::Atan2 => a.atan2(b),
-        Fn2::Pow => a.powf(b),
-        Fn2::Min => a.min(b),
-        Fn2::Max => a.max(b),
-        Fn2::Sigmoid => {
-            // 0 * inf is NaN; treat it as 0, giving 0.5.
-            let p = -a * b;
-            let p = if p.is_nan() && !a.is_nan() && !b.is_nan() { 0.0 } else { p };
-            1.0 / (1.0 + p.exp())
-        }
-    })
+    nan_guard2(
+        a,
+        b,
+        match f {
+            Fn2::Atan2 => a.atan2(b),
+            Fn2::Pow => a.powf(b),
+            Fn2::Min => a.min(b),
+            Fn2::Max => a.max(b),
+            Fn2::Sigmoid => {
+                // 0 * inf is NaN; treat it as 0, giving 0.5.
+                let p = -a * b;
+                let p = if p.is_nan() && !a.is_nan() && !b.is_nan() {
+                    0.0
+                } else {
+                    p
+                };
+                1.0 / (1.0 + p.exp())
+            }
+        },
+    )
 }
 
 /// A NaN result from non-NaN input (a domain error such as `pow(-2, 0.5)`

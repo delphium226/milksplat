@@ -35,8 +35,14 @@ fn builtin_table_unique_and_stable() {
     assert_eq!(t.lookup("time").unwrap().0, 0);
     assert_eq!(t.lookup("q1"), builtin_var_table().lookup("q1"));
     assert_eq!(t.name(t.lookup("reg99").unwrap()), "reg99");
-    assert_eq!(t.lookup("reg99").unwrap().0 as usize, BUILTIN_VARS.len() - 1);
-    assert_eq!(t.lookup("q32").unwrap().0 as usize + 1, t.lookup("q1").unwrap().0 as usize + 32);
+    assert_eq!(
+        t.lookup("reg99").unwrap().0 as usize,
+        BUILTIN_VARS.len() - 1
+    );
+    assert_eq!(
+        t.lookup("q32").unwrap().0 as usize + 1,
+        t.lookup("q1").unwrap().0 as usize + 32
+    );
 }
 
 #[test]
@@ -67,8 +73,16 @@ fn empty_blocks_are_none_without_error() {
 fn disabled_wave_still_reports_error() {
     let mut p = Preset::default();
     p.waves.push(WaveDef::default());
-    p.waves.push(WaveDef { enabled: false, point: "r = = 1;".into(), samples: 64, ..WaveDef::default() });
-    p.shapes.push(ShapeDef { frame: "x = ;".into(), ..ShapeDef::default() });
+    p.waves.push(WaveDef {
+        enabled: false,
+        point: "r = = 1;".into(),
+        samples: 64,
+        ..WaveDef::default()
+    });
+    p.shapes.push(ShapeDef {
+        frame: "x = ;".into(),
+        ..ShapeDef::default()
+    });
     let c = compile_preset(p);
     assert_eq!(c.waves.len(), 2);
     assert!(!c.waves[1].enabled);
@@ -76,5 +90,8 @@ fn disabled_wave_still_reports_error() {
     assert!(c.waves[1].point.is_none());
     let blocks: Vec<_> = c.errors.iter().map(|e| e.block.as_str()).collect();
     assert_eq!(blocks, ["wave[1].point", "shape[0].frame"]);
-    assert_eq!(c.waves[1].vars.lookup("q1"), builtin_var_table().lookup("q1"));
+    assert_eq!(
+        c.waves[1].vars.lookup("q1"),
+        builtin_var_table().lookup("q1")
+    );
 }

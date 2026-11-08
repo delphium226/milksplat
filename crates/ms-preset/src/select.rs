@@ -22,7 +22,11 @@ pub struct Selector {
 
 impl Selector {
     pub fn new(seed: u64) -> Self {
-        Selector { rng: Rng::seeded(seed), history: Vec::new(), cursor: 0 }
+        Selector {
+            rng: Rng::seeded(seed),
+            history: Vec::new(),
+            cursor: 0,
+        }
     }
 
     fn push(&mut self, id: String) {
@@ -45,12 +49,27 @@ impl Selector {
             return None;
         }
         let k = (cands.len() * 3).div_ceil(10);
-        let recent: HashSet<&str> =
-            self.history.iter().rev().take(k).map(String::as_str).collect();
-        let fresh: Vec<&str> = cands.iter().copied().filter(|id| !recent.contains(id)).collect();
+        let recent: HashSet<&str> = self
+            .history
+            .iter()
+            .rev()
+            .take(k)
+            .map(String::as_str)
+            .collect();
+        let fresh: Vec<&str> = cands
+            .iter()
+            .copied()
+            .filter(|id| !recent.contains(id))
+            .collect();
         let pool = if fresh.is_empty() { &cands } else { &fresh };
 
-        let weight = |id: &str| if prefs.favourites.contains(id) { 2.0 } else { 1.0 };
+        let weight = |id: &str| {
+            if prefs.favourites.contains(id) {
+                2.0
+            } else {
+                1.0
+            }
+        };
         let total: f64 = pool.iter().map(|id| weight(id)).sum();
         let mut r = self.rng.next_f64() * total;
         let mut pick = pool[pool.len() - 1];
