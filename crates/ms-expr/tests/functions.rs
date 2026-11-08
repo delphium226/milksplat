@@ -395,3 +395,81 @@ fn deep_call_nesting() {
         .join()
         .unwrap();
 }
+
+#[test]
+fn loop_budget_shared_across_runs() {
+    let mut vt = VarTable::new();
+    let p = compile("x = 0; loop(600000, x += 1); x", &mut vt).unwrap();
+    let (mut mb, mut gm, mut rng) = (Megabuf::new(), Megabuf::new(), Rng::seeded(1));
+    let mut vars = vec![0.0; vt.len()];
+    let mut budget = LoopBudget::new(1_000_000);
+    let mut values = Vec::new();
+    for _ in 0..3 {
+        let mut env = ExecEnv {
+            vars: &mut vars,
+            megabuf: &mut mb,
+            gmegabuf: &mut gm,
+            rng: &mut rng,
+        };
+        let r = p.run_with_budget(&mut env, &mut budget);
+        assert!(!r.loop_cap_hit, "the per-run cap is not what stopped it");
+        values.push(r.value);
+    }
+    // The first run fits; the second gets the rest; the third gets nothing.
+    assert_eq!(values, vec![600000.0, 400000.0, 0.0]);
+    assert!(budget.exhausted());
+    assert_eq!(budget.remaining(), 0);
+}
+
+#[test]
+fn loop_budget_exhausted_skips_while_body() {
+    let mut budget = LoopBudget::new(0);
+    let mut vt = VarTable::new();
+    let p = compile("y = 0; while(y += 1; 1); y", &mut vt).unwrap();
+    let (mut mb, mut gm, mut rng) = (Megabuf::new(), Megabuf::new(), Rng::seeded(1));
+    let mut vars = vec![0.0; vt.len()];
+    let mut env = ExecEnv {
+        vars: &mut vars,
+        megabuf: &mut mb,
+        gmegabuf: &mut gm,
+        rng: &mut rng,
+    };
+    assert_eq!(p.run_with_budget(&mut env, &mut budget).value, 0.0);
+    assert!(budget.exhausted());
+}
+
+#[test]
+fn loop_budget_share_and_refund() {
+    let mut b = LoopBudget::new(1000);
+    let s1 = b.share(1, 4);
+    assert_eq!((s1.remaining(), b.remaining()), (250, 750));
+    let mut s2 = b.share(3, 3);
+    assert_eq!((s2.remaining(), b.remaining()), (750, 0));
+    b.refund(s1);
+    assert_eq!(b.remaining(), 250);
+    assert!(!b.exhausted());
+    // An exhausted share exhausts the parent.
+    let mut s3 = LoopBudget::new(0);
+    assert!(!s3.exhausted());
+    let mut vt = VarTable::new();
+    let p = compile("loop(5, 1)", &mut vt).unwrap();
+    let (mut mb, mut gm, mut rng) = (Megabuf::new(), Megabuf::new(), Rng::seeded(1));
+    p.run_with_budget(
+        &mut ExecEnv {
+            vars: &mut [],
+            megabuf: &mut mb,
+            gmegabuf: &mut gm,
+            rng: &mut rng,
+        },
+        &mut s3,
+    );
+    assert!(s3.exhausted());
+    s2 = LoopBudget::new(s2.remaining());
+    b.refund(s2);
+    b.refund(s3);
+    assert!(b.exhausted());
+    assert!(b.share(1, 1).exhausted());
+    // Unlimited shares do not overflow.
+    let mut u = LoopBudget::unlimited();
+    assert_eq!(u.share(1, 2).remaining(), u64::MAX / 2);
+}

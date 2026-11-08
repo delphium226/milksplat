@@ -357,6 +357,70 @@ fn loop_cap_warns_once() {
     assert!(inst.tick(&input(&audio), &mut g).warnings.is_empty());
 }
 
+/// Generous wall-clock bound for one capped tick: the per-tick loop budget
+/// is ~1M iterations, a few ms in release.
+fn tick_bound() -> std::time::Duration {
+    if cfg!(debug_assertions) {
+        std::time::Duration::from_secs(1)
+    } else {
+        std::time::Duration::from_millis(100)
+    }
+}
+
+/// Ticks twice; asserts each tick finishes within [`tick_bound`] and the
+/// loop-budget warning appears exactly once over both.
+fn assert_budget_bounded(toml: &str) {
+    let mut inst = PresetInstance::new(compiled(toml), 7, [64, 48]);
+    let audio = AudioFrame::default();
+    let mut g = Globals::default();
+    let mut budget_warnings = 0;
+    for _ in 0..2 {
+        let t = std::time::Instant::now();
+        let w = inst.tick(&input(&audio), &mut g).warnings.clone();
+        let took = t.elapsed();
+        assert!(took < tick_bound(), "tick took {took:?}");
+        budget_warnings += w.iter().filter(|m| m.contains("budget")).count();
+    }
+    assert_eq!(budget_warnings, 1);
+}
+
+#[test]
+fn vertex_while_one_bounded_per_tick() {
+    // Reads a carried variable, so it runs on the scalar path.
+    let toml = "[params]\nmesh = [64, 48]\n[code]\nvertex = \"k = k + 1; while(1)\"\n";
+    assert_budget_bounded(toml);
+}
+
+#[test]
+fn vertex_while_one_batched_bounded_per_tick() {
+    let toml = "[params]\nmesh = [64, 48]\n[code]\nvertex = \"while(1)\"\n";
+    assert_budget_bounded(toml);
+}
+
+#[test]
+fn shape_instances_loops_bounded_per_tick() {
+    let toml = "[[shape]]\ninstances = 1024\nframe = \"loop(1e6, k = k + 1)\"\n";
+    assert_budget_bounded(toml);
+}
+
+#[test]
+fn wave_point_loops_bounded_per_tick() {
+    let toml = "[[wave]]\nsamples = 512\npoint = \"loop(1e6, k = k + 1)\"\n";
+    assert_budget_bounded(toml);
+}
+
+#[test]
+fn loop_budget_spent_by_frame_skips_vertex_loops() {
+    // The frame code spends the whole tick budget; the vertex loop then
+    // runs no iterations, so x is unchanged.
+    let toml = format!(
+        "{SMALL}[code]\nframe = \"loop(1048576, 1)\"\nvertex = \"loop(3, zoom = zoom * 2)\"\n"
+    );
+    let out = run(&mut instance(&toml), 1);
+    let id = run(&mut instance(SMALL), 1);
+    assert_eq!(out.mesh.uv, id.mesh.uv);
+}
+
 #[test]
 fn draw_list_from_writables() {
     let out = run(&mut instance(SMALL), 1);

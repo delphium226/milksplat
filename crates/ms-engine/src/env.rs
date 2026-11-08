@@ -8,7 +8,7 @@
 //! build), so nothing looks a variable up by name while ticking.
 
 use ms_analysis::AudioFrame;
-use ms_expr::{ExecEnv, Megabuf, Op, Program, Rng};
+use ms_expr::{ExecEnv, LoopBudget, Megabuf, Op, Program, Rng};
 use ms_preset::BUILTIN_VARS;
 
 /// State shared by every preset instance, surviving preset changes (§5.2).
@@ -211,14 +211,15 @@ pub(crate) fn regs_out(vars: &[f64], regs: &mut [f64; 100]) {
     }
 }
 
-/// Runs `p` (if the block compiled) on `vars`; returns true if it hit the
-/// loop cap.
+/// Runs `p` (if the block compiled) on `vars`, its loops charged to the
+/// tick's `budget`; returns true if it hit the per-run loop cap.
 pub(crate) fn run(
     p: Option<&Program>,
     vars: &mut [f64],
     megabuf: &mut Megabuf,
     gmegabuf: &mut Megabuf,
     rng: &mut Rng,
+    budget: &mut LoopBudget,
 ) -> bool {
     match p {
         Some(p) => {
@@ -228,7 +229,7 @@ pub(crate) fn run(
                 gmegabuf,
                 rng,
             };
-            p.run(&mut env).loop_cap_hit
+            p.run_with_budget(&mut env, budget).loop_cap_hit
         }
         None => false,
     }
@@ -241,6 +242,19 @@ pub(crate) fn note_cap(capped: bool, warned: &mut bool, block: &str, out: &mut V
         let msg = format!(
             "{block}: loop iteration cap ({}) hit; loop stopped",
             ms_expr::LOOP_CAP
+        );
+        tracing::warn!("{msg}");
+        out.push(msg);
+    }
+}
+
+/// Records that the tick's loop budget ran out, once per instance lifetime.
+pub(crate) fn note_budget(budget: &LoopBudget, warned: &mut bool, out: &mut Vec<String>) {
+    if budget.exhausted() && !*warned {
+        *warned = true;
+        let msg = format!(
+            "loop iteration budget ({} per tick) spent; remaining loops skipped this tick",
+            ms_expr::TICK_LOOP_BUDGET
         );
         tracing::warn!("{msg}");
         out.push(msg);

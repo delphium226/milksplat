@@ -32,8 +32,7 @@ use crate::mem::Megabuf;
 use crate::ops::{binary, truthy, unary};
 use crate::rng::Rng;
 use crate::vars::VarId;
-use crate::vm::ExecEnv;
-use crate::LOOP_CAP;
+use crate::vm::{start_iteration, ExecEnv, LoopBudget};
 
 /// Lanes per block.
 pub const BLOCK: usize = 256;
@@ -142,20 +141,6 @@ pub struct BatchScratch {
     work: Vec<(usize, Mask)>,
 }
 
-/// Counts one loop iteration for a lane (as the scalar VM does per run).
-#[inline]
-fn start_iteration(iters: &mut u64, capped: &mut bool) -> bool {
-    if *capped {
-        return false;
-    }
-    if *iters >= LOOP_CAP {
-        *capped = true;
-        return false;
-    }
-    *iters += 1;
-    true
-}
-
 impl Program {
     /// Variables some execution path reads before writing them (sorted by
     /// id). If any of these is also written, running the program over mesh
@@ -195,6 +180,20 @@ impl Program {
         shared: &mut BatchShared,
         scratch: &mut BatchScratch,
     ) -> bool {
+        self.run_batched_budget(lanes, shared, scratch, &mut LoopBudget::unlimited())
+    }
+
+    /// [`run_batched_with`](Self::run_batched_with), where every lane's loop
+    /// iterations also take from `budget` (charged with the total over all
+    /// lanes; see [`LoopBudget`]). Once it is spent, every lane's loops
+    /// exit. The return value reports the per-lane cap only.
+    pub fn run_batched_budget(
+        &self,
+        lanes: &mut Lanes,
+        shared: &mut BatchShared,
+        scratch: &mut BatchScratch,
+        budget: &mut LoopBudget,
+    ) -> bool {
         debug_assert!(
             self.batchable(),
             "run_batched on a program that is not batchable"
@@ -215,7 +214,7 @@ impl Program {
             lanes.n
         );
         if !self.batchable() {
-            return self.run_lanes_scalar(lanes, shared);
+            return self.run_lanes_scalar(lanes, shared, budget);
         }
         let mut regs = std::mem::take(&mut scratch.regs);
         regs.clear();
@@ -232,7 +231,14 @@ impl Program {
             blk.regs.fill(0.0);
             blk.iters = [0; BLOCK];
             blk.capped = [false; BLOCK];
-            self.run_block(&mut blk, &mut scratch.work, &mut lanes.cols, base, len);
+            self.run_block(
+                &mut blk,
+                &mut scratch.work,
+                &mut lanes.cols,
+                base,
+                len,
+                budget,
+            );
             any_capped |= blk.capped[..len].iter().any(|&c| c);
             base += len;
         }
@@ -247,6 +253,7 @@ impl Program {
         cols: &mut [Vec<f64>],
         base: usize,
         len: usize,
+        budget: &mut LoopBudget,
     ) {
         let ops = &self.ops[..];
         let all = first_lanes(len);
@@ -391,7 +398,7 @@ impl Program {
                         let (iters, capped) = (&mut blk.iters, &mut blk.capped);
                         let (body, out) = split(m, |i| {
                             let left = regs[c + i];
-                            if left >= 1.0 && start_iteration(&mut iters[i], &mut capped[i]) {
+                            if left >= 1.0 && start_iteration(&mut iters[i], &mut capped[i], budget) {
                                 regs[c + i] = left - 1.0;
                                 true
                             } else {
@@ -405,7 +412,7 @@ impl Program {
                     Op::LoopGuard { exit } => {
                         let (iters, capped) = (&mut blk.iters, &mut blk.capped);
                         let (body, out) =
-                            split(m, |i| start_iteration(&mut iters[i], &mut capped[i]));
+                            split(m, |i| start_iteration(&mut iters[i], &mut capped[i], budget));
                         push(work, pc + 1, body);
                         push(work, exit as usize, out);
                         break;
@@ -418,7 +425,12 @@ impl Program {
 
     /// Fallback for non-batchable programs: the scalar VM, lane by lane in
     /// order, sharing `shared` between lanes.
-    fn run_lanes_scalar(&self, lanes: &mut Lanes, shared: &mut BatchShared) -> bool {
+    fn run_lanes_scalar(
+        &self,
+        lanes: &mut Lanes,
+        shared: &mut BatchShared,
+        budget: &mut LoopBudget,
+    ) -> bool {
         let mut vars = vec![0.0; lanes.cols.len().max(self.num_vars)];
         let mut capped = false;
         for k in 0..lanes.n {
@@ -432,7 +444,7 @@ impl Program {
                 gmegabuf: shared.gmegabuf,
                 rng: shared.rng,
             };
-            capped |= self.run(&mut env).loop_cap_hit;
+            capped |= self.run_with_budget(&mut env, budget).loop_cap_hit;
             for (v, c) in vars.iter().zip(lanes.cols.iter_mut()) {
                 if let Some(slot) = c.get_mut(k) {
                     *slot = *v;

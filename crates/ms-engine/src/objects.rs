@@ -15,7 +15,7 @@
 //! sample) and `value1`/`value2` the left/right waveform resampled linearly
 //! to `samples` points.
 
-use ms_expr::{Megabuf, Rng};
+use ms_expr::{LoopBudget, Megabuf, Rng};
 use ms_preset::{CompiledShape, CompiledWave};
 use ms_render::{ShapeDraw, WaveDraw};
 
@@ -150,6 +150,7 @@ impl WaveState {
         megabuf: &mut Megabuf,
         g: &mut Globals,
         rng: &mut Rng,
+        budget: &mut LoopBudget,
         warnings: &mut Vec<String>,
     ) {
         let vars = &mut self.vars[..];
@@ -161,7 +162,7 @@ impl WaveState {
         if self.regs {
             regs_in(vars, &g.regs);
         }
-        let capped = run(w.init.as_ref(), vars, megabuf, &mut g.gmegabuf, rng);
+        let capped = run(w.init.as_ref(), vars, megabuf, &mut g.gmegabuf, rng, budget);
         note_cap(capped, &mut self.warned[0], &self.name[0], warnings);
         if self.regs {
             regs_out(vars, &mut g.regs);
@@ -178,6 +179,7 @@ impl WaveState {
         megabuf: &mut Megabuf,
         g: &mut Globals,
         rng: &mut Rng,
+        budget: &mut LoopBudget,
         draw: &mut WaveDraw,
         warnings: &mut Vec<String>,
     ) {
@@ -190,7 +192,7 @@ impl WaveState {
         if self.regs {
             regs_in(vars, &g.regs);
         }
-        let capped = run(w.frame.as_ref(), vars, megabuf, &mut g.gmegabuf, rng);
+        let capped = run(w.frame.as_ref(), vars, megabuf, &mut g.gmegabuf, rng, budget);
         note_cap(capped, &mut self.warned[1], &self.name[1], warnings);
 
         let samples = match self.samples_var.map(|id| get(vars, id)) {
@@ -217,7 +219,7 @@ impl WaveState {
             vars[SAMPLE] = s;
             vars[VALUE1] = resample(&input.audio.wave[0], s);
             vars[VALUE2] = resample(&input.audio.wave[1], s);
-            capped |= run(w.point.as_ref(), vars, megabuf, &mut g.gmegabuf, rng);
+            capped |= run(w.point.as_ref(), vars, megabuf, &mut g.gmegabuf, rng, budget);
             draw.points.push([gpu(vars[X]), gpu(vars[Y])]);
             draw.colors
                 .push([unit(vars[R]), unit(vars[G]), unit(vars[B]), unit(vars[A])]);
@@ -272,6 +274,7 @@ impl ShapeState {
         megabuf: &mut Megabuf,
         g: &mut Globals,
         rng: &mut Rng,
+        budget: &mut LoopBudget,
         warnings: &mut Vec<String>,
     ) {
         let vars = &mut self.vars[..];
@@ -283,7 +286,7 @@ impl ShapeState {
         if self.regs {
             regs_in(vars, &g.regs);
         }
-        let capped = run(s.init.as_ref(), vars, megabuf, &mut g.gmegabuf, rng);
+        let capped = run(s.init.as_ref(), vars, megabuf, &mut g.gmegabuf, rng, budget);
         note_cap(capped, &mut self.warned[0], &self.name[0], warnings);
         if self.regs {
             regs_out(vars, &mut g.regs);
@@ -301,6 +304,7 @@ impl ShapeState {
         megabuf: &mut Megabuf,
         g: &mut Globals,
         rng: &mut Rng,
+        budget: &mut LoopBudget,
         draws: &mut Vec<ShapeDraw>,
         warnings: &mut Vec<String>,
     ) {
@@ -316,7 +320,7 @@ impl ShapeState {
             if self.regs {
                 regs_in(vars, &g.regs);
             }
-            capped |= run(s.frame.as_ref(), vars, megabuf, &mut g.gmegabuf, rng);
+            capped |= run(s.frame.as_ref(), vars, megabuf, &mut g.gmegabuf, rng, budget);
             if self.regs {
                 regs_out(vars, &mut g.regs);
             }

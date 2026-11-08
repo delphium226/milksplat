@@ -53,7 +53,7 @@
 
 use std::sync::Arc;
 
-use ms_expr::{BatchScratch, BatchShared, Lanes, Megabuf, Program, Rng};
+use ms_expr::{BatchScratch, BatchShared, Lanes, LoopBudget, Megabuf, Program, Rng, TICK_LOOP_BUDGET};
 use ms_preset::CompiledPreset;
 use ms_render::{Borders, DrawList, MainWave, MeshData, MotionVectors, Uniforms};
 use rayon::prelude::*;
@@ -153,6 +153,8 @@ struct Chunk {
     gmegabuf: Megabuf,
     rng: Rng,
     capped: bool,
+    /// This chunk's share of the tick's loop budget.
+    budget: LoopBudget,
 }
 
 struct Batched {
@@ -180,6 +182,7 @@ struct Warned {
     init: bool,
     frame: bool,
     vertex: bool,
+    budget: bool,
 }
 
 /// One preset running: its variables, which persist across ticks, and the
@@ -304,11 +307,17 @@ impl PresetInstance {
     /// Runs one tick (§5.2) and returns its render data, which stays valid
     /// until the next call. The first tick runs the `init` code first (see
     /// `run_init`).
+    ///
+    /// All of the tick's code (including a first tick's `init`) shares one
+    /// loop budget of [`TICK_LOOP_BUDGET`] iterations: once spent, every
+    /// further loop in this tick exits at once and the tick still completes.
     pub fn tick(&mut self, input: &TickInput, g: &mut Globals) -> &TickOutput {
         self.out.warnings.clear();
+        let mut budget = LoopBudget::new(TICK_LOOP_BUDGET);
+        let budget = &mut budget;
         if self.needs_init {
             self.needs_init = false;
-            self.run_init(input, g);
+            self.run_init(input, g, budget);
         }
 
         // 1-5: inputs, params, regs, frame code, q snapshot.
@@ -323,6 +332,7 @@ impl PresetInstance {
             &mut self.megabuf,
             &mut g.gmegabuf,
             &mut self.rng,
+            budget,
         );
         note_cap(
             capped,
@@ -334,7 +344,7 @@ impl PresetInstance {
 
         // 6: vertex code and the warp mesh.
         self.update_geo(input.aspect);
-        let capped = self.vertex_pass(input.time, g);
+        let capped = self.vertex_pass(input.time, g, budget);
         note_cap(
             capped,
             &mut self.warned.vertex,
@@ -355,6 +365,7 @@ impl PresetInstance {
                     &mut self.megabuf,
                     g,
                     &mut self.rng,
+                    budget,
                     draw,
                     &mut self.out.warnings,
                 );
@@ -371,11 +382,13 @@ impl PresetInstance {
                     &mut self.megabuf,
                     g,
                     &mut self.rng,
+                    budget,
                     &mut self.out.draw.shapes,
                     &mut self.out.warnings,
                 );
             }
         }
+        note_budget(budget, &mut self.warned.budget, &mut self.out.warnings);
 
         self.fill_draw(audio);
         self.fill_uniforms(input);
@@ -388,7 +401,7 @@ impl PresetInstance {
     /// its `q1`..`q32` become the initial snapshot and the user variables it
     /// sets persist. The regs go back to `g`, then each wave's and shape's
     /// `init` runs with the inputs, that `q` and the regs.
-    fn run_init(&mut self, input: &TickInput, g: &mut Globals) {
+    fn run_init(&mut self, input: &TickInput, g: &mut Globals, budget: &mut LoopBudget) {
         write_inputs(&mut self.vars, input, self.mesh);
         for &(id, v) in &self.resets {
             set(&mut self.vars, id, v);
@@ -400,6 +413,7 @@ impl PresetInstance {
             &mut self.megabuf,
             &mut g.gmegabuf,
             &mut self.rng,
+            budget,
         );
         note_cap(
             capped,
@@ -419,6 +433,7 @@ impl PresetInstance {
                     &mut self.megabuf,
                     g,
                     &mut self.rng,
+                    budget,
                     &mut self.out.warnings,
                 );
             }
@@ -433,6 +448,7 @@ impl PresetInstance {
                     &mut self.megabuf,
                     g,
                     &mut self.rng,
+                    budget,
                     &mut self.out.warnings,
                 );
             }
@@ -465,7 +481,7 @@ impl PresetInstance {
 
     /// Runs the vertex code (if any) and fills the mesh UVs. Returns true if
     /// the loop cap was hit.
-    fn vertex_pass(&mut self, t: f64, g: &mut Globals) -> bool {
+    fn vertex_pass(&mut self, t: f64, g: &mut Globals, budget: &mut LoopBudget) -> bool {
         let chunk_len = self.chunk_len;
         let geo = &self.geo[..];
         let uv = &mut self.out.mesh.uv[..];
@@ -496,6 +512,7 @@ impl PresetInstance {
                         &mut self.megabuf,
                         &mut g.gmegabuf,
                         &mut self.rng,
+                        budget,
                     );
                     *m = motion_of(vars);
                 }
@@ -520,6 +537,14 @@ impl PresetInstance {
                     motion_cols,
                     chunks,
                 } = &mut **b;
+                // Chunks run in parallel, so each gets a share of the
+                // budget in proportion to its lanes; the unused rest is
+                // refunded afterwards.
+                let total = geo.len();
+                for (i, c) in chunks.iter_mut().enumerate() {
+                    let lanes = total.saturating_sub(i * chunk_len).min(chunk_len);
+                    c.budget = budget.share(lanes, total.saturating_sub(i * chunk_len));
+                }
                 let job = |c: &mut Chunk, base: usize, uv: &mut [[f32; 2]]| {
                     let geo = geo.get(base..base + uv.len()).unwrap_or_default();
                     run_chunk(c, prog, fills, motion_cols, geo, vars, &frame_motion, t, uv);
@@ -545,6 +570,9 @@ impl PresetInstance {
                             set(&mut self.vars, id, v);
                         }
                     }
+                }
+                for c in chunks.iter() {
+                    budget.refund(c.budget);
                 }
                 chunks.iter().any(|c| c.capped)
             }
@@ -685,6 +713,7 @@ fn plan_vertex(p: &CompiledPreset, n: usize, chunk_len: usize) -> Plan {
             gmegabuf: Megabuf::new(),
             rng: Rng::seeded(0),
             capped: false,
+            budget: LoopBudget::new(0),
         })
         .collect();
     Plan::Batched(Box::new(Batched {
@@ -754,7 +783,7 @@ fn run_chunk(
         gmegabuf: &mut c.gmegabuf,
         rng: &mut c.rng,
     };
-    c.capped = prog.run_batched_with(&mut c.lanes, &mut shared, &mut c.scratch);
+    c.capped = prog.run_batched_budget(&mut c.lanes, &mut shared, &mut c.scratch, &mut c.budget);
     let cols = &c.lanes.cols;
     for (i, (out, g)) in uv.iter_mut().zip(geo).enumerate() {
         let mut m = *frame_motion;

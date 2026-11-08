@@ -24,10 +24,15 @@ pub use mem::Megabuf;
 pub use parser::parse;
 pub use rng::Rng;
 pub use vars::{VarId, VarTable};
-pub use vm::{ExecEnv, RunResult};
+pub use vm::{ExecEnv, LoopBudget, RunResult};
 
 /// Maximum total loop iterations per `Program::run`.
 pub const LOOP_CAP: u64 = 1_048_576;
+
+/// Loop iterations one preset may run per tick, across all of its code
+/// (init, frame, every vertex, wave point and shape instance): spec §5.1's
+/// cap applied per tick. See [`LoopBudget`].
+pub const TICK_LOOP_BUDGET: u64 = LOOP_CAP;
 
 use std::fmt;
 

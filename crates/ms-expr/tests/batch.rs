@@ -424,3 +424,28 @@ fn compact_vars_renumbers_densely() {
     let (scalar_out, _) = run_scalar(&c, &compact, n, 1);
     assert_eq!(first_mismatch(&compact_out, &scalar_out), None);
 }
+
+#[test]
+fn loop_budget_charged_with_total_lane_iterations() {
+    // 4 lanes x 600000 iterations would each fit the per-lane cap, but the
+    // shared budget of 1M stops them all.
+    let n = 4;
+    let (p, _) = compile_with("s = 0; loop(600000, s += 1)", &["s"]);
+    let (mut mb, mut gm, mut rng) = (Megabuf::new(), Megabuf::new(), Rng::seeded(1));
+    let mut lanes = Lanes {
+        n,
+        cols: vec![vec![0.0; n]],
+    };
+    let mut shared = BatchShared {
+        megabuf: &mut mb,
+        gmegabuf: &mut gm,
+        rng: &mut rng,
+    };
+    let mut budget = LoopBudget::new(1_000_000);
+    let capped =
+        p.run_batched_budget(&mut lanes, &mut shared, &mut BatchScratch::default(), &mut budget);
+    assert!(!capped);
+    assert!(budget.exhausted());
+    let total: f64 = lanes.cols[0].iter().sum();
+    assert_eq!(total, 1_000_000.0);
+}

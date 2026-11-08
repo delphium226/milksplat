@@ -24,8 +24,97 @@ pub struct RunResult {
 
 const STACK_REGS: usize = 32;
 
+/// A loop-iteration allowance shared by several runs.
+///
+/// Every loop iteration started by [`Program::run_with_budget`] (and the
+/// batched equivalent) takes one iteration from the budget, on top of the
+/// per-run [`LOOP_CAP`]. Once a loop is refused an iteration the budget is
+/// *exhausted*: every later loop sharing it exits at once, without running
+/// its body. The engine gives each preset one budget of
+/// [`TICK_LOOP_BUDGET`] per tick (spec §5.1's cap applied per tick), so no
+/// preset can make a tick do unbounded loop work however many vertices,
+/// wave points or shape instances run code.
+///
+/// [`TICK_LOOP_BUDGET`]: crate::TICK_LOOP_BUDGET
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LoopBudget {
+    remaining: u64,
+    exhausted: bool,
+}
+
+impl LoopBudget {
+    /// A budget of `iterations` loop iterations.
+    pub const fn new(iterations: u64) -> Self {
+        LoopBudget {
+            remaining: iterations,
+            exhausted: false,
+        }
+    }
+
+    /// A budget that never runs out (only the per-run [`LOOP_CAP`] applies).
+    pub const fn unlimited() -> Self {
+        Self::new(u64::MAX)
+    }
+
+    /// Iterations left.
+    pub fn remaining(&self) -> u64 {
+        self.remaining
+    }
+
+    /// True once a loop was refused an iteration (the budget is spent).
+    pub fn exhausted(&self) -> bool {
+        self.exhausted
+    }
+
+    /// Takes one iteration; false (and exhausted from then on) if none is
+    /// left.
+    #[inline]
+    pub(crate) fn take(&mut self) -> bool {
+        if self.exhausted || self.remaining == 0 {
+            self.exhausted = true;
+            return false;
+        }
+        self.remaining -= 1;
+        true
+    }
+
+    /// Moves the share `part / whole` of the remaining iterations into a
+    /// new budget (for work that runs in parallel). Give it back with
+    /// [`refund`](Self::refund). An exhausted budget hands out exhausted
+    /// shares.
+    pub fn share(&mut self, part: usize, whole: usize) -> LoopBudget {
+        if self.exhausted {
+            return LoopBudget {
+                remaining: 0,
+                exhausted: true,
+            };
+        }
+        let whole = whole.max(1) as u128;
+        let part = (part as u128).min(whole);
+        // part <= whole, so the share fits in u64.
+        let n = (u128::from(self.remaining) * part / whole) as u64;
+        self.remaining -= n;
+        LoopBudget::new(n)
+    }
+
+    /// Returns what is left of a [`share`](Self::share); if the share was
+    /// exhausted, so is this budget.
+    pub fn refund(&mut self, share: LoopBudget) {
+        self.remaining = self.remaining.saturating_add(share.remaining);
+        self.exhausted |= share.exhausted;
+    }
+}
+
 impl Program {
+    /// Runs the program with only the per-run [`LOOP_CAP`].
     pub fn run(&self, env: &mut ExecEnv) -> RunResult {
+        self.run_with_budget(env, &mut LoopBudget::unlimited())
+    }
+
+    /// Runs the program; every loop iteration also takes one from `budget`
+    /// (see [`LoopBudget`]). `loop_cap_hit` reports the per-run cap only;
+    /// check [`LoopBudget::exhausted`] for the shared budget.
+    pub fn run_with_budget(&self, env: &mut ExecEnv, budget: &mut LoopBudget) -> RunResult {
         debug_assert!(
             env.vars.len() >= self.num_vars,
             "vars slice ({}) shorter than VarTable::len() ({})",
@@ -104,14 +193,14 @@ impl Program {
                 }
                 Op::LoopNext { cnt, exit } => {
                     let left = get(regs, cnt);
-                    if left >= 1.0 && start_iteration(&mut iters, &mut capped) {
+                    if left >= 1.0 && start_iteration(&mut iters, &mut capped, budget) {
                         set(regs, cnt, left - 1.0);
                     } else {
                         pc = exit as usize;
                     }
                 }
                 Op::LoopGuard { exit } => {
-                    if !start_iteration(&mut iters, &mut capped) {
+                    if !start_iteration(&mut iters, &mut capped, budget) {
                         pc = exit as usize;
                     }
                 }
@@ -124,15 +213,23 @@ impl Program {
     }
 }
 
-/// Counts one loop iteration against the run's cap. Returns false (and
-/// latches `capped`) when no more iterations are allowed.
+/// Counts one loop iteration against the run's cap and the shared budget.
+/// Returns false when no more iterations are allowed; a per-run cap hit
+/// latches `capped`, a spent budget latches the budget's exhausted flag.
 #[inline]
-fn start_iteration(iters: &mut u64, capped: &mut bool) -> bool {
+pub(crate) fn start_iteration(
+    iters: &mut u64,
+    capped: &mut bool,
+    budget: &mut LoopBudget,
+) -> bool {
     if *capped {
         return false;
     }
     if *iters >= LOOP_CAP {
         *capped = true;
+        return false;
+    }
+    if !budget.take() {
         return false;
     }
     *iters += 1;
