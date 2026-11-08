@@ -121,7 +121,7 @@ impl Lexer {
         match word.as_str() {
             "pi" => Ok(Tok::Num(std::f64::consts::PI)),
             "e" => Ok(Tok::Num(std::f64::consts::E)),
-            "phi" => Ok(Tok::Num(1.618033988749895)),
+            "phi" => Ok(Tok::Num(std::f64::consts::GOLDEN_RATIO)),
             _ => match word.strip_prefix('x') {
                 Some(d) if !d.is_empty() => self.hex(d, line, col),
                 _ => Err(self.err(line, col, format!("unknown constant '${word}'"))),

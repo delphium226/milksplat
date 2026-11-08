@@ -203,8 +203,7 @@ impl Parser {
     fn binary_inner(&mut self, min_prec: u8) -> Result<Expr, CompileError> {
         let mut lhs = self.unary()?;
         let mut lh = self.height;
-        loop {
-            let Tok::Op(o) = self.peek().tok else { break };
+        while let Tok::Op(o) = self.peek().tok {
             let Some((op, prec, right)) = binop(o) else {
                 break;
             };

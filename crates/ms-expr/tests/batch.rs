@@ -200,13 +200,13 @@ fn loop_cap_per_lane() {
     cols[0][8] = 1.0;
     let (b, capped) = assert_same("c = 0; while(c += 1; x > 0); c += 1", &["x", "c"], cols, n);
     assert!(capped);
-    for i in 0..n {
+    for (i, &got) in b[1].iter().enumerate().take(n) {
         let want = if i == 3 || i == 8 {
             LOOP_CAP as f64 + 1.0
         } else {
             2.0
         };
-        assert_eq!(b[1][i], want, "lane {i}");
+        assert_eq!(got, want, "lane {i}");
     }
 }
 

@@ -17,6 +17,8 @@ fn ops(s: &str) -> usize {
 }
 
 #[test] fn numbers() { assert_eq!(nums("1 .5 2.5e3 0x1F $x10"), vec![1.0, 0.5, 2500.0, 31.0, 16.0]); }
+// The literal pins $phi's value independently of std's constant.
+#[allow(clippy::approx_constant)]
 #[test] fn constants() { assert_eq!(nums("$pi $e $phi"), vec![std::f64::consts::PI, std::f64::consts::E, 1.618033988749895]); }
 #[test] fn idents_lowercased() { assert!(matches!(&lex("Zoom")[0].tok, Tok::Ident(s) if s == "zoom")); }
 #[test] fn ops_longest_match() { assert_eq!(ops("+= -= *= /= %= == != <= >= && || = < > + - * / % ^ & | !"), 23); }
