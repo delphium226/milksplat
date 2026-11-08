@@ -5,6 +5,19 @@ that react to whatever your PC is playing. It is inspired by the classic
 MilkDrop-style visualizers. It captures the audio from your default output
 device, so just start your music and run it.
 
+## Gallery
+
+| | |
+|---|---|
+| ![Infinite Coil](docs/images/infinite-coil.png) | ![Turing Reef](docs/images/turing-reef.png) |
+| **Infinite Coil**: an endless spiral zoom | **Turing Reef**: coral that grows and melts with the music |
+| ![Lumen Cathedral](docs/images/lumen-cathedral.png) | ![Ebru Tide](docs/images/ebru-tide.png) |
+| **Lumen Cathedral**: a rose window pouring out light | **Ebru Tide**: live paper marbling |
+| ![Tesseract Drift](docs/images/tesseract-drift.png) | |
+| **Tesseract Drift**: a 4D hypercube turning inside out | |
+
+These are single frames; every preset moves and changes with the music.
+
 ## Requirements
 
 - Windows 10 or 11
