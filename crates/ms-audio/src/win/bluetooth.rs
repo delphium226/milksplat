@@ -22,9 +22,12 @@ pub(super) fn is_bluetooth(enumerator: Option<&IMMDeviceEnumerator>, endpoint_id
     }
 }
 
-/// `BTHENUM` (classic) or `BTHLEDEVICE` (LE audio), case-insensitive.
+/// `BTHENUM` (classic), `BTHHFENUM` (hands-free profile) or `BTHLEDEVICE`
+/// (LE audio), case-insensitive.
 fn is_bluetooth_enumerator(name: &str) -> bool {
-    name.eq_ignore_ascii_case("BTHENUM") || name.eq_ignore_ascii_case("BTHLEDEVICE")
+    ["BTHENUM", "BTHHFENUM", "BTHLEDEVICE"]
+        .iter()
+        .any(|bt| name.eq_ignore_ascii_case(bt))
 }
 
 fn enumerator_name(
@@ -57,5 +60,9 @@ mod tests {
         assert!(!is_bluetooth_enumerator("HDAUDIO"));
         assert!(!is_bluetooth_enumerator(""));
         assert!(!is_bluetooth_enumerator("BTHENUMX"));
+        // Hands-free (HFP) endpoints (R31).
+        assert!(is_bluetooth_enumerator("BTHHFENUM"));
+        assert!(is_bluetooth_enumerator("bthhfenum"));
+        assert!(!is_bluetooth_enumerator("BTHHFENUM2"));
     }
 }
