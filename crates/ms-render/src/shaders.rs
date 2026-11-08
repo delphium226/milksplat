@@ -166,13 +166,11 @@ impl Samplers {
     }
 }
 
-/// The textures bound at group 0 bindings 2-10 (blur levels, noise,
-/// spectrum).
+/// The textures bound at group 0 bindings 2-10: the blur levels, the noise
+/// textures and the spectrum.
 ///
-/// [`Renderer::new`] fills them with 1x1 (1x1x1 for the volumes)
-/// placeholders: black for the blur levels, mid-grey (128/255) for the noise
-/// textures and transparent black for the spectrum. The blur chain and noise
-/// generation replace them by assigning `Renderer::aux` and calling
+/// [`Renderer::new`] fills them from the blur chain, the noise set and the
+/// spectrum texture; whoever replaces a view must call
 /// `Renderer::invalidate_bind_groups` (the cached group 0 bind groups
 /// reference these views). Every view must be a filterable float texture:
 /// 2D, except `noisevol` (3D).
@@ -184,38 +182,11 @@ pub(crate) struct AuxViews {
     pub(crate) spectrum: wgpu::TextureView,
 }
 
-impl AuxViews {
-    pub(crate) fn placeholders(gpu: &Gpu) -> Self {
-        use wgpu::TextureDimension::{D2, D3};
-        let p = |label, dim, rgba| placeholder(&gpu.device, &gpu.queue, label, dim, rgba);
-        const BLACK: [u8; 4] = [0, 0, 0, 255];
-        const GREY: [u8; 4] = [128, 128, 128, 255];
-        AuxViews {
-            blur: [
-                p("blur1 placeholder", D2, BLACK),
-                p("blur2 placeholder", D2, BLACK),
-                p("blur3 placeholder", D2, BLACK),
-            ],
-            noise: [
-                p("noise_lq placeholder", D2, GREY),
-                p("noise_mq placeholder", D2, GREY),
-                p("noise_hq placeholder", D2, GREY),
-            ],
-            noisevol: [
-                p("noisevol_lq placeholder", D3, GREY),
-                p("noisevol_hq placeholder", D3, GREY),
-            ],
-            spectrum: p("spectrum placeholder", D2, [0; 4]),
-        }
-    }
-}
-
-/// A 1x1 (or 1x1x1) `Rgba8Unorm` texture holding `rgba`.
+/// A 1x1 `Rgba8Unorm` texture holding `rgba`.
 fn placeholder(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     label: &str,
-    dimension: wgpu::TextureDimension,
     rgba: [u8; 4],
 ) -> wgpu::TextureView {
     let tex = device.create_texture(&wgpu::TextureDescriptor {
@@ -227,7 +198,7 @@ fn placeholder(
         },
         mip_level_count: 1,
         sample_count: 1,
-        dimension,
+        dimension: wgpu::TextureDimension::D2,
         format: wgpu::TextureFormat::Rgba8Unorm,
         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
         view_formats: &[],
@@ -524,13 +495,7 @@ impl RendererShared {
             bind_group_layouts: &[Some(&group0_layout)],
             immediate_size: 0,
         });
-        let white = placeholder(
-            &device,
-            &gpu.queue,
-            "missing user texture",
-            wgpu::TextureDimension::D2,
-            [255; 4],
-        );
+        let white = placeholder(&device, &gpu.queue, "missing user texture", [255; 4]);
         let builtin_warp = {
             let a = assemble(Stage::Warp, "", &[], WARP_BUILTIN_BODY);
             let module = create_module(&device, &a, "builtin warp");

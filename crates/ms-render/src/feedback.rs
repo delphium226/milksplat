@@ -3,9 +3,12 @@
 
 use image::RgbaImage;
 
+use crate::blur::Blur;
 use crate::composite::CompositeState;
 use crate::gpu::Gpu;
+use crate::noise::{noise_textures, NoiseSet};
 use crate::shaders::{AuxViews, RendererShared};
+use crate::textures::create_spectrum_texture;
 use crate::warp::WarpState;
 
 /// Smallest internal size per axis.
@@ -63,19 +66,26 @@ pub struct Renderer {
     /// Layouts, samplers and built-in shaders (also handed to loader
     /// threads via [`Renderer::shared`]).
     pub(crate) shared: RendererShared,
-    /// Group 0 bindings 2-10 (placeholders until the blur chain and noise
-    /// textures replace them; call [`Renderer::invalidate_bind_groups`]
-    /// after changing them).
+    /// Group 0 bindings 2-10: the blur levels, noise and spectrum views
+    /// (call [`Renderer::invalidate_bind_groups`] after replacing any).
     pub(crate) aux: AuxViews,
+    /// The blur chain; its level views are `aux.blur`.
+    pub(crate) blur: Blur,
+    /// Kept for the renderer's lifetime; its views are `aux.noise` and
+    /// `aux.noisevol`.
+    _noise: NoiseSet,
+    /// 512x1, updated in place by [`Renderer::set_spectrum`].
+    pub(crate) spectrum: wgpu::Texture,
     pub(crate) warp_state: WarpState,
     pub(crate) comp_state: CompositeState,
     blit: Blit,
 }
 
 impl Renderer {
-    /// Creates the feedback textures (cleared to black), the shared shader
-    /// resources (layouts, samplers, built-in shaders, placeholder textures)
-    /// and the blit resources.
+    /// Creates the feedback textures and blur levels (cleared to black), the
+    /// noise textures, the spectrum texture (zeroed), the shared shader
+    /// resources (layouts, samplers, built-in shaders) and the blit
+    /// resources.
     pub fn new(gpu: &Gpu, cfg: RenderConfig) -> Self {
         let size = clamp_size(gpu, cfg.internal_size);
         let format = cfg.format;
@@ -84,7 +94,16 @@ impl Renderer {
         clear_black(gpu, &views);
 
         let shared = RendererShared::new(gpu);
-        let aux = AuxViews::placeholders(gpu);
+        let blur = Blur::new(gpu, &shared.samplers.fc, &views, size, format);
+        let noise = noise_textures(gpu);
+        let (noise_views, noisevol_views) = noise.views();
+        let spectrum = create_spectrum_texture(gpu);
+        let aux = AuxViews {
+            blur: blur.views(),
+            noise: noise_views,
+            noisevol: noisevol_views,
+            spectrum: spectrum.create_view(&Default::default()),
+        };
 
         Renderer {
             format,
@@ -94,6 +113,9 @@ impl Renderer {
             current: 0,
             shared,
             aux,
+            blur,
+            _noise: noise,
+            spectrum,
             warp_state: WarpState::default(),
             comp_state: CompositeState::default(),
             blit: Blit::new(gpu),
@@ -206,7 +228,7 @@ impl Renderer {
 
     /// Recreates both feedback textures at `size`/`format`, bilinearly
     /// copying the latest image into the new current buffer and clearing the
-    /// other one.
+    /// other one, and recreates the blur levels (cleared to black).
     fn rebuild(&mut self, gpu: &Gpu, size: [u32; 2], format: FeedbackFormat) {
         let textures = [0, 1].map(|i| create_feedback_texture(gpu, size, format, i));
         let views = [0, 1].map(|i| textures[i].create_view(&Default::default()));
@@ -223,6 +245,9 @@ impl Renderer {
         self.current = 0;
         self.size = size;
         self.format = format;
+        self.blur
+            .recreate(gpu, &self.shared.samplers.fc, &self.views, size, format);
+        self.aux.blur = self.blur.views();
         // Per-layer bind groups reference the old texture views.
         self.invalidate_bind_groups();
     }
@@ -273,7 +298,7 @@ fn create_feedback_texture(
 }
 
 /// Clears each view to opaque black.
-fn clear_black(gpu: &Gpu, views: &[wgpu::TextureView]) {
+pub(crate) fn clear_black(gpu: &Gpu, views: &[wgpu::TextureView]) {
     let mut encoder = gpu
         .device
         .create_command_encoder(&wgpu::CommandEncoderDescriptor {
