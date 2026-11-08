@@ -704,19 +704,23 @@ fn device_lost_blocklists_recent() {
         ..manual_cfg()
     };
     let mut rig = make_rig(config, lib, Prefs::default());
-    // The default preset is never blocklisted.
-    rig.update(0.0);
+    // The default preset is never blocklisted. (Each loss below comes with
+    // no load in flight: the prefetch is waited for, since a loss during a
+    // load blames the loading preset.)
+    rig.wait_ready(0.0);
     assert_eq!(rig.director.on_device_lost(0.5), None);
 
     // 5 s after `a` started: not blamed.
     rig.director.command(Command::Load("a.splat".into()));
     rig.wait_showing(100.0, "a.splat");
+    rig.wait_ready(100.0);
     assert_eq!(rig.director.on_device_lost(105.0), None);
     assert_eq!(rig.director.current(), showing("a.splat"));
 
     // 1 s after `b` started: blamed, and taken off screen.
     rig.director.command(Command::Load("b.splat".into()));
     rig.wait_showing(200.0, "b.splat");
+    rig.wait_ready(200.0);
     assert_eq!(
         rig.director.on_device_lost(201.0),
         Some("b.splat".to_string())
@@ -818,12 +822,39 @@ fn unanswered_request_times_out() {
         rig.update(i as f64 * DT);
     }
     assert_eq!(rig.loader.request_count(), 1, "re-requested before 30 s");
-    rig.update(30.0);
-    assert_eq!(rig.loader.request_count(), 2, "not re-requested after 30 s");
+    // The loader still holds the job: no duplicate is queued, however long
+    // it takes.
+    for i in 0..120 {
+        rig.update(30.0 + f64::from(i));
+    }
+    assert!(!rig.loader.idle());
+    assert_eq!(
+        rig.loader.request_count(),
+        1,
+        "duplicate sent to a busy loader"
+    );
     assert_eq!(rig.director.consecutive_failures(), 0);
-    // Once the loader answers, the first (stale) answer is ignored and
-    // the second one shows.
+    // Once the loader answers, it shows.
     rig.loader.set_paused(false);
+    rig.wait_showing(151.0, "a.splat");
+}
+
+/// A request the loader no longer holds (it is idle with no answer) is
+/// sent again after the timeout.
+#[test]
+fn timed_out_request_resent_when_loader_idle() {
+    let (_fx, lib) = fixture(&[("a.splat", &good("a"))]);
+    let mut rig = make_rig(manual_cfg(), lib.clone(), Prefs::default());
+    rig.director.command(Command::Load("a.splat".into()));
+    rig.update(0.0);
+    assert_eq!(rig.loader.request_count(), 1);
+    // Someone else takes the answer (as if the loader lost it).
+    let _ = wait_result(&rig.loader);
+    assert!(rig.loader.idle());
+    rig.update(10.0);
+    assert_eq!(rig.loader.request_count(), 1, "re-requested before 30 s");
+    rig.update(30.0);
+    assert_eq!(rig.loader.request_count(), 2, "not re-requested when idle");
     rig.wait_showing(31.0, "a.splat");
 }
 
@@ -905,6 +936,8 @@ fn non_finite_now_is_ignored() {
     rig.update_beat(10.5, 9.0);
     let first = shown(&rig.director);
     assert_ne!(first, DEFAULT_PRESET_ID, "the hard cut never came");
+    // No load in flight, so the new preset is the one blamed.
+    rig.wait_ready(10.5);
     // NaN neither blames the preset nor moves its start time.
     assert_eq!(rig.director.on_device_lost(f64::NAN), None);
     rig.update(f64::NAN);
@@ -1291,4 +1324,145 @@ fn load_hook_runs_before_the_request() {
     }
     let events = events.lock().unwrap();
     assert_eq!(events.last().map(|e| e.0.clone()), Some(None), "cleared");
+}
+
+/// Updates at `now` for `ms` milliseconds of real time.
+fn spin(rig: &mut Rig, now: f64, ms: u64) {
+    let start = Instant::now();
+    while start.elapsed() < Duration::from_millis(ms) {
+        rig.update(now);
+        std::thread::sleep(Duration::from_millis(1));
+    }
+}
+
+/// Recreates the device, renderer and loader as the app does after a loss.
+fn recreate(rig: &mut Rig) {
+    rig.gpu.lost.store(false, Ordering::SeqCst);
+    rig.renderer.recreate(&rig.gpu);
+    rig.loader = Loader::spawn(rig.renderer.shared(), TextureResolver::new(Vec::new()), FMT);
+    rig.director.on_renderer_recreated(
+        &rig.renderer.shared(),
+        &TextureResolver::new(Vec::new()),
+        FMT,
+    );
+}
+
+/// A loss while a request is with the loader blames that preset, not the
+/// one that became current 0.5 s ago, and the blamed one is never sent again.
+#[test]
+fn device_lost_during_a_load_blames_the_loading_preset() {
+    let (_fx, lib) = fixture(&[
+        ("a.splat", &good("a")),
+        ("b.splat", &good("b")),
+        ("c.splat", &good("c")),
+    ]);
+    let config = DirectorConfig {
+        blend_s: 0.0,
+        ..manual_cfg()
+    };
+    let mut rig = make_rig(config, lib, Prefs::default());
+    rig.director.command(Command::Load("a.splat".into()));
+    rig.wait_showing(10.0, "a.splat");
+    rig.wait_ready(10.0);
+    let ready = rig.director.next_ready().unwrap().to_string();
+    let culprit = if ready == "b.splat" { "c.splat" } else { "b.splat" };
+    // The culprit's request is with the (stuck) loader.
+    rig.loader.set_paused(true);
+    rig.director.command(Command::Load(culprit.into()));
+    rig.update(10.2);
+
+    assert_eq!(
+        rig.director.on_device_lost(10.5),
+        Some(culprit.to_string()),
+        "the loading preset is blamed"
+    );
+    assert!(rig.director.prefs().blocklist.contains(culprit));
+    assert!(!rig.director.prefs().blocklist.contains("a.splat"));
+    assert_eq!(rig.director.current(), showing("a.splat"));
+
+    rig.director.release_gpu();
+    recreate(&mut rig);
+    rig.director.command(Command::Load(culprit.into()));
+    spin(&mut rig, 11.0, 300);
+    assert_eq!(
+        rig.loader.request_count(),
+        0,
+        "the blamed preset was requested again"
+    );
+    assert_eq!(rig.director.current(), showing("a.splat"));
+}
+
+/// A load that already failed on the lost device is blamed (not the preset
+/// on screen), is not re-sent to the new loader, and the load hook (the run
+/// marker's `loading`) names it until it is blamed.
+#[test]
+fn device_lost_failure_of_a_load_blames_it_and_is_not_resent() {
+    use std::sync::{Arc, Mutex};
+    let (_fx, lib) = fixture(&[
+        ("a.splat", &good("a")),
+        ("b.splat", &good("b")),
+        ("x.splat", &good("x")),
+    ]);
+    let config = DirectorConfig {
+        blend_s: 0.0,
+        ..manual_cfg()
+    };
+    let mut rig = make_rig(config, lib, Prefs::default());
+    rig.director.command(Command::Load("x.splat".into()));
+    rig.wait_showing(10.0, "x.splat");
+    rig.wait_ready(10.0);
+    let ready = rig.director.next_ready().unwrap().to_string();
+    let culprit = if ready == "a.splat" { "b.splat" } else { "a.splat" };
+
+    let events: Arc<Mutex<Vec<Option<String>>>> = Arc::default();
+    let ev = Arc::clone(&events);
+    rig.director
+        .set_load_hook(move |id| ev.lock().unwrap().push(id.map(str::to_string)));
+
+    // The culprit's warm-up loses the device.
+    rig.gpu.lost.store(true, Ordering::SeqCst);
+    rig.director.command(Command::Load(culprit.into()));
+    spin(&mut rig, 10.2, 300);
+    assert_eq!(rig.director.current(), showing("x.splat"));
+    assert_eq!(
+        *events.lock().unwrap(),
+        [Some(culprit.to_string())],
+        "the marker names the culprit while its failure is held"
+    );
+
+    // `x` became current 0.5 s ago, but the culprit is blamed.
+    assert_eq!(
+        rig.director.on_device_lost(10.5),
+        Some(culprit.to_string())
+    );
+    assert!(!rig.director.prefs().blocklist.contains("x.splat"));
+    assert_eq!(rig.director.current(), showing("x.splat"));
+    assert_eq!(events.lock().unwrap().last(), Some(&None), "marker cleared");
+
+    rig.director.release_gpu();
+    recreate(&mut rig);
+    spin(&mut rig, 11.0, 300);
+    assert_eq!(rig.loader.request_count(), 0, "the culprit was sent again");
+    assert_eq!(rig.director.current(), showing("x.splat"));
+}
+
+/// No load in flight: the preset that became current less than 2 s ago is
+/// still blamed.
+#[test]
+fn device_lost_with_no_load_blames_the_new_preset() {
+    let (_fx, lib) = fixture(&[("a.splat", &good("a")), ("b.splat", &good("b"))]);
+    let config = DirectorConfig {
+        blend_s: 0.0,
+        ..manual_cfg()
+    };
+    let mut rig = make_rig(config, lib, Prefs::default());
+    rig.director.command(Command::Load("a.splat".into()));
+    rig.wait_showing(10.0, "a.splat");
+    rig.wait_ready(10.0);
+    assert_eq!(rig.director.loading(), None);
+    assert_eq!(
+        rig.director.on_device_lost(10.5),
+        Some("a.splat".to_string())
+    );
+    assert_eq!(rig.director.current(), showing(DEFAULT_PRESET_ID));
 }

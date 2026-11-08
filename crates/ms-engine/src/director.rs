@@ -43,12 +43,17 @@
 //! - **Requests** remember the loader they went to
 //!   ([`Loader::loader_id`]): if `update` is given a different loader (the
 //!   app replaced it), the pending request is sent again to that one. A
-//!   request with no answer after 30 s (of `now`) is sent again.
+//!   request with no answer after 30 s (of `now`) is logged, and sent again
+//!   only if the loader reports it is idle (it lost the job); a busy loader
+//!   is not sent duplicates.
 //! - **Failures:** a preset that fails to load is logged and skipped for the
 //!   rest of the session, and another is requested. After 10 consecutive
 //!   failures the director stays on the current preset and tries again 10 s
 //!   later. A load that failed because the GPU device was lost is neither
-//!   skipped nor counted: it is sent again to the next loader.
+//!   skipped nor counted: it is held until [`Director::on_device_lost`]
+//!   decides (it blames the preset being loaded, so that preset is
+//!   blocklisted and never sent again), or, if that is not called, it is
+//!   sent again to the next loader.
 //! - The built-in default preset is shown at startup and whenever nothing
 //!   else can be (empty library, everything banned, blocklisted or failed).
 
@@ -319,11 +324,23 @@ impl Director {
                 p.req = None;
                 p.parked = false;
             } else if p.req.is_some() && now - p.sent_at >= REQUEST_TIMEOUT_S {
-                tracing::warn!(
-                    "loading {} got no answer in {REQUEST_TIMEOUT_S} s; requesting it again",
-                    p.id
-                );
-                p.req = None;
+                if loader.idle() {
+                    // The loader has no job, so this one was lost: send it
+                    // again.
+                    tracing::warn!(
+                        "loading {} got no answer in {REQUEST_TIMEOUT_S} s and the loader is idle; requesting it again",
+                        p.id
+                    );
+                    p.req = None;
+                } else if !p.timeout_logged {
+                    // Still being worked on (or queued): a duplicate would
+                    // only queue the same work again.
+                    p.timeout_logged = true;
+                    tracing::warn!(
+                        "loading {} got no answer in {REQUEST_TIMEOUT_S} s; still waiting for the loader",
+                        p.id
+                    );
+                }
             }
         }
         self.finish_blend(now);
@@ -356,6 +373,7 @@ impl Director {
                         p.req = Some(loader.request(p.id.clone(), e.path.clone(), p.seed));
                         p.loader = loader.loader_id();
                         p.sent_at = now;
+                        p.timeout_logged = false;
                     }
                     None => {
                         tracing::warn!("preset {} is no longer in the library", p.id);
@@ -366,8 +384,25 @@ impl Director {
         }
         // Nothing with the loader any more: the answer was taken, or the
         // request was dropped.
-        let loading = self.pending.as_ref().is_some_and(|p| p.req.is_some());
-        if !loading && self.load_notified {
+        if self.loading().is_none() {
+            self.notify_not_loading();
+        }
+    }
+
+    /// The preset the loader is working on for this director: a request in
+    /// flight, or one whose load failed because the device was lost (held
+    /// for [`on_device_lost`](Self::on_device_lost)). The load hook's
+    /// `Some(id)` lasts exactly as long as this is `Some(id)`.
+    pub fn loading(&self) -> Option<&str> {
+        self.pending
+            .as_ref()
+            .filter(|p| p.req.is_some() || p.parked)
+            .map(|p| p.id.as_str())
+    }
+
+    /// Tells the load hook that nothing is loading, if it was told otherwise.
+    fn notify_not_loading(&mut self) {
+        if self.load_notified {
             self.load_notified = false;
             if let Some(hook) = &mut self.load_hook {
                 hook(None);
@@ -379,7 +414,8 @@ impl Director {
     /// just *before* each request is sent (so the app can record it before
     /// any of the preset's work starts, e.g. for crash detection), and
     /// `None` once no request is outstanding (its answer was taken by
-    /// `update`, or it was dropped). Called on the thread calling `update`.
+    /// `update`, or it was dropped); see [`loading`](Self::loading). Called
+    /// on the thread calling `update` (or `on_device_lost`).
     pub fn set_load_hook(&mut self, hook: impl FnMut(Option<&str>) + Send + 'static) {
         self.load_hook = Some(Box::new(hook));
     }
@@ -554,32 +590,65 @@ impl Director {
         }
     }
 
-    /// Call when the GPU device is lost, before recreating it. If the
-    /// preset on screen (during a blend, the incoming one) became current
-    /// less than 2 s before `now`, it is blamed: it is added to this
-    /// director's blocklist, taken off screen (a blend is abandoned and the
-    /// outgoing preset stays; otherwise the default preset is shown), and
-    /// its id is returned for the app to add to the persistent blocklist.
-    /// The default preset is never blamed. Otherwise returns `None`.
+    /// Call when the GPU device is lost, before recreating it. Blames one
+    /// preset, if any:
+    ///
+    /// - the preset the loader was working on ([`loading`](Self::loading):
+    ///   a request in flight, or one that already failed on the lost
+    ///   device), since its shader compile or warm-up draw is the likeliest
+    ///   cause; the request is dropped and never sent again;
+    /// - otherwise the preset on screen (during a blend, the incoming one),
+    ///   if it became current less than 2 s before `now`.
+    ///
+    /// The blamed preset is added to this director's blocklist, dropped
+    /// from the ready and queued slots, and, if it is on screen, taken off
+    /// it (a blend is abandoned and the outgoing preset stays; otherwise
+    /// the default preset is shown); its id is returned for the app to add
+    /// to the persistent blocklist. The default preset is never blamed.
+    /// Otherwise returns `None`.
     ///
     /// A switch queued behind an abandoned blend is applied at once if its
     /// preset is still allowed, and dropped otherwise. A non-finite `now`
     /// blames nothing.
     pub fn on_device_lost(&mut self, now: f64) -> Option<String> {
-        let active = self.blend.as_ref().map_or(&self.cur, |b| &b.to);
-        if !now.is_finite()
-            || active.id == DEFAULT_PRESET_ID
-            || now - active.since >= BLOCKLIST_WINDOW_S
-        {
+        if !now.is_finite() {
             return None;
         }
-        let id = active.id.clone();
-        tracing::warn!(
-            "device lost {:.2} s after {id} started; blocklisting it",
-            now - active.since
-        );
+        let id = match self.loading().filter(|id| *id != DEFAULT_PRESET_ID) {
+            Some(id) => {
+                let id = id.to_string();
+                tracing::warn!("device lost while {id} was loading; blocklisting it");
+                id
+            }
+            None => {
+                let active = self.blend.as_ref().map_or(&self.cur, |b| &b.to);
+                if active.id == DEFAULT_PRESET_ID || now - active.since >= BLOCKLIST_WINDOW_S {
+                    return None;
+                }
+                tracing::warn!(
+                    "device lost {:.2} s after {} started; blocklisting it",
+                    now - active.since,
+                    active.id
+                );
+                active.id.clone()
+            }
+        };
         self.prefs.blocklist.insert(id.clone());
         self.pick_prefs.blocklist.insert(id.clone());
+        if self.pending.as_ref().is_some_and(|p| p.id == id) {
+            self.pending = None;
+            self.notify_not_loading();
+        }
+        if self.ready.as_ref().is_some_and(|l| l.id == id) {
+            self.ready = None;
+        }
+        if self.shown_id() != id {
+            if self.queued.as_ref().is_some_and(|q| q.loaded.id == id) {
+                tracing::info!("dropping the queued switch to {id}");
+                self.queued = None;
+            }
+            return Some(id);
+        }
         if self.blend.take().is_none() {
             let loaded = Loaded {
                 id: DEFAULT_PRESET_ID.to_string(),

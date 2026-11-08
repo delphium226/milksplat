@@ -25,7 +25,9 @@ impl RenderThread {
         }
     }
 
-    /// Device loss (§6.7): blame the preset if it just started, release
+    /// Device loss (§6.7): blame the preset the loader was preparing (the
+    /// run marker's `loading`), else the preset on screen if it just
+    /// started (see `Director::on_device_lost`), release
     /// every GPU object (the director's shader sets, then the whole
     /// `GpuState`), then build everything on a new device (retrying every
     /// second, with nothing of the old device alive).

@@ -135,6 +135,8 @@ struct Control {
     stop: AtomicBool,
     /// Name of the thread that ran the latest warm-up draw.
     warm_up_thread: Mutex<Option<String>>,
+    /// Requests made and not yet answered (queued or in progress).
+    outstanding: AtomicU64,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -245,6 +247,7 @@ impl Loader {
     pub fn request(&self, id: String, path: PathBuf, seed: u64) -> u64 {
         let req = NEXT_REQ.fetch_add(1, Ordering::Relaxed);
         self.requests.fetch_add(1, Ordering::Relaxed);
+        self.control.outstanding.fetch_add(1, Ordering::SeqCst);
         tracing::debug!("loader: request {req}: {id}");
         let job = Job {
             req,
@@ -257,6 +260,7 @@ impl Loader {
             None => Some(job),
         };
         if let Some(job) = unsent {
+            self.control.outstanding.fetch_sub(1, Ordering::SeqCst);
             let _ = self.results_tx.send(LoadResult::Failed {
                 req,
                 id: job.id,
@@ -265,6 +269,12 @@ impl Loader {
             });
         }
         req
+    }
+
+    /// True when every request made has been answered (none is queued or
+    /// in progress). Never blocks.
+    pub fn idle(&self) -> bool {
+        self.control.outstanding.load(Ordering::SeqCst) == 0
     }
 
     /// The next finished request, if any. Never blocks.
@@ -360,7 +370,9 @@ fn run(ctx: &Context, jobs: &Receiver<Job>, results: &Sender<LoadResult>) {
                     }
                 }
             };
-        if results.send(result).is_err() {
+        let sent = results.send(result).is_ok();
+        ctx.control.outstanding.fetch_sub(1, Ordering::SeqCst);
+        if !sent {
             break;
         }
     }

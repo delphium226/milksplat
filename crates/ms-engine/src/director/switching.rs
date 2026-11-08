@@ -41,6 +41,8 @@ pub(super) struct Pending {
     /// Held back after a load failed on a lost device: sent again only to
     /// a different loader (the one made for the new device).
     pub(super) parked: bool,
+    /// The 30 s no-answer warning was logged for this send.
+    pub(super) timeout_logged: bool,
     pub(super) id: String,
     pub(super) seed: u64,
     pub(super) goal: Goal,
@@ -54,6 +56,7 @@ impl Pending {
             loader: 0,
             sent_at: 0.0,
             parked: false,
+            timeout_logged: false,
             id,
             seed,
             goal,
@@ -280,8 +283,9 @@ impl Director {
                 error,
                 ..
             } => {
-                // Not the preset's fault: keep the request, and send it again
-                // to the loader made for the new device.
+                // Held for `on_device_lost`, which blames it (its warm-up
+                // may have caused the loss). If that is not called, it is
+                // sent again to the loader made for the new device.
                 tracing::warn!("preset {id} could not load (device lost): {error}");
                 self.pending = Some(Pending {
                     req: None,
