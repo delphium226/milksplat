@@ -11,11 +11,12 @@ ms-analysis.workspace = true
 ms-render.workspace = true
 rayon.workspace = true
 tracing.workspace = true
+crossbeam-channel.workspace = true
+wgpu.workspace = true
 
 [dev-dependencies]
 criterion.workspace = true
 image.workspace = true
-wgpu.workspace = true
 
 [[bench]]
 name = "tick"

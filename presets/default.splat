@@ -1,0 +1,25 @@
+# The built-in default preset: shown at startup, when the library is empty,
+# and whenever nothing else can be shown. Gentle on purpose.
+version = 1
+
+[meta]
+name = "Default"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+zoom = 1.01
+decay = 0.97
+warp = 0.2
+wave_mode = 0
+wave_a = 0.8
+wave_r = 0.5
+wave_g = 0.5
+wave_b = 0.5
+
+[code]
+frame = '''
+wave_r = 0.35 + 0.65 * min(bass, 1);
+wave_g = 0.35 + 0.65 * min(mid, 1);
+wave_b = 0.35 + 0.65 * min(treb, 1);
+'''

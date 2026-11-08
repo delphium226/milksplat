@@ -1,0 +1,140 @@
+//! The presets the director holds: loaded ones waiting to be shown, and
+//! the ones on screen (with their instance and latest uniforms).
+
+use std::sync::Arc;
+
+use ms_preset::CompiledPreset;
+use ms_render::{FeedbackFormat, RendererShared, ShaderSet, Uniforms};
+
+use super::TickInputBase;
+use crate::blend::BlendPattern;
+use crate::env::{Globals, TickInput};
+use crate::loader::feedback_format;
+use crate::tick::{PresetInstance, TickOutput};
+
+/// A loaded preset, not yet on screen.
+pub(super) struct Loaded {
+    pub(super) id: String,
+    pub(super) preset: Arc<CompiledPreset>,
+    pub(super) shaders: ShaderSet,
+    pub(super) seed: u64,
+}
+
+/// A preset on screen.
+pub(super) struct Active {
+    pub(super) id: String,
+    pub(super) preset: Arc<CompiledPreset>,
+    pub(super) shaders: ShaderSet,
+    pub(super) seed: u64,
+    pub(super) instance: PresetInstance,
+    /// When it became current.
+    pub(super) since: f64,
+    /// Its display time (infinite without auto-advance).
+    pub(super) duration: f64,
+    pub(super) frames: u64,
+    /// The uniforms of its latest tick, for the display-rate composite.
+    pub(super) uniforms: Uniforms,
+}
+
+impl Active {
+    pub(super) fn new(l: Loaded, since: f64, duration: f64, mesh_cap: [u32; 2]) -> Self {
+        Active {
+            instance: PresetInstance::new(Arc::clone(&l.preset), l.seed, mesh_cap),
+            id: l.id,
+            preset: l.preset,
+            shaders: l.shaders,
+            seed: l.seed,
+            since,
+            duration,
+            frames: 0,
+            uniforms: Uniforms::default(),
+        }
+    }
+
+    fn time(&self, now: f64) -> f64 {
+        (now - self.since).max(0.0)
+    }
+
+    /// Ticks the instance; returns its output and shaders.
+    pub(super) fn tick(
+        &mut self,
+        now: f64,
+        base: &TickInputBase,
+        g: &mut Globals,
+    ) -> (&TickOutput, &ShaderSet) {
+        let time = self.time(now);
+        let progress = if self.duration.is_finite() && self.duration > 0.0 {
+            (time / self.duration).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let input = TickInput {
+            time,
+            fps: base.fps,
+            frame: self.frames,
+            progress,
+            audio: base.audio,
+            aspect: base.aspect,
+            pixels: base.pixels,
+        };
+        self.frames += 1;
+        let out = self.instance.tick(&input, g);
+        self.uniforms = out.uniforms;
+        (out, &self.shaders)
+    }
+
+    /// The latest uniforms with the exact (not tick-quantized) time.
+    pub(super) fn display_uniforms(&self, now: f64) -> Uniforms {
+        let t = self.time(now) as f32;
+        Uniforms {
+            time: if t.is_finite() { t } else { 0.0 },
+            ..self.uniforms
+        }
+    }
+
+    pub(super) fn feedback_format(&self) -> FeedbackFormat {
+        feedback_format(self.preset.source.params.feedback_format)
+    }
+}
+
+pub(super) struct Blend {
+    pub(super) to: Active,
+    pub(super) start: f64,
+    pub(super) dur: f64,
+    pub(super) pattern: BlendPattern,
+}
+
+impl Blend {
+    pub(super) fn progress(&self, now: f64) -> f32 {
+        let p = ((now - self.start) / self.dur) as f32;
+        if p.is_finite() {
+            p.clamp(0.0, 1.0)
+        } else {
+            0.0
+        }
+    }
+}
+
+/// The default preset's shaders (the built-ins, unless the file has some).
+pub(super) fn compile_default(
+    shared: &RendererShared,
+    comp_format: wgpu::TextureFormat,
+    p: &CompiledPreset,
+) -> ShaderSet {
+    let s = &p.source.shader;
+    shared.compile_shaders(s.warp.as_deref(), s.comp.as_deref(), comp_format, &|_| None)
+}
+
+/// A copy of `s` (the GPU objects are shared, not duplicated).
+pub(super) fn clone_set(s: &ShaderSet) -> ShaderSet {
+    ShaderSet {
+        warp: s.warp.clone(),
+        comp: s.comp.clone(),
+        errors: s.errors.clone(),
+        blur_levels: s.blur_levels,
+        user_textures: s.user_textures.clone(),
+        warp_source: s.warp_source.clone(),
+        comp_source: s.comp_source.clone(),
+        texture_images: s.texture_images.clone(),
+    }
+}

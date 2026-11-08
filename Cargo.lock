@@ -935,6 +935,7 @@ name = "ms-engine"
 version = "0.1.0"
 dependencies = [
  "criterion",
+ "crossbeam-channel",
  "image",
  "ms-analysis",
  "ms-expr",
