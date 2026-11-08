@@ -207,7 +207,7 @@ fn finite_or_zero(v: f32) -> f32 {
 /// Makes sure `buf` holds at least `needed` bytes, reallocating (to the
 /// next power of two) only when it is too small. Returns whether it was
 /// reallocated.
-fn ensure_capacity(
+pub(crate) fn ensure_capacity(
     gpu: &Gpu,
     buf: &mut Option<wgpu::Buffer>,
     needed: u64,

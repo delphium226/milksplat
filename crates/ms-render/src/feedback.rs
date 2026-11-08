@@ -5,6 +5,7 @@ use image::RgbaImage;
 
 use crate::blur::Blur;
 use crate::composite::CompositeState;
+use crate::draw::OverlayState;
 use crate::gpu::Gpu;
 use crate::noise::{noise_textures, NoiseSet};
 use crate::shaders::{AuxViews, RendererShared};
@@ -78,14 +79,16 @@ pub struct Renderer {
     pub(crate) spectrum: wgpu::Texture,
     pub(crate) warp_state: WarpState,
     pub(crate) comp_state: CompositeState,
+    /// Overlay pipelines and buffers ([`Renderer::draw`]).
+    pub(crate) overlay: OverlayState,
     blit: Blit,
 }
 
 impl Renderer {
     /// Creates the feedback textures and blur levels (cleared to black), the
     /// noise textures, the spectrum texture (zeroed), the shared shader
-    /// resources (layouts, samplers, built-in shaders) and the blit
-    /// resources.
+    /// resources (layouts, samplers, built-in shaders), the overlay
+    /// pipelines and the blit resources.
     pub fn new(gpu: &Gpu, cfg: RenderConfig) -> Self {
         let size = clamp_size(gpu, cfg.internal_size);
         let format = cfg.format;
@@ -118,6 +121,7 @@ impl Renderer {
             spectrum,
             warp_state: WarpState::default(),
             comp_state: CompositeState::default(),
+            overlay: OverlayState::new(gpu),
             blit: Blit::new(gpu),
         }
     }
@@ -252,11 +256,13 @@ impl Renderer {
         self.invalidate_bind_groups();
     }
 
-    /// Drops the cached group 0 bind groups (they reference the feedback
-    /// and auxiliary texture views).
+    /// Drops the cached bind groups that reference the feedback and
+    /// auxiliary texture views (group 0 of the warp and composite passes,
+    /// and the overlays').
     pub(crate) fn invalidate_bind_groups(&mut self) {
         self.warp_state.invalidate_bind_groups();
         self.comp_state.invalidate_bind_groups();
+        self.overlay.invalidate_bind_groups();
     }
 }
 
