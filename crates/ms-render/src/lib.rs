@@ -30,7 +30,7 @@ pub use feedback::{FeedbackFormat, RenderConfig, Renderer};
 pub use gpu::{read_texture, Gpu, GpuError, FORCE_WARP_ENV};
 pub use motion::MotionVectors;
 pub use noise::{noise_textures, NoiseSet, NOISE_SEED};
-pub use shaders::{RendererShared, ShaderSet, Uniforms, PRELUDE_WGSL};
+pub use shaders::{RendererShared, ShaderSet, ShaderSources, Uniforms, PRELUDE_WGSL};
 pub use shapes::ShapeDraw;
 pub use text::TextItem;
 pub use textures::{

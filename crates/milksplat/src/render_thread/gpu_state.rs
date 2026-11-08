@@ -9,20 +9,18 @@
 //! (or anything created from it) across frames.
 //!
 //! **Recovery path:** the wgpu instance outlives the device and is reused.
-//! The old state is dropped *before* the new device is requested: the
-//! loader thread is joined, and the old surface is dropped, which releases
-//! its DXGI swapchain (a flip-model swapchain holds the window, and while
-//! it lives a new one cannot be created: "window is in use"; D3D12 also
-//! hands back the same, removed, device while references to it remain).
-//! The render thread then asks the main thread for a new surface from the
-//! same instance (winit only gives out the window handle on the main
-//! thread) and builds a new state on it with [`GpuState::new`]: the
-//! renderer is built fresh with `Renderer::new` rather than
-//! `Renderer::recreate`, so nothing of the old device has to stay alive
-//! while the new one is opened. Only the director's compiled shader sets
-//! still reference the old device until `on_renderer_recreated` replaces
-//! them; if the driver hands back the removed device because of that, the
-//! new state reports the loss at once and the next attempt succeeds.
+//! Nothing of the old device may be alive when the new one is requested:
+//! D3D12 devices are per-adapter singletons, and the driver hands back the
+//! same, removed, device while references to it remain; a flip-model
+//! swapchain also holds the window ("window is in use"). So, in order:
+//! `Director::on_device_lost`, `Director::release_gpu` (the director keeps
+//! only shader sources), drop the whole old `GpuState` (loader joined,
+//! renderer, surface and swapchain, device), ask the main thread for a new
+//! surface from the same instance (winit only gives out the window handle
+//! on the main thread), [`GpuState::new`] (the renderer is built fresh with
+//! `Renderer::new`, as `Renderer::recreate` would need the old renderer
+//! alive), then `Director::on_renderer_recreated`. A failed attempt is
+//! retried a second later, still with nothing old alive.
 
 use ms_engine::Loader;
 use ms_render::{FeedbackFormat, Gpu, RenderConfig, Renderer, TextureResolver};
@@ -130,6 +128,11 @@ fn choose(surface: &wgpu::Surface<'_>, gpu: &Gpu) -> Result<SurfaceChoice, Strin
             .unwrap_or(wgpu::CompositeAlphaMode::Auto)
     };
     tracing::info!(?format, ?present_mode, ?alpha_mode, "surface");
+    if format.is_srgb() {
+        tracing::warn!(
+            "the surface only offers sRGB formats ({format:?}); colours will look washed out"
+        );
+    }
     Ok(SurfaceChoice {
         format,
         present_mode,

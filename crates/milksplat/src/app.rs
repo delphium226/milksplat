@@ -389,9 +389,10 @@ impl App {
                     self.failed = true;
                 }
             } else {
-                tracing::warn!(
+                tracing::error!(
                     "the render thread did not stop within {JOIN_TIMEOUT:?}; exiting anyway"
                 );
+                self.failed = true;
             }
         }
         self.instance = None;
@@ -463,7 +464,7 @@ impl ApplicationHandler<UserEvent> for App {
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         if let Some(deadline) = self.quit_deadline {
             if Instant::now() >= deadline {
-                tracing::warn!("the render thread did not stop within {JOIN_TIMEOUT:?}");
+                // `finish` reports it and sets the exit code.
                 event_loop.exit();
             }
         }

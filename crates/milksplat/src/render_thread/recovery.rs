@@ -21,22 +21,30 @@ impl RenderThread {
             tracing::warn!("--debug-lose-device: destroying the GPU device");
             gs.gpu.device.destroy();
             gs.gpu.lost.store(true, Ordering::SeqCst);
+            self.synthetic_loss = true;
         }
     }
 
-    /// Device loss (§6.7): blame the preset if it just started, then
-    /// recreate the device and everything on it (retrying every second).
+    /// Device loss (§6.7): blame the preset if it just started, release
+    /// every GPU object (the director's shader sets, then the whole
+    /// `GpuState`), then build everything on a new device (retrying every
+    /// second, with nothing of the old device alive).
     pub(super) fn recover(&mut self, wall: f64) {
         if !self.loss_handled {
             self.loss_handled = true;
             tracing::warn!("the GPU device was lost; recreating it");
-            if let Some(id) = self.director.on_device_lost(self.tick_time) {
+            if std::mem::take(&mut self.synthetic_loss) {
+                // `--debug-lose-device`: no preset is to blame.
+                tracing::info!("the loss was forced; no preset is blocklisted");
+            } else if let Some(id) = self.director.on_device_lost(self.tick_time) {
                 // Task 24 persists the blocklist.
                 self.cfg.blocklist.insert(id);
             }
+            // The director keeps only shader sources from here on.
+            self.director.release_gpu();
         }
-        // Drop the whole old state first (see `gpu_state`): joins the loader,
-        // releases the swapchain and every renderer resource.
+        // Drop the whole old state (see `gpu_state`): joins the loader,
+        // releases the swapchain, every renderer resource and the device.
         if let Some(old) = self.gs.take() {
             drop(old);
         }

@@ -4,19 +4,87 @@
 use std::sync::Arc;
 
 use ms_preset::CompiledPreset;
-use ms_render::{FeedbackFormat, RendererShared, ShaderSet, Uniforms};
+use ms_render::{
+    FeedbackFormat, PresetPicks, RendererShared, ShaderSet, ShaderSources, TextureResolver,
+    Uniforms,
+};
 
 use super::TickInputBase;
 use crate::blend::BlendPattern;
 use crate::env::{Globals, TickInput};
-use crate::loader::feedback_format;
+use crate::loader::{feedback_format, PICKS_SALT};
 use crate::tick::{PresetInstance, TickOutput};
+
+/// A preset's shaders: compiled on the current device, or, after
+/// `Director::release_gpu`, only what is needed to compile them again (no
+/// GPU object, so nothing keeps a lost device alive).
+pub(super) enum Shaders {
+    Compiled(ShaderSet),
+    Released(ShaderSources),
+}
+
+impl Shaders {
+    /// The compiled set, unless released.
+    pub(super) fn compiled(&self) -> Option<&ShaderSet> {
+        match self {
+            Shaders::Compiled(set) => Some(set),
+            Shaders::Released(_) => None,
+        }
+    }
+
+    pub(super) fn blur_levels(&self) -> u8 {
+        match self {
+            Shaders::Compiled(set) => set.blur_levels,
+            Shaders::Released(src) => src.blur_levels,
+        }
+    }
+
+    /// Drops the GPU objects, keeping the sources.
+    pub(super) fn release(&mut self) {
+        let old = std::mem::replace(self, Shaders::Released(ShaderSources::default()));
+        *self = match old {
+            Shaders::Compiled(set) => Shaders::Released(set.into_sources()),
+            released => released,
+        };
+    }
+
+    /// Compiles again with `shared` for `comp_format`, from the old set or
+    /// the kept sources; user textures come from the old images first, then
+    /// from `resolver` (with the preset's `randNN` picks for `seed`).
+    pub(super) fn rebuild(
+        &mut self,
+        shared: &RendererShared,
+        resolver: &TextureResolver,
+        comp_format: wgpu::TextureFormat,
+        seed: u64,
+    ) {
+        let picks = std::cell::RefCell::new(PresetPicks::new(seed ^ PICKS_SALT));
+        let tex = |name: &str| resolver.resolve_with(name, &mut picks.borrow_mut());
+        let set = match self {
+            Shaders::Compiled(old) => shared.recompile(old, comp_format, &tex),
+            Shaders::Released(src) => shared.compile_sources(src, comp_format, &tex),
+        };
+        *self = Shaders::Compiled(set);
+    }
+
+    pub(super) fn is_released(&self) -> bool {
+        matches!(self, Shaders::Released(_))
+    }
+
+    /// A copy (compiled GPU objects are shared, not duplicated).
+    pub(super) fn duplicate(&self) -> Shaders {
+        match self {
+            Shaders::Compiled(set) => Shaders::Compiled(clone_set(set)),
+            Shaders::Released(src) => Shaders::Released(src.clone()),
+        }
+    }
+}
 
 /// A loaded preset, not yet on screen.
 pub(super) struct Loaded {
     pub(super) id: String,
     pub(super) preset: Arc<CompiledPreset>,
-    pub(super) shaders: ShaderSet,
+    pub(super) shaders: Shaders,
     pub(super) seed: u64,
 }
 
@@ -24,7 +92,7 @@ pub(super) struct Loaded {
 pub(super) struct Active {
     pub(super) id: String,
     pub(super) preset: Arc<CompiledPreset>,
-    pub(super) shaders: ShaderSet,
+    pub(super) shaders: Shaders,
     pub(super) seed: u64,
     pub(super) instance: PresetInstance,
     /// When it became current.
@@ -61,7 +129,7 @@ impl Active {
         now: f64,
         base: &TickInputBase,
         g: &mut Globals,
-    ) -> (&TickOutput, &ShaderSet) {
+    ) -> (&TickOutput, &Shaders) {
         let time = self.time(now);
         let progress = if self.duration.is_finite() && self.duration > 0.0 {
             (time / self.duration).clamp(0.0, 1.0)
@@ -126,7 +194,7 @@ pub(super) fn compile_default(
 }
 
 /// A copy of `s` (the GPU objects are shared, not duplicated).
-pub(super) fn clone_set(s: &ShaderSet) -> ShaderSet {
+fn clone_set(s: &ShaderSet) -> ShaderSet {
     ShaderSet {
         warp: s.warp.clone(),
         comp: s.comp.clone(),

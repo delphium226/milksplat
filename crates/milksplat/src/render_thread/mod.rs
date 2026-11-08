@@ -245,7 +245,7 @@ fn run(
         dpi_scale: opts.initial_scale,
         suspended: false,
         surface_dirty: true,
-        lost_streak: 0,
+        fail_streak: 0,
         internal,
         governor: Governor::new(),
         quality: cfg.quality,
@@ -258,6 +258,7 @@ fn run(
         gpu_ms: None,
         timings: Vec::new(),
         loss_handled: false,
+        synthetic_loss: false,
         gpu_retry_at: 0.0,
         request_surface: opts.request_surface,
         surface_request_at: 0.0,
@@ -370,8 +371,8 @@ struct RenderThread {
     dpi_scale: f64,
     suspended: bool,
     surface_dirty: bool,
-    /// Consecutive `Lost` surface results (only the first is logged).
-    lost_streak: u32,
+    /// Consecutive failed acquires (only the first of a streak is logged).
+    fail_streak: u32,
     /// The internal size last requested from the renderer.
     internal: [u32; 2],
     governor: Governor,
@@ -391,6 +392,8 @@ struct RenderThread {
 
     // Device loss.
     loss_handled: bool,
+    /// The current loss was forced by `--debug-lose-device`.
+    synthetic_loss: bool,
     gpu_retry_at: f64,
     request_surface: Box<dyn Fn() + Send>,
     /// When to ask the main thread for a surface (again).
@@ -540,42 +543,52 @@ impl RenderThread {
             gs.configure(self.size);
             self.surface_dirty = false;
         }
-        match gs.surface.get_current_texture() {
+        let why = match gs.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(t) => {
-                self.lost_streak = 0;
-                Some(t)
+                self.fail_streak = 0;
+                return Some(t);
             }
             wgpu::CurrentSurfaceTexture::Suboptimal(t) => {
+                self.fail_streak = 0;
                 self.surface_dirty = true;
-                Some(t)
-            }
-            wgpu::CurrentSurfaceTexture::Timeout => {
-                tracing::debug!("surface acquire timed out; skipping a frame");
-                None
+                return Some(t);
             }
             wgpu::CurrentSurfaceTexture::Occluded => {
                 self.last_wall = None;
                 self.idle_wait();
-                None
+                return None;
             }
+            wgpu::CurrentSurfaceTexture::Timeout => "timed out",
             wgpu::CurrentSurfaceTexture::Outdated => {
                 self.surface_dirty = true;
-                None
+                "outdated; reconfiguring"
             }
+            // A lost device is noticed by the loop; otherwise reconfigure.
             wgpu::CurrentSurfaceTexture::Lost => {
-                // A lost device is noticed by the loop; otherwise reconfigure.
-                if self.lost_streak == 0 && !gs.is_lost() {
-                    tracing::warn!("the surface was lost; reconfiguring it");
-                }
-                self.lost_streak = self.lost_streak.saturating_add(1);
                 self.surface_dirty = true;
-                None
+                "lost; reconfiguring"
             }
             wgpu::CurrentSurfaceTexture::Validation => {
-                tracing::warn!("surface acquire failed validation; reconfiguring");
                 self.surface_dirty = true;
-                None
+                "failed validation; reconfiguring"
             }
+        };
+        // Log once per streak, and wait a frame instead of spinning.
+        if self.fail_streak == 0 && !gs.is_lost() {
+            tracing::warn!("surface acquire {why}");
+        }
+        self.fail_streak = self.fail_streak.saturating_add(1);
+        self.backoff();
+        None
+    }
+
+    /// Waits one frame period, handling any message that arrives.
+    fn backoff(&mut self) {
+        let period = Duration::from_secs_f64(self.budget_ms / 1000.0);
+        match self.rx.recv_timeout(period) {
+            Ok(msg) => self.handle(msg),
+            Err(RecvTimeoutError::Timeout) => {}
+            Err(RecvTimeoutError::Disconnected) => self.quit = true,
         }
     }
 
@@ -689,10 +702,12 @@ impl RenderThread {
         if wall >= self.next_budget_check {
             self.next_budget_check = wall + BUDGET_CHECK_S;
             // A plain Win32 query on Windows; it does not wait on the main thread.
+            // Below 24 Hz (or 0) counts as unknown: keep the last budget.
             if let Some(mhz) = self
                 .window
                 .current_monitor()
                 .and_then(|m| m.refresh_rate_millihertz())
+                .filter(|&mhz| mhz >= 24_000)
             {
                 self.budget_ms = (1.0e6 / f64::from(mhz)).clamp(1000.0 / 360.0, 1000.0 / 24.0);
             }

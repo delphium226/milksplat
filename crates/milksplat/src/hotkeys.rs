@@ -51,10 +51,14 @@ pub const HELP: &[(&str, &str)] = &[
 
 /// Maps a logical key (with the current modifiers) to its action. Letters
 /// ignore case and Shift (Shift is also how `*` is typed); any chord with
-/// Ctrl, Alt or the Windows key is not a hotkey, except `Alt+Enter`.
+/// Ctrl, Alt or the Windows key is not a hotkey, except `Alt+Enter`, and
+/// except a character typed with Ctrl+Alt: Windows reports AltGr as
+/// Ctrl+Alt, and AltGr is how `[`, `]` and others are typed on many
+/// layouts.
 pub fn map_key(key: &Key, mods: ModifiersState) -> Option<Action> {
+    let altgr = mods.control_key() && mods.alt_key() && !mods.super_key();
     let chord = mods.control_key() || mods.alt_key() || mods.super_key();
-    if chord {
+    if chord && !(altgr && matches!(key, Key::Character(_))) {
         let alt_only = mods.alt_key() && !mods.control_key() && !mods.super_key();
         return (alt_only && *key == Key::Named(NamedKey::Enter))
             .then_some(Action::ToggleFullscreen);

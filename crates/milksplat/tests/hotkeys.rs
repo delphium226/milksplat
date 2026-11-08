@@ -60,6 +60,21 @@ fn alt_enter_toggles_fullscreen() {
 }
 
 #[test]
+fn altgr_characters_map() {
+    // Windows reports AltGr as Ctrl+Alt; `[` and `]` need it on many layouts.
+    let altgr = ModifiersState::CONTROL | ModifiersState::ALT;
+    assert_eq!(map_key(&ch("["), altgr), Some(Action::AvOffset(-10)));
+    assert_eq!(map_key(&ch("]"), altgr), Some(Action::AvOffset(10)));
+    assert_eq!(
+        map_key(&ch("]"), altgr | ModifiersState::SHIFT),
+        Some(Action::AvOffset(10))
+    );
+    // Not with the Windows key, and not for named keys.
+    assert_eq!(map_key(&ch("["), altgr | ModifiersState::SUPER), None);
+    assert_eq!(map_key(&Key::Named(NamedKey::ArrowRight), altgr), None);
+}
+
+#[test]
 fn unmapped_keys_give_none() {
     let unmapped: Vec<(Key, ModifiersState)> = vec![
         (Key::Named(NamedKey::Enter), none()),

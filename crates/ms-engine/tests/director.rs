@@ -1024,3 +1024,104 @@ fn set_prefs_drops_banned_next() {
         assert_ne!(shown(&rig.director), banned);
     }
 }
+
+/// Real device loss on D3D12: the driver only hands out a fresh device once
+/// nothing references the removed one, so the director must be able to
+/// hold no GPU object at all (`release_gpu`) and compile everything again
+/// from sources on the new device.
+#[test]
+fn release_gpu_then_recreate_on_a_new_device() {
+    let (_fx, lib) = fixture(&[
+        ("a.splat", &good("a")),
+        ("b.splat", &good("b")),
+        ("c.splat", &good("c")),
+        ("d.splat", BAD_SHADER),
+    ]);
+    let mut rig = make_rig(manual_cfg(), lib, Prefs::default());
+    // Fill every slot: blending default -> a, b queued, a ready next.
+    rig.director.command(Command::Load("a.splat".into()));
+    rig.wait_showing(1.0, "a.splat");
+    rig.director.command(Command::Load("b.splat".into()));
+    rig.wait(1.5, "b to be queued", |d| d.queued() == Some("b.splat"));
+    rig.wait_ready(1.6);
+    assert!(matches!(rig.director.current(), State::Blending { .. }));
+    assert_eq!(rig.director.shader_sets(), (5, 5));
+
+    rig.director.release_gpu();
+    assert_eq!(
+        rig.director.shader_sets(),
+        (5, 0),
+        "no shader set may keep a GPU object of the old device"
+    );
+
+    let target = |gpu: &Gpu| {
+        gpu.device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: wgpu::Extent3d {
+                width: 64,
+                height: 64,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: FMT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        })
+    };
+    let audio = AudioFrame::default();
+    let base = TickInputBase {
+        fps: 60.0,
+        audio: &audio,
+        aspect: [1.0, 1.0],
+        pixels: [64, 64],
+    };
+    let mut g = Globals::default();
+
+    // Released: rendering does nothing (and does not panic).
+    let old_target = target(&rig.gpu);
+    let old_view = old_target.create_view(&Default::default());
+    rig.director
+        .tick_and_render(1.7, &base, &mut g, &mut rig.renderer, &rig.gpu);
+    rig.director
+        .composite(1.7, &mut rig.renderer, &rig.gpu, &old_view, FMT);
+    drop(old_view);
+    drop(old_target);
+
+    // The app drops everything of the old device, then builds anew.
+    let new_gpu = gpu();
+    let new_renderer = renderer(&new_gpu);
+    rig.loader = Loader::spawn(new_renderer.shared(), TextureResolver::new(Vec::new()), FMT);
+    rig.renderer = new_renderer;
+    rig.gpu = new_gpu;
+    rig.director.on_renderer_recreated(
+        &rig.renderer.shared(),
+        &TextureResolver::new(Vec::new()),
+        FMT,
+    );
+    assert_eq!(rig.director.shader_sets(), (5, 5));
+
+    let tex = target(&rig.gpu);
+    let view = tex.create_view(&Default::default());
+    let scope = rig
+        .gpu
+        .device
+        .push_error_scope(wgpu::ErrorFilter::Validation);
+    let mut now = 1.7;
+    for _ in 0..30 {
+        now += DT;
+        rig.update(now);
+        rig.director
+            .tick_and_render(now, &base, &mut g, &mut rig.renderer, &rig.gpu);
+        rig.director
+            .composite(now, &mut rig.renderer, &rig.gpu, &view, FMT);
+    }
+    let error = pollster::block_on(scope.pop());
+    assert!(error.is_none(), "validation error: {error:?}");
+    assert!(rig.gpu.poll_wait().is_ok());
+    let img = read_texture(&rig.gpu, &tex);
+    assert!(img.pixels().any(|p| p.0[..3] != [0, 0, 0]), "nothing drawn");
+    // The show goes on: the blend completes and the queued b follows.
+    rig.wait_showing(4.0, "b.splat");
+}

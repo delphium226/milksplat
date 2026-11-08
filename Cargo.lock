@@ -1143,6 +1143,7 @@ dependencies = [
  "ms-expr",
  "ms-preset",
  "ms-render",
+ "pollster",
  "rayon",
  "tracing",
  "wgpu",

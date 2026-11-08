@@ -60,14 +60,13 @@ use ms_analysis::AudioFrame;
 use ms_expr::Rng;
 use ms_preset::{compile_preset, parse, CompiledPreset, Library, Prefs, Selector};
 use ms_render::{
-    CompositeLayer, FeedbackFormat, Gpu, PresetPicks, Renderer, RendererShared, ShaderSet,
-    TextureResolver, WarpLayer,
+    CompositeLayer, FeedbackFormat, Gpu, Renderer, RendererShared, TextureResolver, WarpLayer,
 };
 
 use crate::blend::{composite_layers, render_blend, BlendPattern, BlendScratch};
 use crate::env::Globals;
-use crate::loader::{Loader, PICKS_SALT};
-use active::{clone_set, compile_default, Active, Blend, Loaded};
+use crate::loader::Loader;
+use active::{compile_default, Active, Blend, Loaded, Shaders};
 use switching::{Goal, Hist, Pending, Queued};
 
 /// The id of the built-in default preset (never a library id: library ids
@@ -190,7 +189,7 @@ pub struct Director {
     rng: Rng,
     mesh_cap: [u32; 2],
     default_preset: Arc<CompiledPreset>,
-    default_shaders: ShaderSet,
+    default_shaders: Shaders,
     cur: Active,
     blend: Option<Blend>,
     ready: Option<Loaded>,
@@ -236,13 +235,14 @@ impl Director {
             }
         };
         let default_preset = Arc::new(compile_preset(preset));
-        let default_shaders = compile_default(shared, comp_format, &default_preset);
+        let default_shaders =
+            Shaders::Compiled(compile_default(shared, comp_format, &default_preset));
         let mut rng = Rng::seeded(seed);
         let selector = Selector::new(rng.next_u64());
         let loaded = Loaded {
             id: DEFAULT_PRESET_ID.to_string(),
             preset: Arc::clone(&default_preset),
-            shaders: clone_set(&default_shaders),
+            shaders: default_shaders.duplicate(),
             seed: rng.next_u64(),
         };
         let mut d = Director {
@@ -383,7 +383,7 @@ impl Director {
         match &self.blend {
             None => FramePlan {
                 feedback_format: cur.feedback_format(),
-                blur_levels: cur.shaders.blur_levels,
+                blur_levels: cur.shaders.blur_levels(),
                 blend_progress: None,
             },
             Some(b) => {
@@ -395,7 +395,7 @@ impl Director {
                     } else {
                         FeedbackFormat::Rgba8
                     },
-                    blur_levels: cur.shaders.blur_levels.max(b.to.shaders.blur_levels),
+                    blur_levels: cur.shaders.blur_levels().max(b.to.shaders.blur_levels()),
                     blend_progress: Some(b.progress(now)),
                 }
             }
@@ -419,6 +419,10 @@ impl Director {
         renderer: &mut Renderer,
         gpu: &Gpu,
     ) {
+        if self.on_screen_released() {
+            tracing::debug!("tick_and_render after release_gpu: skipped");
+            return;
+        }
         let plan = self.frame_plan(now);
         if renderer.format() != plan.feedback_format {
             renderer.set_format(gpu, plan.feedback_format);
@@ -426,6 +430,9 @@ impl Director {
         match &mut self.blend {
             None => {
                 let (out, shaders) = self.cur.tick(now, base, globals);
+                let Some(shaders) = shaders.compiled() else {
+                    return;
+                };
                 let n = out.mesh.uv.len();
                 if self.ones.len() != n {
                     self.ones.clear();
@@ -446,11 +453,14 @@ impl Director {
                 let p = b.progress(now);
                 let from = self.cur.tick(now, base, globals);
                 let to = b.to.tick(now, base, globals);
+                let (Some(from_set), Some(to_set)) = (from.1.compiled(), to.1.compiled()) else {
+                    return;
+                };
                 render_blend(
                     renderer,
                     gpu,
-                    (from.0, &from.1.warp),
-                    (to.0, &to.1.warp),
+                    (from.0, &from_set.warp),
+                    (to.0, &to_set.warp),
                     &b.pattern,
                     p,
                     &mut self.scratch,
@@ -473,6 +483,10 @@ impl Director {
         target: &wgpu::TextureView,
         target_format: wgpu::TextureFormat,
     ) {
+        let Some(cur_set) = self.cur.shaders.compiled() else {
+            tracing::debug!("composite after release_gpu: skipped");
+            return;
+        };
         let cur_u = self.cur.display_uniforms(now);
         match &self.blend {
             None => renderer.composite(
@@ -480,16 +494,20 @@ impl Director {
                 target,
                 target_format,
                 &[CompositeLayer {
-                    shader: &self.cur.shaders.comp,
+                    shader: &cur_set.comp,
                     uniforms: &cur_u,
                     alpha: 1.0,
                 }],
             ),
             Some(b) => {
+                let Some(to_set) = b.to.shaders.compiled() else {
+                    tracing::debug!("composite after release_gpu: skipped");
+                    return;
+                };
                 let to_u = b.to.display_uniforms(now);
                 let layers = composite_layers(
-                    (&self.cur.shaders.comp, &cur_u),
-                    (&b.to.shaders.comp, &to_u),
+                    (&cur_set.comp, &cur_u),
+                    (&to_set.comp, &to_u),
                     b.progress(now),
                 );
                 renderer.composite(gpu, target, target_format, &layers);
@@ -527,7 +545,7 @@ impl Director {
             let loaded = Loaded {
                 id: DEFAULT_PRESET_ID.to_string(),
                 preset: Arc::clone(&self.default_preset),
-                shaders: clone_set(&self.default_shaders),
+                shaders: self.default_shaders.duplicate(),
                 seed: self.rng.next_u64(),
             };
             let duration = self.display_time();
@@ -547,36 +565,59 @@ impl Director {
         Some(id)
     }
 
-    /// Call after a device loss, once the app has recreated the renderer
-    /// (`Renderer::recreate`) and spawned a new [`Loader`] with the new
-    /// `shared`: recompiles, with `shared` and for `comp_format`, the
-    /// shaders of every preset the director holds (current, incoming,
-    /// ready next, queued, default), taking their user textures from the
-    /// old sets (or `resolver`). Preset instances keep running, so the show
-    /// continues where it was. A request the old loader had not answered
-    /// is sent again to the new loader by the next `update`.
+    /// Call when the GPU device is lost, after
+    /// [`on_device_lost`](Self::on_device_lost) and before the app drops
+    /// the old device: drops the GPU objects of every shader set the
+    /// director holds (current, incoming, ready next, queued, default),
+    /// keeping only their sources and texture images. Afterwards the
+    /// director holds nothing of the old device, so the driver can hand
+    /// out a fresh one (D3D12 returns the same, removed, device while
+    /// references to it remain). Until
+    /// [`on_renderer_recreated`](Self::on_renderer_recreated),
+    /// [`tick_and_render`](Self::tick_and_render) and
+    /// [`composite`](Self::composite) do nothing, and a loader answer that
+    /// arrives is kept as sources only.
+    pub fn release_gpu(&mut self) {
+        for shaders in self.shader_slots() {
+            shaders.release();
+        }
+    }
+
+    /// Call after a device loss, once the app has a renderer on the new
+    /// device (`Renderer::new` or `Renderer::recreate`) and has spawned a
+    /// new [`Loader`] with the new `shared`: compiles, with `shared` and
+    /// for `comp_format`, the shaders of every preset the director holds
+    /// (current, incoming, ready next, queued, default), from the old sets
+    /// or, after [`release_gpu`](Self::release_gpu), from their kept
+    /// sources, taking user textures from the old images (or `resolver`).
+    /// Preset instances keep running, so the show continues where it was.
+    /// A request the old loader had not answered is sent again to the new
+    /// loader by the next `update`.
     pub fn on_renderer_recreated(
         &mut self,
         shared: &RendererShared,
         resolver: &TextureResolver,
         comp_format: wgpu::TextureFormat,
     ) {
-        let recompile = |set: &mut ShaderSet, seed: u64| {
-            let picks = std::cell::RefCell::new(PresetPicks::new(seed ^ PICKS_SALT));
-            let tex = |name: &str| resolver.resolve_with(name, &mut picks.borrow_mut());
-            *set = shared.recompile(set, comp_format, &tex);
-        };
-        recompile(&mut self.cur.shaders, self.cur.seed);
+        let seed = self.cur.seed;
+        self.cur
+            .shaders
+            .rebuild(shared, resolver, comp_format, seed);
         if let Some(b) = &mut self.blend {
-            recompile(&mut b.to.shaders, b.to.seed);
+            b.to.shaders
+                .rebuild(shared, resolver, comp_format, b.to.seed);
         }
         if let Some(l) = &mut self.ready {
-            recompile(&mut l.shaders, l.seed);
+            l.shaders.rebuild(shared, resolver, comp_format, l.seed);
         }
         if let Some(q) = &mut self.queued {
-            recompile(&mut q.loaded.shaders, q.loaded.seed);
+            let seed = q.loaded.seed;
+            q.loaded
+                .shaders
+                .rebuild(shared, resolver, comp_format, seed);
         }
-        recompile(&mut self.default_shaders, 0);
+        self.default_shaders
+            .rebuild(shared, resolver, comp_format, 0);
         if let Some(p) = &mut self.pending {
             p.req = None;
             p.parked = false;
@@ -615,6 +656,40 @@ impl Director {
         {
             self.pending = None;
         }
+    }
+
+    /// Every shader set the director holds.
+    fn shader_slots(&mut self) -> Vec<&mut Shaders> {
+        let mut slots = vec![&mut self.cur.shaders, &mut self.default_shaders];
+        if let Some(b) = &mut self.blend {
+            slots.push(&mut b.to.shaders);
+        }
+        if let Some(l) = &mut self.ready {
+            slots.push(&mut l.shaders);
+        }
+        if let Some(q) = &mut self.queued {
+            slots.push(&mut q.loaded.shaders);
+        }
+        slots
+    }
+
+    /// Whether a preset on screen has only its sources (after
+    /// [`release_gpu`](Self::release_gpu)).
+    fn on_screen_released(&self) -> bool {
+        self.cur.shaders.is_released()
+            || self
+                .blend
+                .as_ref()
+                .is_some_and(|b| b.to.shaders.is_released())
+    }
+
+    /// Test hook: how many shader sets the director holds, and how many of
+    /// them still hold GPU objects.
+    #[doc(hidden)]
+    pub fn shader_sets(&mut self) -> (usize, usize) {
+        let slots = self.shader_slots();
+        let compiled = slots.iter().filter(|s| !s.is_released()).count();
+        (slots.len(), compiled)
     }
 
     /// Test hook: load failures since the last success (or retry pause).

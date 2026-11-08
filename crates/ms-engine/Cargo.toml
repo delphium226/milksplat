@@ -17,6 +17,7 @@ wgpu.workspace = true
 [dev-dependencies]
 criterion.workspace = true
 image.workspace = true
+pollster.workspace = true
 
 [[bench]]
 name = "tick"

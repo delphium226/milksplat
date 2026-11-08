@@ -125,6 +125,34 @@ pub struct ShaderSet {
     pub texture_images: HashMap<String, Arc<RgbaImage>>,
 }
 
+/// What a [`ShaderSet`] was compiled from, without any GPU object: what a
+/// holder keeps across a device loss, so that nothing of the old device
+/// stays alive while a new one is opened. Compile it again with
+/// [`RendererShared::compile_sources`].
+#[derive(Clone, Debug, Default)]
+pub struct ShaderSources {
+    pub warp_source: Option<String>,
+    pub comp_source: Option<String>,
+    /// The user texture images, by file name (see
+    /// [`ShaderSet::texture_images`]).
+    pub texture_images: HashMap<String, Arc<RgbaImage>>,
+    /// The set's blur levels (unchanged by recompiling the same sources).
+    pub blur_levels: u8,
+}
+
+impl ShaderSet {
+    /// Drops the GPU objects, keeping what is needed to compile the set
+    /// again.
+    pub fn into_sources(self) -> ShaderSources {
+        ShaderSources {
+            warp_source: self.warp_source,
+            comp_source: self.comp_source,
+            texture_images: self.texture_images,
+            blur_levels: self.blur_levels,
+        }
+    }
+}
+
 /// The four sampler kinds, shared by group 0 (`s_fw`..`s_pc`) and the user
 /// textures in group 1.
 #[derive(Clone)]
@@ -602,6 +630,24 @@ impl RendererShared {
             comp_format,
             tex,
             &old.texture_images,
+        )
+    }
+
+    /// Compiles `src` (from [`ShaderSet::into_sources`]) with this handle,
+    /// like [`RendererShared::recompile`]: user textures come from
+    /// `src.texture_images` first, then from `tex`.
+    pub fn compile_sources(
+        &self,
+        src: &ShaderSources,
+        comp_format: wgpu::TextureFormat,
+        tex: &dyn Fn(&str) -> Option<RgbaImage>,
+    ) -> ShaderSet {
+        self.compile(
+            src.warp_source.as_deref(),
+            src.comp_source.as_deref(),
+            comp_format,
+            tex,
+            &src.texture_images,
         )
     }
 

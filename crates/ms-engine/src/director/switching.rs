@@ -3,7 +3,7 @@
 
 use ms_preset::next_duration;
 
-use super::active::{Active, Blend, Loaded};
+use super::active::{Active, Blend, Loaded, Shaders};
 use super::{Command, Director, HISTORY_CAP, MAX_FAILURES, RETRY_S};
 use crate::blend::BlendPattern;
 use crate::loader::LoadResult;
@@ -245,6 +245,12 @@ impl Director {
                     tracing::warn!("{id}: {w}");
                 }
                 tracing::info!("preset ready: {id}");
+                let mut shaders = Shaders::Compiled(shaders);
+                if self.default_shaders.is_released() {
+                    // Answered while the GPU is released: keep no GPU
+                    // object of the old device.
+                    shaders.release();
+                }
                 let loaded = Loaded {
                     id,
                     preset,
