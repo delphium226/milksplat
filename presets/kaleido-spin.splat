@@ -1,0 +1,75 @@
+# Kaleido Spin: five triangles chase each other around a rotating
+# feedback field; the composite folds it into a six-way kaleidoscope with
+# a faint stained-glass texture (one of the random textures) behind it.
+version = 1
+
+[meta]
+name = "Kaleido Spin"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.95
+zoom = 1.02
+rot = 0.02
+warp = 0.3
+wave_mode = 1
+wave_a = 0.5
+wave_r = 1.0
+wave_g = 0.85
+wave_b = 0.2
+wave_additive = 1
+mesh = [48, 36]
+
+[code]
+frame = '''
+rot = 0.012 + 0.02 * min(mid_att, 2);
+zoom = 1.012 + 0.02 * min(bass, 2) / 2;
+wave_a = 0.25 + 0.35 * min(treb, 1.5) / 1.5;
+q1 = time * 0.15 + 0.2 * bass_att;
+q2 = time;
+'''
+
+[[shape]]
+enabled = true
+sides = 3
+instances = 5
+rad = 0.05
+r = 1.0
+g = 0.2
+b = 0.75
+a = 0.6
+r2 = 1.0
+g2 = 0.75
+b2 = 0.2
+a2 = 0.25
+border_r = 1.0
+border_g = 1.0
+border_b = 1.0
+border_a = 0.25
+additive = 1
+frame = '''
+p = instance / 5 * 6.2832 + q2 * 0.7;
+d = 0.22 + 0.1 * sin(q2 * 1.3 + instance);
+x = 0.5 + d * cos(p) * aspecty;
+y = 0.5 + d * sin(p);
+ang = p * 2;
+rad = 0.035 + 0.02 * min(bass, 2);
+g2 = 0.5 + 0.4 * sin(q2 + instance);
+'''
+
+[shader]
+comp = '''
+// Fold the angle into one 60-degree wedge, mirrored, then rotate.
+let p = (uv - vec2f(0.5)) * vec2f(1.0 / u.aspect_y, 1.0 / u.aspect_x);
+let wedge = 1.0471976;
+var a = atan2(p.y, p.x) + u.q[0].x;
+a = a - wedge * floor(a / wedge);
+a = min(a, wedge - a);
+let r = length(p);
+let q = vec2f(cos(a), sin(a)) * r;
+let src = q * vec2f(u.aspect_y, u.aspect_x) + vec2f(0.5);
+let c = GetMain(src);
+let glass = textureSampleLevel(sampler_rand00, sampler_rand00_s, q * 1.5 + vec2f(0.5), 0.0).rgb;
+return c + glass * (0.06 + 0.1 * (1.0 - r)) + vec3f(0.02, 0.0, 0.03);
+'''

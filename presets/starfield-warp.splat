@@ -1,0 +1,96 @@
+# Starfield Warp: a field of stars rushes toward you along fixed rays,
+# each leaving a short trail; the kick pushes you into hyperspace and a
+# soft blue glow (the first blur level) blooms around the brightest.
+# Two custom waves of dots: white-blue stars and a sparser gold dust.
+version = 1
+
+[meta]
+name = "Starfield Warp"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.88
+zoom = 0.985
+warp = 0.0
+wave_a = 0.0
+mesh = [48, 36]
+
+[code]
+frame = '''
+// Distance travelled: speed rises with the bass.
+travel = travel + 0.004 + 0.01 * min(bass_att, 2) / 2;
+q1 = travel;
+q2 = 0.0015 * sin(time * 0.3) + 0.003 * min(mid, 1.5) / 1.5;
+'''
+vertex = '''
+// Trails pull back toward the centre, more at the rim.
+zoom = 0.99 - 0.03 * rad;
+rot = q2;
+'''
+
+[[wave]]
+enabled = true
+samples = 200
+usedots = 1
+thick = 1
+additive = 1
+r = 0.85
+g = 0.92
+b = 1.0
+a = 1.0
+frame = '''
+a = 0.7 + 0.3 * min(treb, 1.5) / 1.5;
+'''
+point = '''
+// Star i keeps its ray (angle) and its place in the cycle; depth f
+// cycles 0 -> 1 and its distance grows like a perspective projection.
+h1 = sin(sample * 12345.678) * 43758.5453;
+h1 = h1 - floor(h1);
+h2 = sin(sample * 7654.321 + 1.7) * 24634.6345;
+h2 = h2 - floor(h2);
+f = q1 * (0.6 + 0.8 * h2) + h2;
+f = f - floor(f);
+d = 0.02 + 0.75 * f * f * f;
+p = h1 * 6.2832;
+x = 0.5 + d * cos(p) * aspecty;
+y = 0.5 + d * sin(p);
+r = 0.6 + 0.4 * h2;
+g = 0.75 + 0.25 * h2;
+a = a * min(1, f * 4);
+'''
+
+[[wave]]
+enabled = true
+samples = 40
+usedots = 1
+thick = 1
+additive = 1
+r = 1.0
+g = 0.75
+b = 0.35
+a = 0.9
+frame = '''
+a = 0.4 + 0.6 * min(bass, 2) / 2;
+'''
+point = '''
+h1 = sin(sample * 3141.59 + 0.3) * 13758.5453;
+h1 = h1 - floor(h1);
+h2 = sin(sample * 2718.28 + 2.9) * 31415.9265;
+h2 = h2 - floor(h2);
+f = q1 * 1.3 + h2;
+f = f - floor(f);
+d = 0.03 + 0.7 * f * f;
+p = h1 * 6.2832;
+x = 0.5 + d * cos(p) * aspecty;
+y = 0.5 + d * sin(p);
+a = a * min(1, f * 4);
+'''
+
+[shader]
+comp = '''
+let c = GetMain(uv);
+let glow = GetBlur1(uv);
+let space = vec3f(0.02, 0.03, 0.07) + vec3f(0.03, 0.015, 0.06) * (1.0 - rad);
+return space + c + glow * vec3f(0.6, 0.8, 1.6);
+'''

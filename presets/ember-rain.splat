@@ -1,0 +1,69 @@
+# Ember Rain: forty embers drift down through rising heat, each remembering
+# its own position and speed in the preset's megabuf; the kick makes them
+# flare and fall faster, and a low glowing waveform smoulders below.
+version = 1
+
+[meta]
+name = "Ember Rain"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.93
+zoom = 1.0
+warp = 0.35
+dy = 0.004
+wave_mode = 2
+wave_y = 0.1
+wave_a = 0.6
+wave_r = 1.0
+wave_g = 0.3
+wave_b = 0.05
+wave_thick = 1
+mesh = [48, 36]
+
+[code]
+frame = '''
+dy = 0.003 + 0.003 * min(treb_att, 2) / 2;
+warp = 0.25 + 0.5 * min(mid_att, 2) / 2;
+wave_a = 0.3 + 0.4 * min(bass, 2) / 2;
+wave_g = 0.2 + 0.25 * min(mid, 1.5) / 1.5;
+q1 = 1 + 1.5 * min(bass, 2) / 2;
+q2 = time;
+'''
+
+[[shape]]
+enabled = true
+sides = 5
+instances = 40
+rad = 0.012
+r = 1.0
+g = 0.85
+b = 0.4
+a = 1.0
+r2 = 1.0
+g2 = 0.25
+b2 = 0.0
+a2 = 0.0
+additive = 1
+frame = '''
+// megabuf[4i..4i+3] = x, y, fall speed, spawned flag.
+base = instance * 4;
+if(megabuf(base + 3) == 0,
+  megabuf(base) = rand(1000) / 1000;
+  megabuf(base + 1) = rand(1000) / 1000;
+  megabuf(base + 2) = 0.0015 + rand(1000) / 1000 * 0.003;
+  megabuf(base + 3) = 1,
+  0);
+megabuf(base + 1) = megabuf(base + 1) - megabuf(base + 2) * q1;
+if(megabuf(base + 1) < -0.03,
+  megabuf(base) = rand(1000) / 1000;
+  megabuf(base + 1) = 1.03;
+  megabuf(base + 2) = 0.0015 + rand(1000) / 1000 * 0.003,
+  0);
+x = megabuf(base) + 0.01 * sin(q2 * 1.7 + instance * 2.3);
+y = megabuf(base + 1);
+rad = (0.008 + megabuf(base + 2) * 2) * (0.8 + 0.4 * q1);
+ang = q2 * 0.5 + instance;
+g = 0.55 + 0.35 * sin(instance * 1.9);
+'''

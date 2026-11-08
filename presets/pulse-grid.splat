@@ -1,0 +1,78 @@
+# Pulse Grid: an oscilloscope screen. Two custom waves sweep the waveform
+# across the glass (one across, one up), motion-vector ticks mark the grid,
+# and the frame lights up on the kick. Pure equations, no shaders.
+version = 1
+
+[meta]
+name = "Pulse Grid"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.9
+zoom = 0.997
+warp = 0.0
+wave_a = 0.0
+mv_x = 16
+mv_y = 9
+mv_l = 0.6
+mv_r = 0.2
+mv_g = 0.7
+mv_b = 0.4
+mv_a = 0.35
+ob_size = 0.006
+ob_r = 0.3
+ob_g = 1.0
+ob_b = 0.5
+ib_size = 0.006
+ib_r = 0.1
+ib_g = 0.4
+ib_b = 0.3
+ib_a = 0.3
+mesh = [32, 24]
+
+[code]
+frame = '''
+ob_a = 0.1 + 0.3 * min(bass, 2) / 2;
+mv_l = 0.3 + 0.6 * min(treb, 1.5);
+mv_a = 0.15 + 0.25 * min(mid, 1.5);
+dy = -0.002 * min(bass_att, 2);
+q1 = (time * 0.21) - int(time * 0.21);
+q2 = (time * 0.13) - int(time * 0.13);
+'''
+
+[[wave]]
+enabled = true
+samples = 256
+r = 0.4
+g = 1.0
+b = 0.55
+a = 0.9
+thick = 1
+additive = 1
+frame = '''
+a = 0.5 + 0.4 * min(bass, 2) / 2;
+'''
+point = '''
+// A horizontal trace that scans down the screen.
+x = sample;
+y = 1 - q1 + 0.12 * value1;
+g = 0.7 + 0.3 * sample;
+'''
+
+[[wave]]
+enabled = true
+samples = 256
+r = 0.9
+g = 1.0
+b = 0.3
+a = 0.7
+additive = 1
+frame = '''
+a = 0.3 + 0.5 * min(treb, 1.5) / 1.5;
+'''
+point = '''
+// A vertical trace that scans across.
+y = sample;
+x = q2 + 0.08 * value2;
+'''

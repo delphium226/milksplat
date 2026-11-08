@@ -1,0 +1,65 @@
+# Liquid Chrome: a wandering ring of the waveform stirs a pool of mercury. The
+# warp shader swirls the image along its own blurred contours; the
+# composite reads the blur as a height field and lights it like polished
+# metal under a cool studio sky. Half-float (fp16) feedback keeps the
+# slow swirl smooth instead of stepping in 8-bit increments.
+version = 1
+
+[meta]
+name = "Liquid Chrome"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+feedback_format = "fp16"
+decay = 0.965
+zoom = 1.0
+warp = 0.0
+wave_mode = 0
+wave_a = 0.9
+wave_r = 1.0
+wave_g = 1.0
+wave_b = 1.0
+wave_thick = 1
+mesh = [48, 36]
+
+[code]
+frame = '''
+// The ring wanders on a slow Lissajous path, stirring the pool.
+wave_x = 0.5 + 0.22 * sin(time * 0.37);
+wave_y = 0.5 + 0.2 * sin(time * 0.29 + 1.3);
+wave_mystery = -0.5 + 0.3 * min(bass, 2);
+wave_a = 0.45 + 0.45 * min(bass, 2) / 2;
+zoom = 0.996 + 0.01 * min(bass_att, 2);
+rot = 0.006 * sin(time * 0.21);
+q1 = 0.04 + 0.08 * min(mid_att, 2) / 2;
+q2 = 0.5 + 0.5 * min(treb, 1.5) / 1.5;
+q3 = time * 0.1;
+'''
+
+[shader]
+warp = '''
+// Swirl along the contours of the blurred image (its gradient turned by
+// 90 degrees), plus a slow drift.
+let e = u.texsize.zw * 4.0;
+let hx = dot(GetBlur2(uv + vec2f(e.x, 0.0)) - GetBlur2(uv - vec2f(e.x, 0.0)), vec3f(0.333));
+let hy = dot(GetBlur2(uv + vec2f(0.0, e.y)) - GetBlur2(uv - vec2f(0.0, e.y)), vec3f(0.333));
+let swirl = vec2f(-hy, hx) * u.q[0].x;
+let src = uv + swirl + 0.0006 * vec2f(sin(u.q[0].z * 6.0 + uv.y * 9.0), cos(u.q[0].z * 5.0 + uv.x * 7.0));
+let c = mix(GetMain(src), GetBlur1(src), 0.3);
+return c * u.decay;
+'''
+comp = '''
+// Height = blurred brightness; its slope tilts the surface normal.
+let e = u.texsize.zw * 2.0;
+let h = dot(GetBlur1(uv), vec3f(0.333));
+let sx = dot(GetBlur1(uv + vec2f(e.x, 0.0)) - GetBlur1(uv - vec2f(e.x, 0.0)), vec3f(0.333));
+let sy = dot(GetBlur1(uv + vec2f(0.0, e.y)) - GetBlur1(uv - vec2f(0.0, e.y)), vec3f(0.333));
+let n = normalize(vec3f(-sx * 5.0, sy * 5.0, 0.25));
+// Reflect a sky: steel blue overhead, warm floor, a bright key light.
+let sky = mix(vec3f(0.25, 0.22, 0.2), vec3f(0.55, 0.7, 0.9), n.y * 0.5 + 0.5);
+let key = pow(max(dot(n, normalize(vec3f(-0.4, 0.5, 0.75))), 0.0), 12.0);
+let rim = pow(1.0 - n.z, 2.0);
+let metal = sky * (0.25 + 0.9 * h) + vec3f(key) * (0.4 + 0.6 * u.q[0].y) + rim * vec3f(0.3, 0.45, 0.6);
+return metal * smoothstep(0.0, 0.08, h) + vec3f(0.03, 0.04, 0.06) + GetMain(uv) * 0.15;
+'''

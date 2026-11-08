@@ -1,0 +1,69 @@
+# Aurora Sweep: a curtain of light rises off a waveform near the horizon
+# and is combed upward through drifting clouds (the `clouds` texture bends
+# the flow). High-precision (fp16) feedback keeps the faint streamers
+# smooth; the composite tone-maps them over a night sky.
+version = 1
+
+[meta]
+name = "Aurora Sweep"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+feedback_format = "fp16"
+decay = 0.975
+warp = 0.0
+wave_a = 0.0
+mesh = [48, 36]
+
+[code]
+frame = '''
+q1 = time * 0.02;
+q2 = 0.0025 + 0.004 * min(bass_att, 2);
+q3 = 0.35 + 0.65 * min(treb_att, 1.5) / 1.5;
+'''
+
+[[wave]]
+enabled = true
+samples = 384
+r = 0.2
+g = 1.0
+b = 0.6
+a = 0.6
+thick = 1
+additive = 1
+frame = '''
+t1 = time;
+a = 0.35 + 0.3 * min(bass, 2) / 2;
+'''
+point = '''
+// The curtain's foot: a slow swaying line, rippled by the waveform.
+x = sample;
+y = 0.22 + 0.06 * sin(sample * 7 + t1 * 0.6) + 0.05 * value1;
+// Green at the centre, violet toward the edges.
+edge = abs(sample - 0.5) * 2;
+r = 0.25 + 0.6 * edge * edge;
+g = 1 - 0.6 * edge;
+b = 0.5 + 0.4 * edge;
+'''
+
+[shader]
+warp = '''
+// Flow upward, bent sideways by the drifting clouds.
+let n = textureSampleLevel(sampler_clouds, sampler_clouds_s, uv * vec2f(1.5, 0.8) + vec2f(u.q[0].x, -u.q[0].x * 2.0), 0.0).rgb;
+let bend = (n.r - 0.5) * 0.006;
+let src = uv + vec2f(bend, u.q[0].y + 0.003 * n.g);
+let c = GetMain(src) * 0.9 + GetMain(src + vec2f(0.0, 0.006)) * 0.1;
+return c * u.decay;
+'''
+comp = '''
+// Vertical rays: the clouds stretched tall, drifting sideways.
+let rays = textureSampleLevel(sampler_clouds, sampler_clouds_s, vec2f(uv.x * 2.5 + u.q[0].x * 3.0, uv.y * 0.12), 0.0).r;
+let c = GetMain(uv) * (0.5 + 1.1 * rays) * (0.9 + 0.4 * u.q[0].z);
+// Tone-map (the fp16 feedback may exceed 1).
+let light = vec3f(1.0) - exp(-c * 1.8);
+let sky = mix(vec3f(0.02, 0.04, 0.12), vec3f(0.06, 0.03, 0.1), uv.y) + 0.03 * hue_shader;
+// Sparse stars from the fine noise, only in the upper sky.
+let s = textureSampleLevel(sampler_noise_hq, s_pw, uv * vec2f(1.0, 0.5625), 0.0).r;
+return sky + light + vec3f(smoothstep(0.985, 1.0, s) * 0.6 * (1.0 - uv.y));
+'''

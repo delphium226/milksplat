@@ -1,0 +1,93 @@
+# Neon Orbit: six neon rings orbit a pulsing core on tilted ellipses,
+# leaving light trails that slowly spiral inward; an X-Y scope of the music
+# glows hot pink at the centre, over a violet haze (the composite shader).
+version = 1
+
+[meta]
+name = "Neon Orbit"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.95
+zoom = 0.99
+rot = 0.006
+warp = 0.0
+wave_mode = 1
+wave_a = 0.7
+wave_r = 1.0
+wave_g = 0.2
+wave_b = 0.7
+wave_additive = 1
+wave_thick = 1
+mesh = [32, 24]
+
+[code]
+frame = '''
+rot = 0.004 + 0.008 * min(mid_att, 2) / 2;
+zoom = 0.992 - 0.01 * min(bass, 2) / 2;
+wave_mystery = 0.5 * sin(time * 0.2);
+wave_a = 0.3 + 0.5 * min(treb, 1.5) / 1.5;
+q1 = time;
+q2 = min(bass, 2) / 2;
+q3 = min(mid_att, 2) / 2;
+'''
+
+[[shape]]
+enabled = true
+sides = 24
+instances = 6
+rad = 0.03
+r = 0.0
+g = 0.0
+b = 0.0
+a = 0.0
+r2 = 0.0
+g2 = 0.0
+b2 = 0.0
+a2 = 0.0
+border_r = 0.2
+border_g = 0.9
+border_b = 1.0
+border_a = 0.9
+thickoutline = 1
+additive = 1
+frame = '''
+k = instance / 6 * 6.2832;
+s = q1 * (0.5 + 0.08 * instance);
+ex = cos(s + k) * 0.42;
+ey = sin(s + k) * 0.22;
+tilt = k * 0.5;
+x = 0.5 + (ex * cos(tilt) - ey * sin(tilt)) * aspecty;
+y = 0.5 + ex * sin(tilt) + ey * cos(tilt);
+rad = 0.035 + 0.02 * q2 + 0.008 * sin(q1 * 3 + instance);
+border_r = 0.2 + 0.8 * (instance % 2);
+border_g = 0.9 - 0.7 * (instance % 2);
+border_b = 1.0;
+'''
+
+[[shape]]
+enabled = true
+sides = 40
+rad = 0.06
+r = 1.0
+g = 0.6
+b = 0.95
+a = 0.5
+r2 = 0.5
+g2 = 0.0
+b2 = 0.6
+a2 = 0.0
+additive = 1
+frame = '''
+rad = 0.04 + 0.05 * q2;
+a = 0.25 + 0.4 * q2;
+'''
+
+[shader]
+comp = '''
+// A violet haze behind the trails, warmer toward the centre and swelling
+// with the mids.
+let haze = mix(vec3f(0.03, 0.03, 0.09), vec3f(0.16, 0.04, 0.2), smoothstep(0.9, 0.0, rad));
+return GetMain(uv) + haze * (0.7 + 0.3 * u.q[0].z);
+'''

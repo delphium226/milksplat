@@ -1,0 +1,55 @@
+# Ink Bloom: a breathing ring of ink drops on dark paper. The warp shader
+# lets the ink creep down its own soft gradient (a blur-driven diffusion),
+# and the composite shader maps it onto a teal-and-gold ink palette.
+version = 1
+
+[meta]
+name = "Ink Bloom"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.982
+zoom = 1.0
+warp = 0.0
+wave_mode = 0
+wave_a = 0.9
+wave_thick = 1
+wave_brighten = 0
+mesh = [48, 36]
+
+[code]
+frame = '''
+zoom = 1.012 + 0.02 * min(bass_att, 2);
+rot = 0.004 * sin(time * 0.31);
+wave_mystery = -0.6 + 0.4 * min(bass, 2);
+s = 0.5 + 0.5 * sin(time * 0.6);
+wave_r = 0.2 + 0.8 * s;
+wave_g = 0.5 + 0.2 * s + 0.2 * min(treb, 1);
+wave_b = 1 - 0.7 * s;
+wave_a = 0.5 + 0.4 * min(mid, 1);
+q1 = 0.5 + 0.5 * min(treb_att, 1.5);
+'''
+
+[shader]
+warp = '''
+// Ink creeps away from where it is thickest: follow the blurred gradient.
+let e = u.texsize.zw * 3.0;
+let gx = GetBlur1(uv + vec2f(e.x, 0.0)).g - GetBlur1(uv - vec2f(e.x, 0.0)).g;
+let gy = GetBlur1(uv + vec2f(0.0, e.y)).g - GetBlur1(uv - vec2f(0.0, e.y)).g;
+let flow = uv - vec2f(gx, gy) * (0.012 + 0.01 * u.q[0].x);
+let ink = mix(GetMain(flow), GetBlur1(flow), 0.3);
+return max(ink * u.decay - vec3f(0.002), vec3f(0.0));
+'''
+comp = '''
+let c = GetMain(uv);
+let halo = GetBlur1(uv);
+let v = max(c.r, max(c.g, c.b));
+let warm = c.r / max(c.r + c.g + c.b, 0.001);
+let paper = vec3f(0.06, 0.08, 0.13) + 0.05 * hue_shader * (1.0 - rad);
+let ink = mix(vec3f(0.05, 0.42, 0.52), vec3f(0.98, 0.78, 0.38), smoothstep(0.25, 0.55, warm));
+var col = mix(paper, ink, smoothstep(0.03, 0.45, v));
+col = col + vec3f(0.9, 0.95, 1.0) * smoothstep(0.75, 1.0, v) * 0.35;
+col = col + halo * vec3f(0.18, 0.32, 0.4);
+return col;
+'''

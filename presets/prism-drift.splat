@@ -1,0 +1,53 @@
+# Prism Drift: a slowly turning line of light drifts across the screen and
+# smears into feedback; the composite splits it through a prism (the red,
+# green and blue channels pulled apart by the music) and adds a soft glow.
+version = 1
+
+[meta]
+name = "Prism Drift"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.955
+zoom = 1.0
+warp = 0.6
+wave_mode = 6
+wave_a = 0.85
+wave_thick = 1
+wave_additive = 1
+mesh = [48, 36]
+
+[code]
+frame = '''
+wave_mystery = sin(time * 0.17) ;
+wave_x = 0.5 + 0.25 * sin(time * 0.23);
+wave_y = 0.5 + 0.2 * cos(time * 0.19);
+wave_r = 0.6 + 0.4 * sin(time * 0.9);
+wave_g = 0.6 + 0.4 * sin(time * 0.9 + 2.1);
+wave_b = 0.6 + 0.4 * sin(time * 0.9 + 4.2);
+zoom = 0.995 + 0.01 * min(bass_att, 2);
+rot = 0.004 * sin(time * 0.13);
+dx = 0.0015 * sin(time * 0.29);
+dy = 0.0015 * cos(time * 0.37);
+warp = 0.4 + 0.6 * min(mid_att, 2);
+q1 = 0.004 + 0.012 * min(bass, 2);
+q2 = time * 0.05;
+'''
+
+[shader]
+comp = '''
+// Pull the channels apart radially; the split grows with the bass.
+let d = (uv - vec2f(0.5)) * u.q[0].x;
+let r = GetMain(uv + d).r;
+let g = GetMain(uv).g;
+let b = GetMain(uv - d).b;
+var c = vec3f(r, g, b);
+// A slow hue rotation (about the grey axis).
+let a = u.q[0].y;
+let k = vec3f(0.57735);
+let cs = cos(a);
+c = c * cs + cross(k, c) * sin(a) + k * dot(k, c) * (1.0 - cs);
+let glow = GetBlur1(uv);
+return max(c, vec3f(0.0)) + glow * 0.45 + vec3f(0.02, 0.015, 0.035);
+'''
