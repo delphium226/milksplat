@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::num::NonZeroU64;
 use std::ops::Range;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use image::RgbaImage;
@@ -216,14 +217,31 @@ fn placeholder(
     tex.create_view(&Default::default())
 }
 
+/// Source of [`RendererShared`] generations (0 is never handed out).
+static NEXT_GENERATION: AtomicU64 = AtomicU64::new(1);
+
 /// Everything shader compilation needs, without the feedback textures:
 /// cheap to clone, `Send + Sync`, so a loader thread can compile presets
 /// while the render thread keeps the [`Renderer`].
 ///
 /// wgpu handles (device, queue, layouts, samplers, views, pipelines) are
 /// reference-counted internally, so every field is an `Arc`-like clone.
+///
+/// **Stale after [`Renderer::recreate`].** A handle (and every
+/// [`ShaderSet`], [`WarpShader`] and [`CompShader`] made from it) belongs
+/// to one renderer *generation*: [`Renderer::new`] and every
+/// [`Renderer::recreate`] start a new one. Call [`Renderer::shared`] again
+/// after `recreate`, and rebuild old shader sets with
+/// [`RendererShared::recompile`]. A stale shader passed to the renderer is
+/// never handed to wgpu: [`Renderer::warp`] and [`Renderer::composite`]
+/// draw that layer with the built-in shader and log an error (once per
+/// generation). Compiling with a stale handle is still safe (on the old
+/// device, even a lost one); the result is simply stale.
 #[derive(Clone)]
 pub struct RendererShared {
+    /// Unique per `RendererShared::new`; stamped on every shader this
+    /// handle compiles.
+    pub(crate) generation: u64,
     pub(crate) device: wgpu::Device,
     pub(crate) queue: wgpu::Queue,
     /// Group 0 (the prelude's bindings 0-14), shared by every warp and
@@ -487,6 +505,7 @@ pub(crate) fn scoped<T>(device: &wgpu::Device, f: impl FnOnce() -> T) -> (T, Opt
 
 impl RendererShared {
     pub(crate) fn new(gpu: &Gpu) -> Self {
+        let generation = NEXT_GENERATION.fetch_add(1, Ordering::Relaxed);
         let device = gpu.device.clone();
         let samplers = Samplers::new(&device);
         let group0_layout = create_group0_layout(&device);
@@ -507,14 +526,22 @@ impl RendererShared {
                     "builtin warp",
                 ),
                 group1: None,
+                generation,
             }
         };
         let builtin_comp = {
             let a = assemble(Stage::Comp, COMP_BUILTIN_WGSL, &[], COMP_BUILTIN_BODY);
             let module = create_module(&device, &a, "builtin comp");
-            CompShader::new(module, base_pipeline_layout.clone(), None, "builtin comp")
+            CompShader::new(
+                module,
+                base_pipeline_layout.clone(),
+                None,
+                "builtin comp",
+                generation,
+            )
         };
         RendererShared {
+            generation,
             device,
             queue: gpu.queue.clone(),
             group0_layout,
@@ -547,6 +574,43 @@ impl RendererShared {
         comp: Option<&str>,
         comp_format: wgpu::TextureFormat,
         tex: &dyn Fn(&str) -> Option<RgbaImage>,
+    ) -> ShaderSet {
+        self.compile(warp, comp, comp_format, tex, &HashMap::new())
+    }
+
+    /// Compiles `old`'s warp and composite sources again with this handle
+    /// (typically on a new device after [`Renderer::recreate`]), for
+    /// `comp_format`.
+    ///
+    /// User textures come from `old.texture_images` first (no copy, and
+    /// random `randNN` picks stay the same); only a texture `old` did not
+    /// have is asked of `tex`. Errors are reported in the new set's
+    /// `errors`, as for [`RendererShared::compile_shaders`]. Safe to call
+    /// from any thread; never panics on bad source or images.
+    pub fn recompile(
+        &self,
+        old: &ShaderSet,
+        comp_format: wgpu::TextureFormat,
+        tex: &dyn Fn(&str) -> Option<RgbaImage>,
+    ) -> ShaderSet {
+        self.compile(
+            old.warp_source.as_deref(),
+            old.comp_source.as_deref(),
+            comp_format,
+            tex,
+            &old.texture_images,
+        )
+    }
+
+    /// [`RendererShared::compile_shaders`], taking user texture images from
+    /// `cached` before asking `tex`.
+    fn compile(
+        &self,
+        warp: Option<&str>,
+        comp: Option<&str>,
+        comp_format: wgpu::TextureFormat,
+        tex: &dyn Fn(&str) -> Option<RgbaImage>,
+        cached: &HashMap<String, Arc<RgbaImage>>,
     ) -> ShaderSet {
         let mut errors = Vec::new();
         let bodies = [(Stage::Warp, warp), (Stage::Comp, comp)];
@@ -587,7 +651,7 @@ impl RendererShared {
         let group1 = if slots.is_empty() {
             None
         } else {
-            self.create_group1(&slots, tex, &mut texture_images, &mut errors)
+            self.create_group1(&slots, tex, cached, &mut texture_images, &mut errors)
         };
 
         // 3. Modules and pipelines.
@@ -670,10 +734,15 @@ impl RendererShared {
                 Stage::Warp => Compiled::Warp(WarpShader {
                     pipelines: warp::create_pipelines(device, layout, &module, &label),
                     group1: bind_group,
+                    generation: self.generation,
                 }),
-                Stage::Comp => {
-                    Compiled::Comp(CompShader::new(module, layout.clone(), bind_group, &label))
-                }
+                Stage::Comp => Compiled::Comp(CompShader::new(
+                    module,
+                    layout.clone(),
+                    bind_group,
+                    &label,
+                    self.generation,
+                )),
             }
         });
         if let Some(e) = error {
@@ -686,20 +755,21 @@ impl RendererShared {
         Ok(compiled)
     }
 
-    /// Loads the user textures and builds the group 1 layout and bind group.
-    /// Returns `None` (with an error) only if the GPU objects could not be
-    /// created.
+    /// Loads the user textures (from `images`, then `cached`, then `tex`)
+    /// and builds the group 1 layout and bind group. Returns `None` (with an
+    /// error) only if the GPU objects could not be created.
     fn create_group1(
         &self,
         slots: &[String],
         tex: &dyn Fn(&str) -> Option<RgbaImage>,
+        cached: &HashMap<String, Arc<RgbaImage>>,
         images: &mut HashMap<String, Arc<RgbaImage>>,
         errors: &mut Vec<String>,
     ) -> Option<Group1> {
         let mut views = Vec::with_capacity(slots.len());
         for name in slots {
             let (_, file) = shader_scan::split_prefix(name);
-            let image = match images.get(file) {
+            let image = match images.get(file).or_else(|| cached.get(file)) {
                 Some(image) => Some(Arc::clone(image)),
                 None => tex(file).map(Arc::new),
             };
@@ -934,9 +1004,22 @@ pub(crate) fn group0_bind_group(
 
 impl Renderer {
     /// A cheap, `Send + Sync` handle for compiling shaders on another
-    /// thread (see [`RendererShared::compile_shaders`]).
+    /// thread (see [`RendererShared::compile_shaders`]). It is stale after
+    /// [`Renderer::recreate`]: fetch it again.
     pub fn shared(&self) -> RendererShared {
         self.shared.clone()
+    }
+
+    /// Recompiles `old` with this renderer's current shared resources (after
+    /// [`Renderer::recreate`]); see [`RendererShared::recompile`].
+    pub fn recompile(
+        &self,
+        _gpu: &Gpu,
+        old: &ShaderSet,
+        comp_format: wgpu::TextureFormat,
+        tex: &dyn Fn(&str) -> Option<RgbaImage>,
+    ) -> ShaderSet {
+        self.shared.recompile(old, comp_format, tex)
     }
 
     /// Compiles a preset's shaders; see [`RendererShared::compile_shaders`].

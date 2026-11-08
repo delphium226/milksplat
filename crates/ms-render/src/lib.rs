@@ -1,8 +1,9 @@
 //! ms-render: wgpu device setup, the feedback chain, the warp and composite
 //! passes, the overlays (waves, shapes, borders, motion vectors), the blur
 //! chain, noise, spectrum and user textures, the shader prelude and user
-//! shader compilation, texture readback and the golden-image test harness
-//! that every rendering pass is tested against.
+//! shader compilation, the on-screen text, device-loss recreation, texture
+//! readback and the golden-image test harness that every rendering pass is
+//! tested against.
 
 mod blur;
 mod borders;
@@ -16,6 +17,7 @@ mod noise;
 mod shader_scan;
 mod shaders;
 mod shapes;
+mod text;
 mod textures;
 mod warp;
 mod waves;
@@ -29,6 +31,7 @@ pub use motion::MotionVectors;
 pub use noise::{noise_textures, NoiseSet, NOISE_SEED};
 pub use shaders::{RendererShared, ShaderSet, Uniforms, PRELUDE_WGSL};
 pub use shapes::ShapeDraw;
+pub use text::TextItem;
 pub use textures::{
     PresetPicks, TextureResolver, MAX_DECODE_BYTES, MAX_DECODE_DIM, MAX_FILE_BYTES,
     MAX_TEXTURE_DIM, SPECTRUM_BINS,

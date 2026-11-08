@@ -32,6 +32,10 @@ const COMP_BLEND: wgpu::BlendState = wgpu::BlendState {
 
 /// A compiled composite shader (built-in or a preset's).
 ///
+/// Belongs to the [`RendererShared`](crate::RendererShared) generation that
+/// compiled it; after [`Renderer::recreate`] it is stale and
+/// [`Renderer::composite`] draws the built-in composite in its place.
+///
 /// Pipelines are cached here per target format. Shader compilation (on the
 /// loader thread) creates the one for the target format it is given; any
 /// other format is created on first use in [`Renderer::composite`] (a safety
@@ -45,6 +49,8 @@ pub struct CompShader {
 
 struct CompInner {
     label: String,
+    /// The `RendererShared` generation that compiled this shader.
+    generation: u64,
     module: wgpu::ShaderModule,
     layout: wgpu::PipelineLayout,
     /// The user texture bind group, if the shader set has user textures.
@@ -61,10 +67,12 @@ impl CompShader {
         layout: wgpu::PipelineLayout,
         group1: Option<wgpu::BindGroup>,
         label: &str,
+        generation: u64,
     ) -> Self {
         CompShader {
             inner: Arc::new(CompInner {
                 label: label.to_string(),
+                generation,
                 module,
                 layout,
                 group1,
@@ -235,8 +243,9 @@ impl Renderer {
     /// `1 - p` and `p` cross-fade, and a single layer always fills the
     /// target).
     ///
-    /// A layer whose shader cannot be used for `target_format` is drawn with
-    /// the built-in composite instead. Pipelines for `target_format` should
+    /// A layer whose shader cannot be used for `target_format`, or is stale
+    /// (compiled before the last [`Renderer::recreate`]), is drawn with the
+    /// built-in composite instead. Pipelines for `target_format` should
     /// have been created by `compile_shaders(.., target_format, ..)`; any
     /// other format is created here, with a warning. Does not block.
     pub fn composite(
@@ -268,6 +277,7 @@ impl Renderer {
         }
 
         let builtin = &self.shared.builtin_comp;
+        let mut stale = false;
         let mut encoder = gpu
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -291,7 +301,16 @@ impl Renderer {
                 let Some(group0) = &slot.bind_groups[current] else {
                     continue;
                 };
-                let (pipeline, group1) = match layer.shader.pipeline(&gpu.device, target_format) {
+                // A stale shader's objects belong to an old device: never
+                // touch them (not even to create a pipeline).
+                let fresh = layer.shader.inner.generation == self.shared.generation;
+                stale |= !fresh;
+                let user = if fresh {
+                    layer.shader.pipeline(&gpu.device, target_format)
+                } else {
+                    None
+                };
+                let (pipeline, group1) = match user {
                     Some(p) => (p, layer.shader.inner.group1.as_ref()),
                     None => match builtin.pipeline(&gpu.device, target_format) {
                         Some(p) => (p, None),
@@ -325,5 +344,8 @@ impl Renderer {
             }
         }
         gpu.queue.submit([encoder.finish()]);
+        if stale {
+            self.report_stale("composite");
+        }
     }
 }

@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 bytemuck.workspace = true
+font8x8.workspace = true
 half.workspace = true
 image.workspace = true
 ms-expr.workspace = true

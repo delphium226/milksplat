@@ -26,15 +26,22 @@ pub struct MeshData {
 /// A compiled warp shader (built-in or a preset's): one pipeline per
 /// feedback format, plus the preset's user-texture bind group (group 1), if
 /// any. Cheap to clone; `Send + Sync`.
+///
+/// Belongs to the [`RendererShared`](crate::RendererShared) generation that
+/// compiled it; after [`Renderer::recreate`] it is stale and
+/// [`Renderer::warp`] draws the built-in warp in its place.
 #[derive(Clone)]
 pub struct WarpShader {
     pub(crate) pipelines: [wgpu::RenderPipeline; 2],
     pub(crate) group1: Option<wgpu::BindGroup>,
+    /// The `RendererShared` generation that compiled this shader.
+    pub(crate) generation: u64,
 }
 
 impl WarpShader {
     /// The built-in warp: `GetMain(uv) * decay * colour.rgb` (linear
-    /// filtering, wrap addressing). Shared, not recompiled.
+    /// filtering, wrap addressing). Shared, not recompiled. Like every
+    /// shader it is stale after [`Renderer::recreate`]: fetch it again.
     pub fn builtin(_gpu: &Gpu, renderer: &Renderer) -> WarpShader {
         renderer.shared.builtin_warp.clone()
     }
@@ -233,7 +240,9 @@ impl Renderer {
     /// to black and draws each layer additively, weighted per vertex.
     ///
     /// Malformed layers (array lengths that do not match the mesh size, empty
-    /// or oversized meshes) are skipped with an error log. Does not block.
+    /// or oversized meshes) are skipped with an error log. A stale shader
+    /// (compiled before the last [`Renderer::recreate`]) is replaced by the
+    /// built-in warp, with an error log. Does not block.
     pub fn warp(&mut self, gpu: &Gpu, layers: &[WarpLayer<'_>]) {
         let src = self.current;
         let dst = 1 - src;
@@ -329,6 +338,7 @@ impl Renderer {
             }
         }
 
+        let mut stale = false;
         let mut encoder = gpu
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -358,7 +368,12 @@ impl Renderer {
                     let Some(bind_group) = &slot.bind_groups[src] else {
                         continue;
                     };
-                    let shader = draw.layer.shader;
+                    let mut shader = draw.layer.shader;
+                    if shader.generation != self.shared.generation {
+                        // Its objects belong to an old device.
+                        stale = true;
+                        shader = &self.shared.builtin_warp;
+                    }
                     pass.set_pipeline(&shader.pipelines[self.format.index()]);
                     pass.set_bind_group(0, bind_group, &[]);
                     if let Some(group1) = &shader.group1 {
@@ -374,6 +389,9 @@ impl Renderer {
         }
         gpu.queue.submit([encoder.finish()]);
         self.current = dst;
+        if stale {
+            self.report_stale("warp");
+        }
     }
 }
 

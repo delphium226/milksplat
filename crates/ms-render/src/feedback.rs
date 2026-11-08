@@ -9,6 +9,7 @@ use crate::draw::OverlayState;
 use crate::gpu::Gpu;
 use crate::noise::{noise_textures, NoiseSet};
 use crate::shaders::{AuxViews, RendererShared};
+use crate::text::TextState;
 use crate::textures::create_spectrum_texture;
 use crate::warp::WarpState;
 
@@ -81,14 +82,18 @@ pub struct Renderer {
     pub(crate) comp_state: CompositeState,
     /// Overlay pipelines and buffers ([`Renderer::draw`]).
     pub(crate) overlay: OverlayState,
+    /// Glyph atlas, pipelines and buffer ([`Renderer::draw_text`]).
+    pub(crate) text: TextState,
     blit: Blit,
+    /// Whether a stale shader has been reported for this generation.
+    stale_reported: bool,
 }
 
 impl Renderer {
     /// Creates the feedback textures and blur levels (cleared to black), the
     /// noise textures, the spectrum texture (zeroed), the shared shader
     /// resources (layouts, samplers, built-in shaders), the overlay
-    /// pipelines and the blit resources.
+    /// pipelines, the text atlas and the blit resources.
     pub fn new(gpu: &Gpu, cfg: RenderConfig) -> Self {
         let size = clamp_size(gpu, cfg.internal_size);
         let format = cfg.format;
@@ -114,7 +119,6 @@ impl Renderer {
             textures,
             views,
             current: 0,
-            shared,
             aux,
             blur,
             _noise: noise,
@@ -122,7 +126,53 @@ impl Renderer {
             warp_state: WarpState::default(),
             comp_state: CompositeState::default(),
             overlay: OverlayState::new(gpu),
+            text: TextState::new(gpu, &shared.samplers.pc),
+            shared,
             blit: Blit::new(gpu),
+            stale_reported: false,
+        }
+    }
+
+    /// Rebuilds every GPU object the renderer owns on `gpu` (after a device
+    /// loss, `gpu` is the new device): feedback textures, blur chain, noise,
+    /// spectrum, placeholders, samplers, layouts, the built-in warp and
+    /// composite, the overlay, text and blit pipelines, buffers, bind groups
+    /// and caches. The internal size and format are kept (the size clamped
+    /// to the new device's limits).
+    ///
+    /// The feedback contents are lost: both buffers (and the blur levels)
+    /// are cleared to black, and the spectrum is zeroed until the next
+    /// [`Renderer::set_spectrum`].
+    ///
+    /// Everything obtained from the renderer before is stale: call
+    /// [`Renderer::shared`] again, rebuild shader sets with
+    /// [`RendererShared::recompile`] (or [`Renderer::recompile`]) and
+    /// re-fetch [`WarpShader::builtin`](crate::WarpShader::builtin). Stale
+    /// shaders still passed to [`Renderer::warp`] or
+    /// [`Renderer::composite`] are replaced by the built-ins with a logged
+    /// error; they never reach wgpu.
+    pub fn recreate(&mut self, gpu: &Gpu) {
+        tracing::info!(
+            size = ?self.size,
+            format = ?self.format,
+            "recreating the renderer's GPU resources"
+        );
+        let cfg = RenderConfig {
+            internal_size: self.size,
+            format: self.format,
+        };
+        *self = Renderer::new(gpu, cfg);
+    }
+
+    /// Logs (once per generation) that a stale shader was replaced by the
+    /// built-in one in `pass`.
+    pub(crate) fn report_stale(&mut self, pass: &str) {
+        if !self.stale_reported {
+            self.stale_reported = true;
+            tracing::error!(
+                "{pass}: a shader compiled before Renderer::recreate was used; drawing the \
+                 built-in shader instead (recompile shader sets after recreate)"
+            );
         }
     }
 
