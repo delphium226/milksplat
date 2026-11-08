@@ -26,6 +26,51 @@ impl Program {
     pub fn num_regs(&self) -> usize {
         self.num_regs
     }
+
+    /// This program with its variables renumbered densely: the variables it
+    /// references, in increasing order of their original ids, become
+    /// `VarId(0)`, `VarId(1)`, .... Returns the renumbered program and, for
+    /// each new id, the original one. The two programs compute the same
+    /// thing; the compact one needs only that many `Lanes` columns.
+    pub fn compact_vars(&self) -> (Program, Vec<VarId>) {
+        let mut used: Vec<VarId> = self
+            .ops
+            .iter()
+            .filter_map(|op| match *op {
+                Op::LoadVar { var, .. } | Op::StoreVar { var, .. } => Some(var),
+                _ => None,
+            })
+            .collect();
+        used.sort_by_key(|v| v.0);
+        used.dedup();
+        let new_id = |v: VarId| {
+            used.binary_search_by_key(&v.0, |u| u.0)
+                .map_or(VarId(u32::MAX), |i| VarId(i as u32))
+        };
+        let ops = self
+            .ops
+            .iter()
+            .map(|op| match *op {
+                Op::LoadVar { dst, var } => Op::LoadVar {
+                    dst,
+                    var: new_id(var),
+                },
+                Op::StoreVar { var, src } => Op::StoreVar {
+                    var: new_id(var),
+                    src,
+                },
+                other => other,
+            })
+            .collect();
+        let rbw = self.rbw.iter().map(|&v| new_id(v)).collect();
+        let p = Program {
+            ops,
+            num_regs: self.num_regs,
+            num_vars: used.len(),
+            rbw,
+        };
+        (p, used)
+    }
 }
 
 pub fn compile(src: &str, vars: &mut VarTable) -> Result<Program, CompileError> {

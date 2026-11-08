@@ -15,7 +15,7 @@ mod vars;
 mod vm;
 
 pub use ast::{AssignOp, BinOp, Expr, UnOp};
-pub use batch::{BatchShared, Lanes, BLOCK};
+pub use batch::{BatchScratch, BatchShared, Lanes, BLOCK};
 pub use builtins::{Fn1, Fn2};
 pub use bytecode::{Op, Reg};
 pub use compile::{compile, Program};

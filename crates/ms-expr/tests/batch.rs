@@ -362,3 +362,65 @@ fn program_is_clone_send_sync() {
     fn check<T: Clone + Send + Sync>() {}
     check::<Program>();
 }
+
+#[test]
+fn scratch_reuse_matches_fresh_runs() {
+    // Two different programs through one scratch, in both orders: the reused
+    // buffers must not leak state between calls.
+    let (a, _) = compile_with(
+        "y = x*2; while(c += 1; c < x*10); z = c",
+        &["x", "y", "z", "c"],
+    );
+    let (b, _) = compile_with("y = if(x > 0.5, sin(x), cos(x))", &["x", "y", "z", "c"]);
+    let n = 600;
+    let cols = random_cols(4, n, 9, 0.0, 1.0);
+    let mut scratch = BatchScratch::default();
+    for p in [&a, &b, &a, &b] {
+        let (fresh, fresh_capped) = run_batch(p, &cols, n, 1);
+        let (mut mb, mut gm, mut rng) = (Megabuf::new(), Megabuf::new(), Rng::seeded(1));
+        let mut lanes = Lanes {
+            n,
+            cols: cols.clone(),
+        };
+        let mut shared = BatchShared {
+            megabuf: &mut mb,
+            gmegabuf: &mut gm,
+            rng: &mut rng,
+        };
+        let capped = p.run_batched_with(&mut lanes, &mut shared, &mut scratch);
+        assert_eq!(capped, fresh_capped);
+        assert_eq!(first_mismatch(&lanes.cols, &fresh), None);
+    }
+}
+
+#[test]
+fn compact_vars_renumbers_densely() {
+    let mut vt = VarTable::new();
+    for n in ["unused0", "x", "unused2", "y", "unused4", "k"] {
+        vt.get_or_insert(n);
+    }
+    let p = compile("y = x + k; k = k + 1; w = y", &mut vt).unwrap();
+    let (c, map) = p.compact_vars();
+    let names: Vec<&str> = map.iter().map(|&v| vt.name(v)).collect();
+    assert_eq!(names, ["x", "y", "k", "w"]);
+    let rbw: Vec<&str> = c
+        .reads_before_write()
+        .iter()
+        .map(|&v| vt.name(map[v.0 as usize]))
+        .collect();
+    assert_eq!(rbw, ["x", "k"]);
+    assert!(c.ops().iter().all(|op| match *op {
+        Op::LoadVar { var, .. } | Op::StoreVar { var, .. } => (var.0 as usize) < map.len(),
+        _ => true,
+    }));
+    // Same results on compact columns as on the full table.
+    let n = 300;
+    let full = random_cols(vt.len(), n, 4, -2.0, 2.0);
+    let compact: Vec<Vec<f64>> = map.iter().map(|v| full[v.0 as usize].clone()).collect();
+    let (full_out, _) = run_batch(&p, &full, n, 1);
+    let (compact_out, _) = run_batch(&c, &compact, n, 1);
+    let picked: Vec<Vec<f64>> = map.iter().map(|v| full_out[v.0 as usize].clone()).collect();
+    assert_eq!(first_mismatch(&compact_out, &picked), None);
+    let (scalar_out, _) = run_scalar(&c, &compact, n, 1);
+    assert_eq!(first_mismatch(&compact_out, &scalar_out), None);
+}

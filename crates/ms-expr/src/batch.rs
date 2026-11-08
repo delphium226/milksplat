@@ -134,6 +134,14 @@ struct Block {
     capped: [bool; BLOCK],
 }
 
+/// Heap buffers [`Program::run_batched_with`] reuses between calls, so that
+/// running the same program again allocates nothing.
+#[derive(Debug, Default)]
+pub struct BatchScratch {
+    regs: Vec<f64>,
+    work: Vec<(usize, Mask)>,
+}
+
 /// Counts one loop iteration for a lane (as the scalar VM does per run).
 #[inline]
 fn start_iteration(iters: &mut u64, capped: &mut bool) -> bool {
@@ -175,6 +183,18 @@ impl Program {
     /// writes. A non-batchable program falls back to running the scalar VM
     /// lane by lane in order.
     pub fn run_batched(&self, lanes: &mut Lanes, shared: &mut BatchShared) -> bool {
+        self.run_batched_with(lanes, shared, &mut BatchScratch::default())
+    }
+
+    /// [`run_batched`](Self::run_batched), reusing `scratch`'s buffers: once
+    /// they have grown to this program's size, a batchable program runs
+    /// without allocating.
+    pub fn run_batched_with(
+        &self,
+        lanes: &mut Lanes,
+        shared: &mut BatchShared,
+        scratch: &mut BatchScratch,
+    ) -> bool {
         debug_assert!(
             self.batchable(),
             "run_batched on a program that is not batchable"
@@ -197,8 +217,11 @@ impl Program {
         if !self.batchable() {
             return self.run_lanes_scalar(lanes, shared);
         }
+        let mut regs = std::mem::take(&mut scratch.regs);
+        regs.clear();
+        regs.resize(nregs * BLOCK, 0.0);
         let mut blk = Block {
-            regs: vec![0.0; nregs * BLOCK],
+            regs,
             iters: [0; BLOCK],
             capped: [false; BLOCK],
         };
@@ -209,17 +232,26 @@ impl Program {
             blk.regs.fill(0.0);
             blk.iters = [0; BLOCK];
             blk.capped = [false; BLOCK];
-            self.run_block(&mut blk, &mut lanes.cols, base, len);
+            self.run_block(&mut blk, &mut scratch.work, &mut lanes.cols, base, len);
             any_capped |= blk.capped[..len].iter().any(|&c| c);
             base += len;
         }
+        scratch.regs = blk.regs;
         any_capped
     }
 
-    fn run_block(&self, blk: &mut Block, cols: &mut [Vec<f64>], base: usize, len: usize) {
+    fn run_block(
+        &self,
+        blk: &mut Block,
+        work: &mut Vec<(usize, Mask)>,
+        cols: &mut [Vec<f64>],
+        base: usize,
+        len: usize,
+    ) {
         let ops = &self.ops[..];
         let all = first_lanes(len);
-        let mut work = vec![(0usize, all)];
+        work.clear();
+        work.push((0usize, all));
         let regs = &mut blk.regs;
         let r = |reg: u16| reg as usize * BLOCK;
         while let Some(k) = work
@@ -337,21 +369,21 @@ impl Program {
                     // batchable programs.
                     Op::Rand { .. } | Op::MegaGet { .. } | Op::MegaSet { .. } => {}
                     Op::Jump { target } => {
-                        push(&mut work, target as usize, mask);
+                        push(work, target as usize, mask);
                         break;
                     }
                     Op::JumpIfFalse { cond, target } => {
                         let c = r(cond);
                         let (go, stay) = split(m, |i| !truthy(regs[c + i]));
-                        push(&mut work, target as usize, go);
-                        push(&mut work, pc + 1, stay);
+                        push(work, target as usize, go);
+                        push(work, pc + 1, stay);
                         break;
                     }
                     Op::JumpIfTrue { cond, target } => {
                         let c = r(cond);
                         let (go, stay) = split(m, |i| truthy(regs[c + i]));
-                        push(&mut work, target as usize, go);
-                        push(&mut work, pc + 1, stay);
+                        push(work, target as usize, go);
+                        push(work, pc + 1, stay);
                         break;
                     }
                     Op::LoopNext { cnt, exit } => {
@@ -366,16 +398,16 @@ impl Program {
                                 false
                             }
                         });
-                        push(&mut work, pc + 1, body);
-                        push(&mut work, exit as usize, out);
+                        push(work, pc + 1, body);
+                        push(work, exit as usize, out);
                         break;
                     }
                     Op::LoopGuard { exit } => {
                         let (iters, capped) = (&mut blk.iters, &mut blk.capped);
                         let (body, out) =
                             split(m, |i| start_iteration(&mut iters[i], &mut capped[i]));
-                        push(&mut work, pc + 1, body);
-                        push(&mut work, exit as usize, out);
+                        push(work, pc + 1, body);
+                        push(work, exit as usize, out);
                         break;
                     }
                 }
