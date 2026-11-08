@@ -9,7 +9,7 @@ mod bluetooth;
 mod capture;
 mod notify;
 
-use crate::restart::RestartPolicy;
+use crate::restart::{stream_died, ProducerSlot, RestartPolicy};
 use crate::{ring, RingConsumer, RingProducer};
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender};
 use std::sync::atomic::Ordering;
@@ -219,7 +219,7 @@ fn service_main(
         cmd_rx,
         home_tx,
         home_rx,
-        producer: Some(producer),
+        producer: ProducerSlot::new(producer),
         host: cpal::default_host(),
         enumerator: enumerator.clone(),
         running: None,
@@ -243,8 +243,8 @@ struct Service {
     /// Where a dropped stream's callback returns the producer.
     home_tx: Sender<RingProducer>,
     home_rx: Receiver<RingProducer>,
-    /// Present while no stream owns it.
-    producer: Option<RingProducer>,
+    /// Held while no stream owns it.
+    producer: ProducerSlot<RingProducer>,
     host: cpal::Host,
     enumerator: Option<IMMDeviceEnumerator>,
     running: Option<capture::Running>,
@@ -261,6 +261,13 @@ impl Service {
     fn run(&mut self) {
         loop {
             let now = Instant::now();
+            // A producer coming home late (after a slow teardown) is
+            // collected here; while running it means the stream died.
+            let came_home = self.producer.accept(self.home_rx.try_recv().ok());
+            if stream_died(self.running.is_some(), came_home) {
+                self.teardown();
+                self.fail("the capture stream stopped unexpectedly".into());
+            }
             if let Some(r) = &self.running {
                 if r.delivered.load(Ordering::Relaxed) {
                     self.policy.audio_delivered();
@@ -268,9 +275,7 @@ impl Service {
                 self.policy.tick(now);
             } else if let Some(at) = self.retry_at {
                 if now >= at {
-                    if !self.try_start() {
-                        return;
-                    }
+                    self.try_start();
                     continue;
                 }
             }
@@ -291,16 +296,16 @@ impl Service {
         let _ = self.events.send(event);
     }
 
-    /// Attempts a start. Returns false if the service cannot continue.
-    fn try_start(&mut self) -> bool {
+    /// Attempts a start; on failure schedules a retry with backoff.
+    fn try_start(&mut self) {
         let now = Instant::now();
         self.retry_at = None;
-        let Some(producer) = self.producer.take() else {
-            // Unreachable unless a stream failed to hand the producer back.
-            self.emit(AudioEvent::Stopped {
-                reason: "internal error: ring producer lost".into(),
-            });
-            return false;
+        let returned = self.home_rx.try_recv().ok();
+        let Some(producer) = self.producer.take_for_start(returned) else {
+            // The previous stream has not handed the producer back yet (a
+            // slow driver teardown): try again later.
+            self.fail("the previous capture stream has not stopped yet".into());
+            return;
         };
         self.gen += 1;
         let opened = capture::open(capture::OpenArgs {
@@ -333,7 +338,6 @@ impl Service {
                 self.fail(reason);
             }
         }
-        true
     }
 
     /// Reports a failure and schedules the next attempt with backoff.
@@ -355,12 +359,15 @@ impl Service {
     }
 
     fn reclaim_producer(&mut self) {
-        if self.producer.is_some() {
+        if self.producer.is_held() {
             return;
         }
         match self.home_rx.recv_timeout(RECLAIM_TIMEOUT) {
-            Ok(p) => self.producer = Some(p),
-            Err(e) => warn!("ms-audio: ring producer not returned by stream: {e}"),
+            Ok(p) => {
+                self.producer.accept(Some(p));
+            }
+            // Collected later by `run` when it does come back.
+            Err(e) => warn!("ms-audio: ring producer not returned by stream yet: {e}"),
         }
     }
 

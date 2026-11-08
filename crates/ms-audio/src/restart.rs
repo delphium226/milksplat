@@ -60,9 +60,97 @@ impl RestartPolicy {
     }
 }
 
+/// Where the ring producer is. While a stream runs, its callback owns the
+/// producer and sends it home when the callback is dropped. It can come home
+/// late (a driver slow to stop the stream) or unasked (cpal's capture thread
+/// died), so the service accepts it whenever it shows up.
+#[derive(Debug)]
+pub(crate) struct ProducerSlot<P> {
+    held: Option<P>,
+}
+
+impl<P> ProducerSlot<P> {
+    pub(crate) fn new(producer: P) -> Self {
+        Self {
+            held: Some(producer),
+        }
+    }
+
+    /// Whether the service holds the producer (no stream owns it).
+    pub(crate) fn is_held(&self) -> bool {
+        self.held.is_some()
+    }
+
+    /// Accepts a producer that came home (`returned`, from a non-blocking
+    /// receive). Returns true if one did.
+    pub(crate) fn accept(&mut self, returned: Option<P>) -> bool {
+        match returned {
+            Some(p) => {
+                self.held = Some(p);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Takes the producer for a new stream, first accepting one that came
+    /// home late (`returned`). `None`: it is still out; the caller retries
+    /// later (with backoff) rather than giving up.
+    pub(crate) fn take_for_start(&mut self, returned: Option<P>) -> Option<P> {
+        self.accept(returned);
+        self.held.take()
+    }
+}
+
+/// Health check while a stream runs: the producer coming home means the
+/// stream's callback was dropped, so the stream is dead and must be
+/// restarted (a failure, with backoff).
+pub(crate) fn stream_died(running: bool, producer_came_home: bool) -> bool {
+    running && producer_came_home
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn late_producer_is_used_for_the_next_start() {
+        let mut slot = ProducerSlot::new(1);
+        assert_eq!(slot.take_for_start(None), Some(1));
+        // The teardown timed out: nothing came home yet, so no start now.
+        assert_eq!(slot.take_for_start(None), None);
+        assert!(!slot.is_held());
+        // It arrives later and the retry picks it up.
+        assert_eq!(slot.take_for_start(Some(1)), Some(1));
+    }
+
+    #[test]
+    fn producer_home_while_running_is_a_stream_failure() {
+        let mut slot = ProducerSlot::new(7);
+        let p = slot.take_for_start(None);
+        assert_eq!(p, Some(7));
+        // Health ticks with nothing coming home: healthy.
+        let came = slot.accept(None);
+        assert!(!stream_died(true, came));
+        // The callback was dropped: the producer is back while running.
+        let came = slot.accept(p);
+        assert!(stream_died(true, came));
+        assert!(slot.is_held());
+        // While not running, a returned producer is just collected.
+        assert!(!stream_died(false, true));
+    }
+
+    #[test]
+    fn missing_producer_retries_with_backoff() {
+        // A start without the producer is a failure like any other: the
+        // service schedules a retry instead of ending.
+        let t = Instant::now();
+        let mut p = RestartPolicy::new();
+        let mut slot: ProducerSlot<u8> = ProducerSlot { held: None };
+        assert_eq!(slot.take_for_start(None), None);
+        assert_eq!(p.failed(t), ms(500));
+        assert_eq!(slot.take_for_start(Some(3)), Some(3));
+    }
 
     fn ms(n: u64) -> Duration {
         Duration::from_millis(n)
