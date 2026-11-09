@@ -17,6 +17,8 @@ device, so just start your music and run it.
 | **Tesseract Drift**: a 4D hypercube turning inside out | **Interstice**: an endless flight through gates between dimensions |
 | ![Event Horizon](docs/images/event-horizon.png) | ![Singing Sand](docs/images/singing-sand.png) |
 | **Event Horizon**: a black hole bends a nebula into an Einstein ring round its blazing disc | **Singing Sand**: luminous sand settling into the nodal lines of a ringing Chladni plate |
+| ![Silk Attractor](docs/images/silk-attractor.png) | |
+| **Silk Attractor**: a Clifford strange attractor spun into iridescent silk | |
 
 These are single frames; every preset moves and changes with the music.
 
