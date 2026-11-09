@@ -1,0 +1,245 @@
+# Event Horizon: a black hole hangs in front of a dense, colourful nebula
+# and starfield, bending it into an Einstein ring of arcs and doubled
+# images. A hot accretion disc swirls around the shadow; the light from
+# its far side is bent up over the top of the shadow and under the bottom,
+# a thin photon ring hugs the edge, and the side of the disc that turns
+# toward you is Doppler-brightened. The camera orbits slowly, so the sky
+# slides through the lens and stars stream round the ring.
+#
+# The lensing is an approximation in the composite shader, not a ray
+# tracer: each pixel at impact parameter b from the hole looks back along
+# a ray deflected toward it by te^2 / b (a point-mass thin lens, te the
+# Einstein radius), which pulls the sky into the ring and mirrors it
+# inside. For the disc's far half the Einstein radius grows with how far
+# behind the hole a point lies, which arches it over the shadow.
+#
+# Bass grows the mass (smoothed): the ring swells and the lensing deepens.
+# Mids tilt the disc and stir its turbulence. Treble makes the stars glint
+# as they slide round the ring. Each kick flares the disc, eased in and
+# out over half a second (never a strobe).
+version = 1
+
+[meta]
+name = "Event Horizon"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+feedback_format = "fp16"
+decay = 0.9
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [32, 24]
+
+[code]
+frame = '''
+// Smoothed bands: the mass in particular changes slowly.
+sb = sb + (min(bass, 2.5) - sb) * 0.025;
+sm = sm + (min(mid_att, 2.5) - sm) * 0.03;
+st = st + (min(treb, 2.5) - st) * 0.2;
+// Kick envelope: rises over a few ticks, then releases.
+bt = max(bt * 0.95, beat);
+be = be + (bt - be) * 0.1;
+// Accumulated phases (wrapped), never time times an audio speed.
+// The disc's rotation, a little faster with the bass and the kicks.
+rot = rot + 0.006 + 0.006 * min(sb, 2) / 2 + 0.004 * min(be, 1);
+rot = rot - 6.2831853 * floor(rot / 6.2831853);
+// The disc's shear cycle (two layers cross-faded, so the shear never
+// winds up).
+fl = fl + 0.0022;
+fl = fl - floor(fl);
+// The camera's orbit.
+orb = orb + 0.0009 + 0.0005 * min(sb, 2) / 2;
+orb = orb - 6.2831853 * floor(orb / 6.2831853);
+// The disc's tilt (sine of the inclination): a slow sway plus the mids.
+si = 0.095 + 0.03 * sin(time * 0.043) + 0.05 * min(sm, 2) / 2;
+q1 = sb; q2 = sm; q3 = st; q4 = be;
+q5 = rot; q6 = fl; q7 = orb; q8 = si;
+'''
+
+[shader]
+comp = '''
+let tau = 6.2831853;
+let asp = u.texsize.x * u.texsize.w;
+let sb = min(u.q[0].x, 2.0) * 0.5;
+let sm = min(u.q[0].y, 2.0) * 0.5;
+let st = max(0.0, min(u.q[0].z, 2.5) - 0.4);
+let be = min(u.q[0].w, 1.0);
+let rot = u.q[1].x;
+let fl = u.q[1].y;
+let orb = u.q[1].z;
+let si = u.q[1].w;
+let tm = u.time;
+let px = 2.0 * u.texsize.w;
+// Screen position, y up, about [-1, 1] vertically, centred on the hole,
+// which wanders a little and rolls gently with the orbit.
+let p0 = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y) * 2.0
+    - vec2f(0.07 * sin(orb), 0.04 * sin(2.0 * orb + 1.0));
+let roll = 0.16 * sin(orb + 0.7);
+let cr = cos(roll);
+let sr = sin(roll);
+let p = vec2f(cr * p0.x - sr * p0.y, sr * p0.x + cr * p0.y);
+let b = max(length(p), 1e-4);
+let n = p / b;
+// Mass: the shadow grows with it, the Einstein radius with its root.
+let mass = 1.0 + 0.4 * sb;
+let rsh = 0.18 * mass;
+// The sky is far behind the hole and is bent more than the disc, which
+// lies around it.
+let te = 0.36 * sqrt(mass);
+let te2 = te * te;
+let kd = 0.13 * mass;
+
+// ---- The sky, seen through the lens.
+let beta = p - n * (te2 / b);
+// How much the lens stretches the sky here (tangentially).
+let mag = min(abs(1.0 / (1.0 - te2 * te2 / (b * b * b * b))), 6.0);
+let ca = cos(orb * 0.5 + 0.3);
+let sa = sin(orb * 0.5 + 0.3);
+let sky = vec2f(ca * beta.x - sa * beta.y, sa * beta.x + ca * beta.y)
+    + 0.9 * vec2f(cos(orb), sin(orb));
+// The nebula: two octaves of slowly boiling noise.
+let nz = tm * 0.004;
+// Domain-warped, so the clouds stream in wisps rather than blobs.
+let wv = textureSampleLevel(sampler_noisevol_lq, s_fw, vec3f(sky * 0.05, nz * 0.7), 0.0).xy - vec2f(0.5);
+let sw = sky + wv * 0.6;
+let n1 = textureSampleLevel(sampler_noisevol_lq, s_fw, vec3f(sw * 0.09, nz), 0.0);
+let n2 = textureSampleLevel(sampler_noisevol_hq, s_fw, vec3f(sw * 0.11 + vec2f(0.3, 0.7), nz * 1.7), 0.0);
+let n3 = textureSampleLevel(sampler_noisevol_hq, s_fw, vec3f(sw * 0.27 + vec2f(0.6, 0.1), nz * 2.3), 0.0);
+let n4 = textureSampleLevel(sampler_noisevol_hq, s_fw, vec3f(sw * 0.61 + vec2f(0.2, 0.4), nz * 3.1), 0.0).x;
+let dens = n1.x * 0.5 + n2.x * 0.27 + n3.x * 0.15 + n4 * 0.08;
+let hue = n1.y * 0.9 + n2.z * 0.4 + tm * 0.003;
+let pal = 0.5 + 0.5 * cos(tau * (vec3f(hue) + vec3f(0.0, 0.33, 0.67)));
+let cloud = smoothstep(0.3, 0.72, dens);
+// A curated palette: indigo depths, magenta and teal clouds, gold where
+// they are densest.
+let wa = smoothstep(0.3, 0.7, n1.y + 0.3 * (n2.z - 0.5));
+let wb = smoothstep(0.35, 0.75, n2.y);
+let c1 = mix(vec3f(0.95, 0.22, 0.75), vec3f(0.1, 0.75, 0.95), wa);
+let c2 = mix(c1, vec3f(0.55, 0.3, 1.0), wb * 0.6);
+let c3 = mix(c2, vec3f(1.0, 0.7, 0.3), smoothstep(0.62, 0.8, dens) * 0.7);
+let lane = smoothstep(0.45, 0.65, n3.y) * 0.3;
+var col = mix(vec3f(0.18, 0.14, 0.52), c3 * 1.35, cloud) * (1.0 - lane)
+    + vec3f(0.12, 0.06, 0.26) * n2.w;
+// Stars: two layers of hashed cells. Stretched into arcs near the ring
+// (the lens magnifies them) and glinting there with the treble.
+let ringc = exp(-abs(b - te) / 0.09);
+for (var k = 0; k < 2; k++) {
+    let sc = select(9.0, 22.0, k == 1);
+    let g = sky * sc + vec2f(f32(k) * 17.3, f32(k) * 5.1);
+    let cell = floor(g);
+    let ci = vec2i(cell);
+    var h = (bitcast<u32>(ci.x) * 73856093u) ^ (bitcast<u32>(ci.y) * 19349663u) ^ (u32(k) * 83492791u);
+    h = h * 747796405u + 2891336453u;
+    h = ((h >> ((h >> 28u) + 4u)) ^ h) * 277803737u;
+    h = (h >> 22u) ^ h;
+    let ha = f32(h & 0xffu) / 255.0;
+    let hb = f32((h >> 8u) & 0xffu) / 255.0;
+    let hc = f32((h >> 16u) & 0xffu) / 255.0;
+    let hd = f32((h >> 24u) & 0xffu) / 255.0;
+    let o = vec2f(ha, hb) * 0.6 + vec2f(0.2);
+    let d = length(g - cell - o);
+    // Never smaller than about a pixel on screen.
+    let sig = max(0.05, px * sc * (1.0 + te2 / (b * b)) * 0.7);
+    let tw = 0.75 + 0.25 * sin(tm * (1.5 + 3.0 * hd) + hc * 40.0);
+    let glint = 1.0 + 2.5 * st * ringc * smoothstep(0.4, 1.0, hd);
+    let bright = step(select(0.35, 0.6, k == 1), hc) * (0.4 + 1.6 * hc * hc) * tw * glint * select(1.0, 0.7, k == 1);
+    let star = exp(-d * d / (sig * sig)) * bright * min(mag, 3.0);
+    let scol = mix(vec3f(0.65, 0.8, 1.0), vec3f(1.0, 0.8, 0.55), hd);
+    col += star * scol;
+}
+// The Einstein ring itself glows with the stretched light of the sky.
+col += (0.25 + 0.25 * sb) * exp(-abs(b - te) / 0.025) * (0.6 + 0.6 * pal);
+
+// ---- The accretion disc. Disc coordinates: xd across, zd away from the
+// camera; the camera sits a little above the plane, so the far side is
+// higher on screen (y = zd * si).
+let rin = 0.2 * mass;
+let rout = 1.3;
+let turb = 0.5 + 0.45 * sm;
+let flare = 1.0 + 0.7 * be;
+// The far half, seen through the lens: arched over the top of the
+// shadow and, inside the Einstein ring, mirrored under the bottom.
+// The near half, in front: only gently bent near the plane of the disc.
+var disc = vec3f(0.0);
+var da = 0.0;
+for (var side = 0; side < 2; side++) {
+    let far = side == 0;
+    // Near half: light comes straight to the camera.
+    var q = p;
+    var zd = p.y / si;
+    if (far) {
+        // Far half: a point zd behind the hole is lensed with an Einstein
+        // radius squared of kd * zd (the further behind, the more bent),
+        // solved in closed form for the point a pixel sees. Above the
+        // hole it arches over the shadow; below, a mirrored image.
+        zd = p.y * b * b / (si * b * b + kd * p.y);
+        q = vec2f(p.x * (1.0 - kd * zd / (b * b)), zd * si);
+    }
+    if ((far && zd > 0.0) || (!far && zd <= 0.0)) {
+        let r = length(vec2f(q.x, zd));
+        if (r > rin * 0.9 && r < rout) {
+            let ang = atan2(zd, q.x);
+            let t = rin / r;
+            // Swirling texture: two sheared layers cross-faded (a flow
+            // map), the inner disc turning fastest.
+            var tx = 0.0;
+            for (var j = 0; j < 2; j++) {
+                let ph = fract(fl + 0.5 * f32(j));
+                let a = ang - rot - ph * 3.0 * pow(t, 1.5);
+                let w = 1.0 - abs(2.0 * ph - 1.0);
+                let s1 = textureSampleLevel(sampler_noisevol_hq, s_fw,
+                    vec3f(r * 2.2 + f32(j) * 0.31, 0.7 * cos(a), 0.7 * sin(a)), 0.0).x;
+                let s2 = textureSampleLevel(sampler_noisevol_lq, s_fw,
+                    vec3f(r * 0.6, 0.25 * cos(a) + f32(j) * 0.5, 0.25 * sin(a)), 0.0).x;
+                tx += w * (0.6 * s1 + 0.4 * s2);
+            }
+            let fil = mix(0.75, 0.25 + 1.5 * tx * tx, turb);
+            let ur = clamp((r - rin) / (rout - rin), 0.0, 1.0);
+            let edge = smoothstep(rin * 0.9, rin * 1.05, r) * smoothstep(1.0, 0.6, ur);
+            let prof = edge * (1.0 - 0.7 * ur);
+            // Doppler: the disc turns so the left side comes toward you.
+            let v = 0.45 * sqrt(t);
+            let dop = clamp(1.0 / (1.0 + v * q.x / r), 0.6, 1.8);
+            let boost = dop * dop * dop;
+            let temp = clamp(pow(1.0 - ur, 1.3) * dop * 1.05, 0.0, 1.4);
+            let hot = mix(vec3f(1.0, 0.18, 0.42), vec3f(1.0, 0.5, 0.12), smoothstep(0.2, 0.45, temp));
+            let warm = mix(hot, vec3f(1.0, 0.82, 0.35), smoothstep(0.45, 0.75, temp));
+            let dcol = mix(warm, vec3f(0.85, 0.92, 1.0), smoothstep(0.8, 1.2, temp));
+            // The far side's image is dimmer the more it is bent.
+            let bend = select(1.0, select(0.85, 0.6, p.y < 0.0), far);
+            let lum = prof * fil * boost * flare * bend * 1.9;
+            let al = clamp(prof * (0.6 + 0.6 * fil) * 1.6, 0.0, 0.95);
+            if (far) {
+                disc = dcol * lum;
+                da = al;
+            } else {
+                disc = disc * (1.0 - al) + dcol * lum;
+                da = da + al * (1.0 - da);
+            }
+        }
+    }
+    if (side == 0) {
+        // The sky and the far half of the disc vanish into the shadow; a
+        // thin photon ring hugs its edge.
+        col = col * (1.0 - da) + disc;
+        let sh = smoothstep(rsh - px * 1.5, rsh + px * 1.5, b);
+        col *= sh;
+        let pr = exp(-abs(b - rsh * 1.03) / (0.006 + px)) * (1.6 + 0.8 * sb + 0.8 * be)
+            + 0.35 * exp(-max(0.0, b - rsh) / 0.05) * sh;
+        col += pr * vec3f(1.0, 0.82, 0.6);
+        disc = vec3f(0.0);
+        da = 0.0;
+    }
+}
+col = col * (1.0 - da) + disc;
+// A warm haze of scattered light around the disc and the hole.
+col += (0.18 + 0.15 * be) * exp(-abs(p.y) / (0.08 + 0.3 * si)) * exp(-b / 0.6) * vec3f(1.0, 0.55, 0.3)
+    * smoothstep(rsh * 0.8, rsh * 1.3, b);
+// Luminous colour, no mud: push the saturation, then roll off the
+// highlights.
+let lc = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lc) + (col - vec3f(lc)) * 1.3, vec3f(0.0));
+return col / (1.0 + 0.35 * col);
+'''
