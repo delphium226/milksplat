@@ -13,8 +13,8 @@ device, so just start your music and run it.
 | **Infinite Coil**: an endless spiral zoom | **Turing Reef**: coral that grows and melts with the music |
 | ![Lumen Cathedral](docs/images/lumen-cathedral.png) | ![Ebru Tide](docs/images/ebru-tide.png) |
 | **Lumen Cathedral**: a rose window pouring out light | **Ebru Tide**: live paper marbling |
-| ![Tesseract Drift](docs/images/tesseract-drift.png) | |
-| **Tesseract Drift**: a 4D hypercube turning inside out | |
+| ![Tesseract Drift](docs/images/tesseract-drift.png) | ![Interstice](docs/images/interstice.png) |
+| **Tesseract Drift**: a 4D hypercube turning inside out | **Interstice**: an endless flight through gates between dimensions |
 
 These are single frames; every preset moves and changes with the music.
 

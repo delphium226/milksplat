@@ -1,0 +1,225 @@
+# Interstice: an endless flight through the gaps between dimensions.
+# Every few seconds you pass through a gate: a membrane stretched across
+# a polygonal aperture, behind which lies a different pocket of space with
+# its own geometry (lattices, filaments, interference, crystal facets or
+# voxels), its own palette and its own drift, and beyond it the next gate,
+# and the next, fading into the haze. The composite shader draws eight
+# membranes in true perspective along a winding flight path (so near
+# gates sweep past faster than far ones) and composites them front to
+# back through the haze. Each gate is identified by its absolute index
+# (modulo 1000, so about an hour of flight passes before a space repeats),
+# so nothing ever resets: the nearest gate dissolves as you cross it and a
+# new one condenses out of the fog at the far end. Bass surges the flight
+# and pulses the gate rims, mids reshape every aperture and pocket,
+# treble glitters along the rims, and each kick unfolds the gates a little
+# wider (eased over half a second, never a flash). A faint trail of motes
+# in the feedback buffer streams past with the speed of travel.
+version = 1
+
+[meta]
+name = "Interstice"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+feedback_format = "fp16"
+decay = 0.9
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [32, 24]
+
+[code]
+frame = '''
+// Smoothed bands: nothing jumps from one tick to the next.
+sb = sb + (min(bass, 2.5) - sb) * 0.08;
+sm = sm + (min(mid_att, 2.5) - sm) * 0.04;
+st = st + (min(treb, 2.5) - st) * 0.2;
+// Kick envelope: jumps to the beat target over a few ticks, then releases.
+bt = max(bt * 0.95, beat);
+be = be + (bt - be) * 0.12;
+// Travel in gates per tick. The position is accumulated, never time times
+// a speed: zf is the fraction of the way to the next gate, zi the index of
+// the last gate passed (modulo 1000).
+spd = 0.0042 + 0.0065 * min(sb, 2) / 2 + 0.0025 * min(be, 1);
+zf = zf + spd;
+k = floor(zf);
+zf = zf - k;
+zi = zi + k;
+zi = zi - 1000 * floor(zi / 1000);
+q1 = zf; q2 = zi; q3 = sb; q4 = sm;
+q5 = st; q6 = be;
+// Motes stream outward with the speed of travel.
+zoom = 1 + spd * 2.2;
+'''
+
+# Motes: a sparse scatter of points, glittering with the treble, that the
+# outward zoom stretches into streaks of travel.
+[[wave]]
+enabled = true
+samples = 40
+usedots = 1
+thick = 1
+additive = 1
+r = 0.85
+g = 0.9
+b = 1.0
+a = 0.0
+frame = '''
+a = 0.12 + 0.35 * max(0, min(q5, 2.5) - 0.5) / 2;
+t1 = floor(time * 10);
+'''
+point = '''
+h1 = sin((sample * 97 + t1) * 12.9898) * 43758.5453; h1 = h1 - floor(h1);
+h2 = sin((sample * 57 + t1) * 78.233) * 24634.6345; h2 = h2 - floor(h2);
+p = h1 * 6.2832;
+d = 0.05 + 0.4 * h2;
+x = 0.5 + d * cos(p) * aspecty;
+y = 0.5 + d * sin(p);
+r = 0.6 + 0.4 * h2; g = 0.7 + 0.3 * h1; b = 1.0;
+'''
+
+[shader]
+comp = '''
+let tau = 6.2831853;
+let asp = u.texsize.x * u.texsize.w;
+let zf = u.q[0].x;
+let zi = u32(u.q[0].y + 0.5);
+let sb = u.q[0].z;
+let sm = u.q[0].w;
+let st = u.q[1].x;
+let be = u.q[1].y;
+let tm = u.time;
+// The flight path: a smooth wander, periodic over 1000 gates. Phases are
+// reduced exactly in integers so they stay precise however long it runs.
+let kc = vec4u(97u, 151u, 223u, 61u);
+let kf = vec4f(kc);
+let cph = (vec4f((kc * zi) % vec4u(1000u)) + kf * zf) / 1000.0 * tau;
+let cam = 0.3 * vec2f(sin(cph.x), cos(cph.y)) + 0.13 * vec2f(sin(cph.z + 1.0), sin(cph.w + 2.0));
+// Bank into the turns.
+let roll = 0.3 * sin(cph.y) + 0.12 * cos(cph.z);
+let cr = cos(roll);
+let sr = sin(roll);
+let p0 = (uv - vec2f(0.5)) * vec2f(asp, 1.0);
+let p = vec2f(cr * p0.x - sr * p0.y, sr * p0.x + cr * p0.y);
+let px = 2.0 * u.texsize.w;
+// The haze between pockets drifts slowly through the spectrum.
+let hz = tm * 0.006;
+let fogc = 0.5 + 0.5 * cos(tau * (vec3f(hz, hz + 0.33, hz + 0.67) + vec3f(0.0, 0.1, 0.2)));
+let haze = 0.12 + 0.7 * fogc;
+var acc = vec3f(0.0);
+var tr = 1.0;
+for (var i = 1; i <= 8; i++) {
+    let d = f32(i) - zf;
+    let nn = (zi + u32(i)) % 1000u;
+    // Per-gate dice (PCG hash of the gate's absolute index).
+    var h = nn * 747796405u + 2891336453u;
+    h = ((h >> ((h >> 28u) + 4u)) ^ h) * 277803737u;
+    h = (h >> 22u) ^ h;
+    var h2 = h * 747796405u + 2891336453u;
+    h2 = ((h2 >> ((h2 >> 28u) + 4u)) ^ h2) * 277803737u;
+    h2 = (h2 >> 22u) ^ h2;
+    let ra = f32(h & 0xffffu) / 65535.0;
+    let rb = f32(h >> 16u) / 65535.0;
+    let rc = f32(h2 & 0xffffu) / 65535.0;
+    let rd = f32(h2 >> 16u) / 65535.0;
+    let kind = h2 % 5u;
+    let sides = 3.0 + f32(h % 5u);
+    let dir = select(-1.0, 1.0, rb > 0.5);
+    // Where the gate sits on the path, seen from the camera in perspective.
+    let gph = vec4f((kc * nn) % vec4u(1000u)) / 1000.0 * tau;
+    let gpos = 0.3 * vec2f(sin(gph.x), cos(gph.y)) + 0.13 * vec2f(sin(gph.z + 1.0), sin(gph.w + 2.0));
+    let w0 = p * d + cam - gpos;
+    let ang = ra * tau + tm * 0.04 * dir;
+    let ca = cos(ang);
+    let sa = sin(ang);
+    let q = vec2f(ca * w0.x - sa * w0.y, sa * w0.x + ca * w0.y);
+    let r = length(q);
+    let th = atan2(q.y, q.x);
+    let aa = px * d;
+    // The aperture: a polygon rounding toward a circle, its edge rippled
+    // by the mids; each kick unfolds it wider.
+    let seg = tau / sides;
+    let a1 = th - seg * floor(th / seg) - 0.5 * seg;
+    let poly = cos(0.5 * seg) / cos(a1);
+    let petal = 1.0 + (0.025 + 0.035 * min(sm, 1.5)) * sin(th * sides * 2.0 + tm * 0.6 * dir);
+    let rg = 0.42 * (1.0 + 0.1 * min(be, 1.0)) * mix(1.0, poly, 0.5 + 0.5 * rc) * petal;
+    let dist = r - rg;
+    let outside = smoothstep(-aa, aa, dist);
+    // The pocket behind the membrane: its geometry and palette.
+    let fr = (5.0 + 5.0 * rd) * (1.0 + 0.12 * min(sm, 2.0));
+    let g = q * fr + vec2f(tm * 0.05 * dir, tm * 0.03);
+    // Fine detail fades to its average where it would alias.
+    let detail = smoothstep(0.5, 0.15, aa * fr);
+    var v = 0.4;
+    var w = 0.0;
+    if (kind == 0u) {
+        // Lattice: struts and glowing nodes.
+        let c = fract(g) - vec2f(0.5);
+        let strut = exp(-min(abs(c.x), abs(c.y)) * 14.0);
+        let node = exp(-dot(c, c) * 28.0);
+        v = 0.15 + 0.35 * strut + 0.9 * node;
+        w = fract(dot(floor(g), vec2f(0.37, 0.61)));
+    } else if (kind == 1u) {
+        // Filaments: ridges of a slowly boiling noise volume.
+        let nv = textureSampleLevel(sampler_noisevol_hq, s_fw, vec3f(q * 0.45, tm * 0.012 + f32(nn) * 0.071), 0.0);
+        let ridge = 1.0 - abs(2.0 * nv.x - 1.0);
+        v = 0.25 + 1.0 * pow(ridge, 5.0);
+        w = nv.y;
+    } else if (kind == 2u) {
+        // Interference: two wave sources beating against each other.
+        let s1 = sin(length(q - vec2f(0.3, 0.1)) * fr * 2.5 - tm * 1.4);
+        let s2 = sin(length(q + vec2f(0.25, 0.2)) * fr * 2.5 - tm * 1.1);
+        v = 0.2 + 0.6 * (0.5 + 0.5 * s1 * s2);
+        w = 0.3 * r + 0.2 * s1;
+    } else if (kind == 3u) {
+        // Crystal: triangular facets with bright seams.
+        let e = vec3f(g.x, 0.5 * g.x + 0.866 * g.y, -0.5 * g.x + 0.866 * g.y);
+        let fe = fract(e);
+        let edge = min(min(min(fe.x, 1.0 - fe.x), min(fe.y, 1.0 - fe.y)), min(fe.z, 1.0 - fe.z));
+        let facet = fract(dot(floor(e), vec3f(0.171, 0.293, 0.417)) * 7.31);
+        v = 0.2 + 0.45 * facet + 0.8 * exp(-edge * 20.0);
+        w = facet * 0.5;
+    } else {
+        // Voxels: a blocky pocket of quantised space.
+        let gb = g * 0.6;
+        let cell = floor(gb);
+        let cv = textureSampleLevel(sampler_noise_hq, s_pw, (cell + vec2f(0.5)) / 256.0, 0.0);
+        let cf = fract(gb);
+        let bevel = min(min(cf.x, 1.0 - cf.x), min(cf.y, 1.0 - cf.y));
+        v = 0.3 + 0.8 * cv.x * cv.x * smoothstep(0.0, 0.12, bevel);
+        w = cv.y * 0.6;
+    }
+    v = mix(0.4, v, detail);
+    let pph = rb + tm * 0.003;
+    let pal = 0.5 + 0.5 * cos(tau * (vec3f(w + pph) + vec3f(0.0, 0.33, 0.67) * (0.6 + 0.8 * ra)));
+    var col = pow(pal, vec3f(1.4)) * v * (1.0 + 0.4 * rc);
+    // Push the saturation: luminous colour, no mud.
+    let lc = dot(col, vec3f(0.3, 0.5, 0.2));
+    col = max(vec3f(lc) + (col - vec3f(lc)) * 1.6, vec3f(0.0));
+    // Atmospheric perspective: deeper pockets sink into the haze.
+    let fog = 1.0 - exp(-d * 0.25);
+    let atmo = 0.15 + 0.75 * (0.5 + 0.5 * cos(tau * (vec3f(rb + 0.15 + tm * 0.003) + vec3f(0.0, 0.33, 0.67))));
+    col = mix(col, mix(atmo, haze, 0.3), fog);
+    // Gates condense out of the fog far away and dissolve as you cross.
+    let vis = smoothstep(0.15, 0.7, d) * smoothstep(8.0, 6.2, d);
+    let alpha = (0.62 + 0.25 * ra) * outside * vis;
+    // The rim: a glowing seam that pulses with the bass, glittering with
+    // the treble.
+    let rimw = max(0.01 + 0.012 * min(sb, 2.0), aa);
+    let rim = exp(-abs(dist) / rimw);
+    let sp = textureSampleLevel(sampler_noise_hq, s_fw, vec2f(th / tau * 6.0 + tm * 0.02 * dir, f32(nn) * 0.0137), 0.0).x;
+    let glint = smoothstep(0.75, 1.0, sp) * max(0.0, min(st, 2.5) - 0.3) * exp(-abs(dist) / (rimw * 2.5));
+    let rimc = mix(vec3f(1.0), 0.5 + 0.5 * cos(tau * (vec3f(pph + 0.5) + vec3f(0.0, 0.33, 0.67))), 0.5);
+    let rimb = (0.45 + 0.3 * min(sb, 2.0) + 0.3 * min(be, 1.0)) * rim + 1.2 * glint;
+    acc += tr * vis * (1.0 - 0.5 * fog) * rimc * rimb;
+    acc += tr * alpha * col;
+    tr *= 1.0 - alpha;
+}
+// Beyond the last gate: the luminous haze of the deep.
+let core = exp(-length(p0) * 3.0);
+acc += tr * (haze * 1.2 + (0.4 + 0.6 * fogc) * core * 0.7);
+// Motes from the feedback buffer.
+acc += textureSampleLevel(sampler_main, s_fw, uv, 0.0).rgb * 0.8;
+return acc / (1.0 + 0.3 * acc);
+'''
