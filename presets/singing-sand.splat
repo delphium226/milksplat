@@ -1,0 +1,223 @@
+# Singing Sand: a Chladni plate. A bright, coloured plate rings in one of
+# its standing-wave modes and a scatter of luminous sand dances off the
+# parts that move and gathers on the nodal lines, the curves that stay
+# still, drawing the mode's figure. When the music changes the mode, the
+# sand does not snap to the new figure: it streams across the plate along
+# the new vibration and settles into it.
+#
+# The feedback buffer holds the sand (density in red, a colour tag in
+# green). The warp shader moves it down the gradient of the plate's
+# squared displacement f^2 (velocity -f grad f), and, so that the sand
+# piles up rather than smearing, scales it by how much that flow
+# converges (the continuity equation, using the divergence computed
+# analytically). The plate's displacement is the classic square-plate
+# combination f = cos(n pi x) cos(m pi y) +/- cos(m pi x) cos(n pi y);
+# during a change of mode the old and new modes are cross-faded, so the
+# nodal lines morph.
+#
+# Mids and bass (smoothed) pick the mode from a table ordered by
+# complexity, with hysteresis and a minimum hold so it never jitters; a
+# slow wander through the table keeps it changing on steady music.
+# Treble sprinkles fresh grains and makes the sand shimmer. Each kick
+# shakes the plate: the sand is jostled loose, eased in over a few ticks,
+# and settles again.
+version = 1
+
+[meta]
+name = "Singing Sand"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+feedback_format = "fp16"
+decay = 1.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [16, 12]
+b1n = 0.0
+b1x = 4.0
+
+[code]
+init = '''
+// Mode table (m, n, sign), ordered by m^2 + n^2.
+megabuf(0) = 2; megabuf(1) = 3; megabuf(2) = 1;
+megabuf(3) = 1; megabuf(4) = 4; megabuf(5) = -1;
+megabuf(6) = 3; megabuf(7) = 4; megabuf(8) = 1;
+megabuf(9) = 1; megabuf(10) = 5; megabuf(11) = 1;
+megabuf(12) = 2; megabuf(13) = 5; megabuf(14) = -1;
+megabuf(15) = 3; megabuf(16) = 5; megabuf(17) = -1;
+megabuf(18) = 4; megabuf(19) = 5; megabuf(20) = 1;
+megabuf(21) = 3; megabuf(22) = 6; megabuf(23) = -1;
+megabuf(24) = 2; megabuf(25) = 7; megabuf(26) = 1;
+megabuf(27) = 5; megabuf(28) = 6; megabuf(29) = 1;
+cur = 2;
+ma = 3; na = 4; sa = 1;
+mb = 3; nb = 4; sgb = 1;
+w = 1;
+ht = 0;
+'''
+frame = '''
+// Smoothed bands.
+sbs = sbs + (min(bass_att, 2.5) - sbs) * 0.02;
+sm = sm + (min(mid_att, 2.5) - sm) * 0.02;
+st = st + (min(treb, 2.5) - st) * 0.15;
+// Kick envelope: rises over a few ticks, then releases.
+bt = max(bt * 0.93, beat);
+be = be + (bt - be) * 0.15;
+// Two slow wanders through the table (accumulated, wrapped).
+d1 = d1 + 0.0011;
+d1 = d1 - 6.2831853 * floor(d1 / 6.2831853);
+d2 = d2 + 0.00047;
+d2 = d2 - 6.2831853 * floor(d2 / 6.2831853);
+lev = 0.6 * sm + 0.4 * sbs;
+cv = 3.5 + (lev - 0.9) * 4 + 2.6 * sin(d1) + 1.4 * sin(d2 + 1.3);
+cv = max(0, min(9.99, cv));
+// Hysteresis and a minimum hold; a kick lowers the threshold a little.
+ht = ht + 1;
+thr = if(be > 0.5, 0.65, 1.0);
+if(w >= 1 && ht > 300 && abs(cv - (cur + 0.5)) > thr,
+  cur = floor(cv);
+  ma = mb; na = nb; sa = sgb;
+  mb = megabuf(cur * 3); nb = megabuf(cur * 3 + 1); sgb = megabuf(cur * 3 + 2);
+  w = 0;
+  ht = 0,
+  0);
+w = min(1, w + 1 / 180);
+ws = w * w * (3 - 2 * w);
+// Colour drift (accumulated, wrapped).
+hue = hue + 0.0004 + 0.0004 * min(sm, 2) / 2;
+hue = hue - floor(hue);
+q1 = ma; q2 = na; q3 = sa; q4 = ws;
+q5 = mb; q6 = nb; q7 = sgb; q8 = be;
+q9 = st; q10 = sbs; q11 = sm; q12 = hue;
+'''
+
+[shader]
+warp = '''
+let pi = 3.14159265;
+let asp = u.texsize.x * u.texsize.w;
+// Plate coordinates: y up, 1 at the top and bottom edges.
+let p = vec2f((uv_orig.x - 0.5) * asp, 0.5 - uv_orig.y) * 2.0;
+let ma = u.q[0].xyz;
+let mb = u.q[1].xyz;
+let ws = u.q[0].w;
+let be = min(u.q[1].w, 1.0);
+let st = max(0.0, min(u.q[2].x, 2.5) - 0.3);
+let sb = min(u.q[2].y, 2.0) * 0.5;
+let k = 0.62;
+// f, its gradient and its Laplacian, cross-faded between the two modes.
+var f = 0.0;
+var g = vec2f(0.0);
+var lap = 0.0;
+var lam = 0.0;
+for (var i = 0; i < 2; i++) {
+    let md = select(ma, mb, i == 1);
+    let wt = select(1.0 - ws, ws, i == 1);
+    let a = md.x * pi * k;
+    let b = md.y * pi * k;
+    let cax = cos(a * p.x);
+    let sax = sin(a * p.x);
+    let cay = cos(a * p.y);
+    let say = sin(a * p.y);
+    let cbx = cos(b * p.x);
+    let sbx = sin(b * p.x);
+    let cby = cos(b * p.y);
+    let sby = sin(b * p.y);
+    let fi = cbx * cay + md.z * cax * cby;
+    let gi = vec2f(-b * sbx * cay - md.z * a * sax * cby, -a * cbx * say - md.z * b * cax * sby);
+    let li = -(a * a + b * b) * fi;
+    f += wt * fi;
+    g += wt * gi;
+    lap += wt * li;
+    lam += wt * (a * a + b * b);
+}
+// Velocity -K f grad f (plate units per tick), scaled so every mode
+// settles at a similar pace.
+let kk = (0.08 + 0.03 * sb) / lam;
+let v = -kk * f * g;
+let div = -kk * (dot(g, g) + f * lap);
+// A kick jostles the sand loose: a random shove of a pixel or two.
+let px = 2.0 * u.texsize.w;
+let fc = vec2u(uv_orig * u.texsize.xy);
+var h = fc.x * 73856093u ^ fc.y * 19349663u ^ u32(u.frame) * 83492791u;
+h = h * 747796405u + 2891336453u;
+h = ((h >> ((h >> 28u) + 4u)) ^ h) * 277803737u;
+h = (h >> 22u) ^ h;
+let ra = f32(h & 0xffu) / 255.0;
+let rb = f32((h >> 8u) & 0xffu) / 255.0;
+let rc = f32((h >> 16u) & 0xffffu) / 65535.0;
+let jit = (vec2f(ra, rb) - vec2f(0.5)) * px * 3.0 * be;
+let sp = p - v * (1.0 - 0.6 * be) + jit;
+let src = vec2f(sp.x / asp * 0.5 + 0.5, 0.5 - sp.y * 0.5);
+var s = textureSampleLevel(sampler_main, s_fc, src, 0.0).rgb;
+// Converging flow piles the sand up; diverging flow thins it.
+// A slow fade, faster where the sand is piled deep, keeps the lines
+// fine and the plate bright.
+s *= clamp(1.0 - div, 0.85, 1.2) * (0.994 - 0.006 * smoothstep(1.0, 3.0, s.x));
+// Fresh grains rain onto the plate, more with the treble.
+let rate = 0.0009 + 0.002 * st;
+if (rc < rate) {
+    let tag = fract(u.q[2].w * 3.0 + rb * 0.35);
+    s += vec3f(0.9, 0.9 * tag, 0.0);
+}
+let d = min(s.x, 5.0);
+return vec3f(d, min(s.y, d), 0.0);
+'''
+comp = '''
+let pi = 3.14159265;
+let tau = 6.2831853;
+let asp = u.texsize.x * u.texsize.w;
+let p = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y) * 2.0;
+let ma = u.q[0].xyz;
+let mb = u.q[1].xyz;
+let ws = u.q[0].w;
+let be = min(u.q[1].w, 1.0);
+let st = max(0.0, min(u.q[2].x, 2.5) - 0.3);
+let sb = min(u.q[2].y, 2.0) * 0.5;
+let sm = min(u.q[2].z, 2.0) * 0.5;
+let hue = u.q[2].w;
+let k = 0.62;
+var f = 0.0;
+for (var i = 0; i < 2; i++) {
+    let md = select(ma, mb, i == 1);
+    let wt = select(1.0 - ws, ws, i == 1);
+    let a = md.x * pi * k;
+    let b = md.y * pi * k;
+    f += wt * (cos(b * p.x) * cos(a * p.y) + md.z * cos(a * p.x) * cos(b * p.y));
+}
+// The plate: a vivid, slowly shifting gradient; the antinodes (where it
+// moves most) shimmer with interference colours as it rings.
+let pa = clamp(abs(f) * 0.5, 0.0, 1.0);
+let h0 = hue + 0.12 * p.x / asp + 0.08 * p.y;
+let c1 = 0.5 + 0.5 * cos(tau * (vec3f(h0) + vec3f(0.0, 0.33, 0.67)));
+let c2 = 0.5 + 0.5 * cos(tau * (vec3f(h0 + 0.18 + 0.1 * f) + vec3f(0.0, 0.33, 0.67)));
+let ring = 0.5 + 0.5 * sin(f * 5.0 - u.time * 1.3);
+var plate = mix(c1, c2, pa) * (0.42 + 0.12 * sb + 0.22 * pa * (0.6 + 0.4 * ring));
+// Push the saturation.
+let lp = dot(plate, vec3f(0.3, 0.5, 0.2));
+plate = max(vec3f(lp) + (plate - vec3f(lp)) * 1.5, vec3f(0.0)) + vec3f(0.06, 0.04, 0.1);
+// A soft vignette toward the plate's edges.
+plate *= 1.0 - 0.25 * smoothstep(0.6, 1.3, length(p / vec2f(asp, 1.0)));
+// The sand: density in red, colour tag in green.
+let s = textureSampleLevel(sampler_main, s_fc, uv, 0.0).rgb;
+let bl = GetBlur1(uv);
+let dens = s.x;
+let tag = s.y / max(dens, 1e-3);
+let cover = 1.0 - exp(-dens * 1.1);
+// Each grain glints: a fixed grain pattern, with sparkles that shimmer
+// with the treble.
+let gp = textureSampleLevel(sampler_noise_hq, s_pw, uv * u.texsize.xy / 256.0, 0.0);
+// (A slowly drifting noise volume, so the twinkle fades rather than
+// switching from tick to tick.)
+let tw = textureSampleLevel(sampler_noisevol_hq, s_fw, vec3f(uv * u.texsize.xy / 24.0, u.time * 0.35), 0.0).x;
+let grain = 0.75 + 0.4 * gp.x;
+let spark = smoothstep(0.82, 1.0, tw) * (0.4 + 1.2 * st) * cover;
+let sandc = mix(vec3f(1.0, 0.92, 0.72), 0.75 + 0.25 * cos(tau * (vec3f(tag + hue + 0.5) + vec3f(0.0, 0.33, 0.67))), 0.45);
+var col = mix(plate, sandc * grain * (1.05 + 0.3 * be), cover);
+col += spark * vec3f(1.0, 0.97, 0.9);
+// Glow round the sand lines.
+let glow = 1.0 - exp(-bl.x * 0.9);
+col += glow * 0.2 * sandc * (0.8 + 0.4 * sm);
+return col / (1.0 + 0.25 * col);
+'''
