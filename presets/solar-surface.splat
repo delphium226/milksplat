@@ -1,0 +1,209 @@
+# Solar Surface: the edge of the sun filling the lower right of the frame,
+# its photosphere boiling with granulation cells, dark sunspots with
+# streaked penumbrae drifting by as it turns, and magnetic loops and a
+# ragged prominence arcing off the limb into black space.
+#
+# All in the composite shader. The disc is a sphere: each pixel finds its
+# point on the surface, turned by the sun's slow rotation (a phase the
+# frame code advances), and evaluates 3D cellular noise there, so the
+# granules foreshorten toward the limb: bright cell centres, dark lanes
+# where the two nearest cells meet, each granule's feature point wandering
+# and its brightness swelling and fading on its own phase of a boiling
+# clock. Limb darkening reddens and dims the edge. Three sunspots sit at
+# fixed places on the surface and come round with the rotation: a dark
+# umbra and a penumbra streaked radially. Above the limb a pink
+# chromosphere fringe flickers, four loops of glowing plasma arch between
+# footpoints on the limb with knots of light running along them, and a
+# hedgerow prominence rises in ragged filaments.
+#
+# Bass speeds the boiling and the rotation and lifts the loops. Mids
+# sharpen the granulation lanes and swell the prominence. Treble sets
+# bright points twinkling in the lanes. Each kick flares a loop's
+# footpoints, eased.
+version = 1
+
+[meta]
+name = "Solar Surface"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+bo = 0; ro = 0.3; fl = 0;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+sm = sm + (min(mid_att, 2.5) - sm) * 0.03;
+st = st + (min(treb_att, 2.5) - st) * 0.1;
+bt = max(bt * 0.94, beat);
+be = be + (bt - be) * 0.08;
+// The boiling clock (wrapped).
+bo = bo + 0.006 + 0.012 * min(sb, 2) / 2;
+bo = bo - 6.2831853 * floor(bo / 6.2831853);
+// The rotation (wrapped).
+ro = ro + 0.00025 + 0.00025 * min(sb, 2) / 2;
+ro = ro - 6.2831853 * floor(ro / 6.2831853);
+// Plasma running along the loops (wrapped).
+fl = fl + 0.004 + 0.004 * min(sb, 2) / 2;
+fl = fl - floor(fl);
+q1 = bo; q2 = ro; q3 = fl; q4 = sb;
+q5 = sm; q6 = st; q7 = be;
+'''
+
+[shader]
+comp = '''
+let tau = 6.2831853;
+let asp = u.texsize.x * u.texsize.w;
+let bo = u.q[0].x;
+let ro = u.q[0].y;
+let fl = u.q[0].z;
+let sb = min(u.q[0].w, 2.0) * 0.5;
+let sm = min(u.q[1].x, 2.0) * 0.5;
+let st = max(0.0, min(u.q[1].y, 2.5) - 0.3);
+let be = min(u.q[1].z, 1.0);
+let p = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
+let cs = vec2f(0.5, -0.86);
+let rs = 1.0;
+let dp = p - cs;
+let r = length(dp);
+let th = atan2(dp.y, dp.x);
+let px = u.texsize.w;
+var col = vec3f(0.0);
+// Black space with the faintest corona.
+let hgt = r - rs;
+col += vec3f(1.0, 0.45, 0.15) * exp(-max(hgt, 0.0) / 0.09) * 0.12;
+col += vec3f(0.6, 0.25, 0.1) * exp(-max(hgt, 0.0) / 0.35) * 0.05;
+if (r < rs + 2.0 * px) {
+    // The point on the surface, turned by the rotation.
+    let q2 = dp / rs;
+    let z = sqrt(max(1.0 - dot(q2, q2), 0.0));
+    let n = vec3f(q2, z);
+    let ca = cos(ro);
+    let sa = sin(ro);
+    // The rotation axis leans a little toward the viewer.
+    let nt = vec3f(n.x, n.y * 0.97 + n.z * 0.24, -n.y * 0.24 + n.z * 0.97);
+    let sp = vec3f(ca * nt.x + sa * nt.z, nt.y, -sa * nt.x + ca * nt.z);
+    // Granulation: 3D cellular noise.
+    let gp = sp * 46.0;
+    let gi = floor(gp);
+    var f1 = 9.0;
+    var f2 = 9.0;
+    var h1 = vec4f(0.0);
+    for (var i = -1; i <= 1; i++) {
+        for (var j = -1; j <= 1; j++) {
+            for (var k = -1; k <= 1; k++) {
+                let c = gi + vec3f(f32(i), f32(j), f32(k));
+                let hh = fract(sin(vec4f(dot(c, vec3f(127.1, 311.7, 74.7)), dot(c, vec3f(269.5, 183.3, 246.1)),
+                    dot(c, vec3f(113.5, 271.9, 124.6)), dot(c, vec3f(19.3, 47.9, 91.7)))) * 43758.5453);
+                let jit = 0.5 + 0.33 * vec3f(sin(bo + tau * hh.x), cos(bo + tau * hh.y), sin(bo + tau * hh.z));
+                let d = length(gp - c - jit);
+                if (d < f1) {
+                    f2 = f1;
+                    f1 = d;
+                    h1 = hh;
+                } else if (d < f2) {
+                    f2 = d;
+                }
+            }
+        }
+    }
+    let lane = smoothstep(0.0, 0.2 + 0.25 * (1.0 - sm), f2 - f1);
+    let cell = (0.8 + 0.2 * sin(bo + tau * h1.w)) * (1.0 - 0.75 * f1 * f1);
+    // Supergranulation: a broad, slow mottling.
+    let sg = textureSampleLevel(sampler_noise_lq, s_fw, vec2f(atan2(sp.x, sp.z) * 0.6, sp.y * 1.9), 0.0).x;
+    var g = mix(0.35, 1.0, lane) * cell * (0.85 + 0.25 * sg) * 2.1;
+    // Sunspots, fixed on the surface: umbra and streaked penumbra.
+    var spot = 1.0;
+    var sdirs = array<vec3f, 3>(normalize(vec3f(-0.3, 0.8, 0.5)), normalize(vec3f(0.5, 0.75, -0.4)),
+        normalize(vec3f(-0.62, 0.7, -0.3)));
+    var srad = array<f32, 3>(0.1, 0.07, 0.085);
+    for (var i = 0; i < 3; i++) {
+        let sd = sdirs[i];
+        let ang = acos(clamp(dot(sp, sd), -1.0, 1.0)) / srad[i];
+        if (ang < 1.6) {
+            // Radial streaks around the spot.
+            let tg = normalize(cross(sd, vec3f(0.0, 1.0, 0.0)));
+            let bt = cross(sd, tg);
+            let az = atan2(dot(sp, bt), dot(sp, tg));
+            let strk = textureSampleLevel(sampler_noise_hq, s_fw, vec2f(az * 3.0 + f32(i) * 0.37, f32(i) * 0.21), 0.0).x;
+            let umb = smoothstep(0.55, 0.4, ang);
+            spot = min(spot, mix(1.0, mix(0.4 + 0.3 * strk, 0.08, umb), smoothstep(1.5, 1.05, ang)));
+        }
+    }
+    g *= spot;
+    // Treble: bright points twinkling in the lanes.
+    let tw = pow(max(0.0, sin(u.time * (2.0 + 4.0 * h1.y) + h1.z * 60.0)), 10.0) * step(0.85, h1.x);
+    g += (1.0 - lane) * tw * st * 0.9 * spot;
+    // Limb darkening, reddening toward the edge.
+    let mu = z;
+    let ld = 0.35 + 0.65 * pow(mu, 0.55);
+    let hot = vec3f(1.0, 0.82, 0.45);
+    let warm = vec3f(1.0, 0.42, 0.08);
+    let tint = mix(warm, hot, smoothstep(0.0, 0.9, mu));
+    var disc = tint * g * ld * (1.0 + 0.15 * sb);
+    // Lanes are deep orange rather than black.
+    disc += vec3f(0.3, 0.07, 0.0) * (1.0 - lane) * ld * spot;
+    let edge = smoothstep(rs + 1.5 * px, rs - 1.5 * px, r);
+    col = mix(col, disc, edge);
+}
+// Above the limb: the chromosphere fringe, flickering.
+if (hgt > -0.01) {
+    let fn1 = textureSampleLevel(sampler_noise_mq, s_fw, vec2f(th * 9.0 + ro * 1.3, bo * 0.03), 0.0).x;
+    let fn2 = textureSampleLevel(sampler_noise_hq, s_fw, vec2f(th * 40.0 + ro * 6.0, bo * 0.05 + 0.5), 0.0).x;
+    let h0 = 0.008 + 0.014 * fn1 + 0.01 * fn2;
+    let chrom = exp(-max(hgt - h0, 0.0) / 0.005) * smoothstep(-0.01, 0.002, hgt);
+    col += vec3f(1.0, 0.25, 0.32) * chrom * 0.85;
+    // The hedgerow prominence: ragged filaments over a stretch of limb.
+    let wp = exp(-pow((th - 2.05) / 0.13, 2.0));
+    let ph = (0.1 + 0.1 * sm) * wp * (0.7 + 0.6 * fn1);
+    if (ph > 0.004) {
+        let fil = textureSampleLevel(sampler_noise_lq, s_fw, vec2f(th * 12.0, hgt * 2.2 - fl * 0.5), 0.0).x;
+        let fil2 = textureSampleLevel(sampler_noise_lq, s_fw, vec2f(th * 5.0 + 0.3, hgt * 1.2 - fl * 0.3), 0.0).x;
+        let dens = smoothstep(ph, ph * 0.3, hgt) * smoothstep(0.35, 0.8, fil * 0.6 + fil2 * 0.6);
+        col += vec3f(1.0, 0.3, 0.38) * dens * 0.9 * step(0.0, hgt);
+    }
+}
+// Magnetic loops arching between footpoints on the limb.
+var lc = array<f32, 4>(1.2, 1.45, 1.72, 2.45);
+var lw2 = array<f32, 4>(0.1, 0.065, 0.13, 0.085);
+var lh = array<f32, 4>(0.1, 0.06, 0.15, 0.085);
+for (var i = 0; i < 4; i++) {
+    let tc = lc[i];
+    let dt = lw2[i];
+    let h = lh[i] * (0.8 + 0.45 * sb);
+    let pa = cs + rs * vec2f(cos(tc - dt), sin(tc - dt));
+    let pb = cs + rs * vec2f(cos(tc + dt), sin(tc + dt));
+    let pm = cs + (rs + h) * vec2f(cos(tc), sin(tc));
+    // The circle through the two footpoints and the apex.
+    let ax = pb - pa;
+    let bx = pm - pa;
+    let dd = 2.0 * (ax.x * bx.y - ax.y * bx.x);
+    let cc = pa + vec2f(bx.y * dot(ax, ax) - ax.y * dot(bx, bx), ax.x * dot(bx, bx) - bx.x * dot(ax, ax)) / dd;
+    let rr = length(pa - cc);
+    // Two strands, side by side.
+    let lr = length(p - cc);
+    let dl = min(abs(lr - rr), abs(lr - rr + 0.012) * 1.4);
+    // Only the part above the limb.
+    let above = smoothstep(-0.004, 0.01, hgt);
+    // Knots of plasma running from one footpoint to the other.
+    let av = atan2(p.y - cc.y, p.x - cc.x);
+    let kn = 0.7 + 0.3 * sin(av * 6.0 - fl * tau * 2.0 + f32(i) * 1.7);
+    let glow = (exp(-dl / 0.005) * 1.1 * kn + exp(-dl / 0.025) * 0.3) * above;
+    col += mix(vec3f(1.0, 0.45, 0.2), vec3f(1.0, 0.85, 0.6), kn * 0.5) * glow;
+    // A kick flares the footpoints.
+    if (i == 2) {
+        let fp = exp(-length(p - pa) / 0.03) + exp(-length(p - pb) / 0.03);
+        col += vec3f(1.0, 0.8, 0.5) * fp * be * 0.6;
+    }
+}
+let lum = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lum) + (col - vec3f(lum)) * 1.15, vec3f(0.0));
+return col / (1.0 + 0.35 * col);
+'''
