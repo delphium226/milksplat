@@ -48,7 +48,7 @@ const HAT_SEED: u64 = 0x4A75_6E6B_4861_7473;
 const RGBA8: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 
 /// The bundled presets, by file stem. `presets/` must hold exactly these.
-const BUNDLED: [&str; 27] = [
+const BUNDLED: [&str; 28] = [
     "default",
     "ink-bloom",
     "bass-tunnel",
@@ -76,6 +76,7 @@ const BUNDLED: [&str; 27] = [
     "spiral-galaxy",
     "bubble-chamber",
     "fractal-reliquary",
+    "cosmic-web",
 ];
 
 // ------------------------------------------------------------ synthetic audio
@@ -481,6 +482,7 @@ preset_tests! {
     preset_spiral_galaxy => "spiral-galaxy",
     preset_bubble_chamber => "bubble-chamber",
     preset_fractal_reliquary => "fractal-reliquary",
+    preset_cosmic_web => "cosmic-web",
 }
 
 /// `presets/` holds exactly the bundled set (so every file has a test
@@ -513,7 +515,7 @@ fn bundled_set_is_complete() {
 /// runs: a minute for those with long-running state (accumulated phases,
 /// state machines), twenty seconds for the rest (enough for their feedback
 /// to settle; every bundled preset but the gentle default is covered).
-const LONG_RUN: [(&str, usize); 26] = [
+const LONG_RUN: [(&str, usize); 27] = [
     ("ink-bloom", 1200),
     ("bass-tunnel", 1200),
     ("prism-drift", 1200),
@@ -540,6 +542,7 @@ const LONG_RUN: [(&str, usize); 26] = [
     ("spiral-galaxy", 3600),
     ("bubble-chamber", 3600),
     ("fractal-reliquary", 3600),
+    ("cosmic-web", 3600),
 ];
 
 /// A cheap guard against flashing that only develops over time (for

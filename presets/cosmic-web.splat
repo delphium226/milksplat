@@ -1,0 +1,233 @@
+# Cosmic Web: a slow flight through the large-scale structure of the
+# universe. Galaxy clusters burn as knots where filaments of galaxies
+# meet; between them the filaments stretch as faint glowing threads, and
+# around them yawn the empty voids. Matter streams along every filament
+# toward its nearest knot, so the knots keep gathering light.
+#
+# The web is three layers at successive octaves of depth, drawn per pixel:
+# each scatters knots on a jittered grid (some cells empty, to open the
+# voids; each knot with its own mass) and joins every pixel's nearest knot
+# to its next two, through a gently curving space, so the threads wind.
+# The view zooms in without end: each layer grows, brightens and fades
+# away past the eye as the next one rises out of the distance, the layers'
+# seeds walking on so the web never repeats.
+#
+# The streaming matter lives in the feedback buffer. The warp shader
+# zooms it with the web, carries it along the threads toward the nearest
+# knot (the same knots, computed the same way) and sprinkles new matter
+# along the threads, so it flows in bright beads into the knots and fades
+# there. The composite shader lays the threads, the knots, the matter and
+# a faint dust of distant galaxies over a near-black, deep-blue sky.
+#
+# Bass speeds the flight and the streaming (both accumulated, never time
+# times the bass). Mids thicken and brighten the threads. Treble makes the
+# distant galaxies twinkle. Each kick flares the knots, eased in and out.
+version = 1
+
+[meta]
+name = "Cosmic Web"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+feedback_format = "fp16"
+decay = 1.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [16, 12]
+
+[code]
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+sm = sm + (min(mid_att, 2.5) - sm) * 0.03;
+st = st + (min(treb, 2.5) - st) * 0.15;
+bt = max(bt * 0.94, beat);
+be = be + (bt - be) * 0.12;
+// The flight: the log of the zoom, accumulated, quicker with the bass,
+// wrapped after 64 octaves (the layers' seeds repeat every 64).
+dl = 0.0009 + 0.0022 * min(sb, 2) / 2 + 0.0006 * min(be, 1);
+lz = lz + dl;
+lz = lz - 0.69314718 * 64 * floor(lz / (0.69314718 * 64));
+oc = lz / 0.69314718;
+hu = hu + 0.0002;
+hu = hu - floor(hu);
+q1 = oc - floor(oc);
+q2 = floor(oc);
+q3 = dl;
+// The streaming speed, in cells per tick.
+q4 = 0.004 + 0.008 * min(sb, 2) / 2;
+q5 = sb; q6 = sm; q7 = st; q8 = be;
+q9 = hu;
+'''
+
+[shader]
+warp = '''
+let asp = u.texsize.x * u.texsize.w;
+let ff = u.q[0].x;
+let cnt = u.q[0].y;
+let dl = u.q[0].z;
+let spd = u.q[0].w;
+// Screen position, y up, 2 units high.
+let p = vec2f((uv_orig.x - 0.5) * asp, 0.5 - uv_orig.y) * 2.0;
+var v = vec2f(0.0);
+var inj = 0.0;
+for (var k = 0; k < 3; k++) {
+    let x = f32(k) - ff;
+    let wk = pow(sin(3.14159265 * (x + 1.0) / 3.0), 2.0);
+    let fk = 1.6 * exp2(x);
+    let seed = (cnt + f32(k)) % 64.0;
+    let so = vec2f(seed * 13.17, seed * 7.31);
+    var c = p * fk + so;
+    let wn = textureSampleLevel(sampler_noise_lq, s_fw, c * 0.06, 0.0).xy - 0.5;
+    c += wn * 0.7;
+    var d1 = 1e9;
+    var d2 = 1e9;
+    var d3 = 1e9;
+    var p1 = vec2f(0.0);
+    var p2 = vec2f(0.0);
+    var p3 = vec2f(0.0);
+    var m1 = 0.0;
+    var m2 = 0.0;
+    var m3 = 0.0;
+    let ci = floor(c - 0.5);
+    for (var j = 0; j < 16; j++) {
+        let id = ci + vec2f(f32(j % 4) - 1.0, f32(j / 4) - 1.0);
+        let h = fract(sin(vec3f(dot(id, vec2f(127.1, 311.7)), dot(id, vec2f(269.5, 183.3)), dot(id, vec2f(419.2, 371.9)))) * 43758.5453);
+        if (h.z < 0.32) { continue; }
+        let pt = id + 0.5 + (h.xy - 0.5) * 0.8;
+        let dd = dot(c - pt, c - pt);
+        let m = (h.z - 0.32) / 0.68;
+        if (dd < d1) {
+            d3 = d2; p3 = p2; m3 = m2;
+            d2 = d1; p2 = p1; m2 = m1;
+            d1 = dd; p1 = pt; m1 = m;
+        } else if (dd < d2) {
+            d3 = d2; p3 = p2; m3 = m2;
+            d2 = dd; p2 = pt; m2 = m;
+        } else if (dd < d3) {
+            d3 = dd; p3 = pt; m3 = m;
+        }
+    }
+    // The threads from the nearest knot to the next two.
+    var fil = 0.0;
+    for (var e = 0; e < 2; e++) {
+        let pb = select(p2, p3, e == 1);
+        let mb = select(m2, m3, e == 1);
+        let db = select(d2, d3, e == 1);
+        let ba = pb - p1;
+        let pa = c - p1;
+        let hh = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-6), 0.0, 1.0);
+        let ds = length(pa - ba * hh);
+        let st = sqrt(m1 * mb) * (1.0 - smoothstep(1.3, 2.1, length(ba))) * select(1.0, 0.0, db > 1e8);
+        fil = max(fil, st * exp(-ds * ds / 0.004));
+    }
+    let to = p1 - c;
+    let tl = max(length(to), 1e-4);
+    // Toward the knot, slowing as it arrives.
+    v += wk * fil * (to / tl) * min(tl * 6.0, 1.0) * spd / fk;
+    // New matter, in beads along the threads.
+    let bn = textureSampleLevel(sampler_noisevol_lq, s_fw, vec3f(c * 1.3, u.time * 0.12 + f32(k) * 0.3), 0.0).x;
+    inj += wk * fil * smoothstep(0.66, 0.82, bn) * 0.09;
+}
+// Back along the zoom and the stream.
+let src = p * exp(-dl) - v;
+let suv = vec2f(src.x / (2.0 * asp) + 0.5, 0.5 - src.y * 0.5);
+let prev = textureSampleLevel(sampler_main, s_fc, suv, 0.0).rgb;
+return prev * 0.965 + vec3f(inj);
+'''
+comp = '''
+let tau = 6.2831853;
+let asp = u.texsize.x * u.texsize.w;
+let ff = u.q[0].x;
+let cnt = u.q[0].y;
+let sb = min(u.q[1].x, 2.0) * 0.5;
+let sm = min(u.q[1].y, 2.0) * 0.5;
+let st = max(0.0, min(u.q[1].z, 2.5) - 0.4);
+let be = min(u.q[1].w, 1.0);
+let hu = u.q[2].x;
+let p = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y) * 2.0;
+// Two hues: the threads from violet to blue, the knots warm.
+let ht = 0.2 + 0.12 * sin(tau * hu);
+let kn = vec3f(1.0, 0.72, 0.42);
+// The sky: near-black deep blue, a little lighter in the middle.
+var col = vec3f(0.004, 0.006, 0.018) * (1.0 + 1.5 * exp(-dot(p, p) * 0.5));
+var dust = 0.0;
+for (var k = 0; k < 3; k++) {
+    let x = f32(k) - ff;
+    let wk = pow(sin(3.14159265 * (x + 1.0) / 3.0), 2.0);
+    // Nearer layers are brighter.
+    let near = wk * (1.25 - 0.3 * x);
+    let fk = 1.6 * exp2(x);
+    let seed = (cnt + f32(k)) % 64.0;
+    let so = vec2f(seed * 13.17, seed * 7.31);
+    var c = p * fk + so;
+    let wn = textureSampleLevel(sampler_noise_lq, s_fw, c * 0.06, 0.0).xy - 0.5;
+    c += wn * 0.7;
+    // The threads' hue: nearer layers rosier, further ones bluer.
+    var pt3 = 0.5 + 0.5 * cos(tau * (vec3f(ht + 0.07 * x) + vec3f(0.0, 0.33, 0.67)));
+    pt3 = pt3 * pt3 / max(max(pt3.r * pt3.r, pt3.g * pt3.g), max(pt3.b * pt3.b, 0.05));
+    // Cell units per pixel.
+    let cpx = fk * 2.0 * u.texsize.w;
+    var d1 = 1e9;
+    var d2 = 1e9;
+    var d3 = 1e9;
+    var p1 = vec2f(0.0);
+    var p2 = vec2f(0.0);
+    var p3 = vec2f(0.0);
+    var m1 = 0.0;
+    var m2 = 0.0;
+    var m3 = 0.0;
+    let ci = floor(c - 0.5);
+    for (var j = 0; j < 16; j++) {
+        let id = ci + vec2f(f32(j % 4) - 1.0, f32(j / 4) - 1.0);
+        let h = fract(sin(vec3f(dot(id, vec2f(127.1, 311.7)), dot(id, vec2f(269.5, 183.3)), dot(id, vec2f(419.2, 371.9)))) * 43758.5453);
+        if (h.z < 0.32) { continue; }
+        let pt = id + 0.5 + (h.xy - 0.5) * 0.8;
+        let dd = dot(c - pt, c - pt);
+        let m = (h.z - 0.32) / 0.68;
+        if (dd < d1) {
+            d3 = d2; p3 = p2; m3 = m2;
+            d2 = d1; p2 = p1; m2 = m1;
+            d1 = dd; p1 = pt; m1 = m;
+        } else if (dd < d2) {
+            d3 = d2; p3 = p2; m3 = m2;
+            d2 = dd; p2 = pt; m2 = m;
+        } else if (dd < d3) {
+            d3 = dd; p3 = pt; m3 = m;
+        }
+    }
+    var core = 0.0;
+    var halo = 0.0;
+    for (var e = 0; e < 2; e++) {
+        let pb = select(p2, p3, e == 1);
+        let mb = select(m2, m3, e == 1);
+        let db = select(d2, d3, e == 1);
+        let ba = pb - p1;
+        let pa = c - p1;
+        let hh = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-6), 0.0, 1.0);
+        let ds = length(pa - ba * hh);
+        let s = sqrt(m1 * mb) * (1.0 - smoothstep(1.3, 2.1, length(ba))) * select(1.0, 0.0, db > 1e8);
+        // A core at least a pixel and a half wide, and a soft halo.
+        let wc = max(0.012 + 0.012 * sm, cpx * 0.8);
+        core = max(core, s * exp(-ds * ds / (wc * wc)) * min(0.025 / wc, 1.0));
+        halo = max(halo, s * exp(-ds / (0.09 + 0.05 * sm)));
+    }
+    col += pt3 * (core * (1.2 + 0.6 * sm) + halo * (0.26 + 0.14 * sm)) * near;
+    // The knots: the nearest one's glow, by its mass.
+    let kd = d1 / (m1 * m1 * 0.02 + 0.0015);
+    col += (kn * 0.45 / (1.0 + kd * 1.5) + vec3f(1.0, 0.95, 0.9) * exp(-kd * 1.5) * 0.9) * m1 * near * (0.8 + 0.6 * be);
+    dust += near * halo;
+}
+// Distant galaxies: a fine dust, thicker near the threads, twinkling with
+// the treble.
+let gn = textureSampleLevel(sampler_noise_hq, s_pw, uv * u.texsize.xy / 256.0, 0.0);
+let tw = 0.5 + 0.5 * sin(u.time * (2.0 + 3.0 * gn.y) + gn.z * tau);
+col += vec3f(0.7, 0.8, 1.0) * smoothstep(0.93, 1.0, gn.x) * (0.08 + 0.4 * dust) * (0.6 + 0.4 * tw + st * 0.8 * tw);
+// The streaming matter.
+let mt = textureSampleLevel(sampler_main, s_fc, uv, 0.0).rgb;
+col += vec3f(0.55, 0.9, 1.0) * (1.0 - exp(-mt * 2.5)) * 1.2;
+let lc = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lc) + (col - vec3f(lc)) * 1.2, vec3f(0.0)) * 1.2;
+return col / (1.0 + 0.3 * col);
+'''
