@@ -1,0 +1,175 @@
+# Cymatics: a dish of dark water set ringing by the music, seen from above
+# with a light shining through it. Circular waves spread from a source at
+# the centre and from two rings of sources around it; where they cross
+# they interfere into a standing mandala of rings and petals, its nodal
+# lines fixed while the ripples run through them. The water's surface
+# bends the light under it into caustics: bright, sharp filaments where
+# the curved surface focuses the light, over a floor that stays dark
+# everywhere else.
+#
+# The composite shader sums the waves analytically: for each source, the
+# height cos(k r - phase) and its gradient and second derivatives, in
+# closed form. The caustic brightness is the focusing of light through the
+# surface, 1 / |det(I + H)|, H being the surface's (scaled) Hessian, which
+# blows up into bright lines where the light folds over itself. The
+# filaments are tinted by the height of the water over them (teal in the
+# troughs, gold on the crests), and the crests catch a glint of
+# a lamp overhead. A faint rim of light marks the dish's edge.
+#
+# The spectrum drives the sources: the bass swells the central source's
+# wide rings, the mids the ring of six (the petals) and the treble the
+# fine ripples of the ring of eight. Each group's ripples run outward on
+# their own accumulated phase, quicker as its band rises (never time times
+# the audio), and the rings of sources turn slowly. Each kick drops a
+# pebble: a ring wave that spreads from a random point and fades, eased
+# in, at most one every 0.6 seconds.
+version = 1
+
+[meta]
+name = "Cymatics"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+feedback_format = "rgba8"
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+da = 9;
+dt = 100;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.04;
+sm = sm + (min(mid_att, 2.5) - sm) * 0.04;
+st = st + (min(treb_att, 2.5) - st) * 0.06;
+bt = max(bt * 0.94, beat);
+be = be + (bt - be) * 0.12;
+// Each group's phase (accumulated, wrapped), quicker with its band.
+pb = pb + 0.03 + 0.05 * min(sb, 2) / 2;
+pb = pb - 6.2831853 * floor(pb / 6.2831853);
+pm = pm + 0.04 + 0.06 * min(sm, 2) / 2;
+pm = pm - 6.2831853 * floor(pm / 6.2831853);
+pt = pt + 0.06 + 0.08 * min(st, 2) / 2;
+pt = pt - 6.2831853 * floor(pt / 6.2831853);
+// The rings of sources turn slowly (wrapped).
+rr = rr + 0.0008;
+rr = rr - 6.2831853 * floor(rr / 6.2831853);
+// A pebble on a kick (at most every 0.6 s).
+dt = dt + 1;
+da = da + 1 / 60;
+if(dt > 36 && be > 0.5,
+  ex = (rand(1000) / 1000 - 0.5) * 0.9;
+  ey = (rand(1000) / 1000 - 0.5) * 0.9;
+  da = 0; dt = 0,
+  0);
+hu = hu + 0.00025;
+hu = hu - floor(hu);
+// Each group's strength.
+q1 = 0.006 + 0.008 * min(sb, 2) / 2;
+q2 = 0.002 + 0.0035 * min(sm, 2) / 2;
+q3 = 0.0002 + 0.0007 * min(st, 2) / 2;
+q4 = pb; q5 = pm; q6 = pt; q7 = rr;
+q8 = ex; q9 = ey; q10 = da;
+q11 = hu; q12 = be;
+'''
+
+[shader]
+comp = '''
+let tau = 6.2831853;
+let asp = u.texsize.x * u.texsize.w;
+let ab = u.q[0].x;
+let am = u.q[0].y;
+let at = u.q[0].z;
+let pb = u.q[0].w;
+let pm = u.q[1].x;
+let pt = u.q[1].y;
+let rr = u.q[1].z;
+let dp = vec2f(u.q[1].w, u.q[2].x);
+let da = u.q[2].y;
+let hu = u.q[2].z;
+let be = min(u.q[2].w, 1.0);
+// The dish: y up, radius 1 fills the height.
+let p = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y) * 1.8;
+var hgt = 0.0;
+var g = vec2f(0.0);
+var hxx = 0.0;
+var hxy = 0.0;
+var hyy = 0.0;
+for (var i = 0; i < 16; i++) {
+    var s = vec2f(0.0);
+    var k = 13.0;
+    var a = ab;
+    var ph = pb;
+    var dec = 0.0;
+    if (i >= 1 && i < 7) {
+        let an = rr + f32(i - 1) * tau / 6.0;
+        s = vec2f(cos(an), sin(an)) * 0.48;
+        k = 23.0;
+        a = am;
+        ph = pm;
+        dec = 1.2;
+    } else if (i >= 7 && i < 15) {
+        let an = -rr * 1.5 + f32(i - 7) * tau / 8.0 + 0.2;
+        s = vec2f(cos(an), sin(an)) * 0.78;
+        k = 41.0;
+        a = at;
+        ph = pt;
+        dec = 1.6;
+    } else if (i == 15) {
+        // The pebble's ring wave, spreading and fading.
+        s = dp;
+        k = 30.0;
+        let rd = da * 0.55;
+        let r0 = length(p - s);
+        a = 0.0016 * exp(-pow((r0 - rd) / 0.14, 2.0)) * exp(-da * 0.9) * min(da * 4.0, 1.0) * (0.6 + 0.4 * be);
+        ph = k * rd;
+    }
+    let d = p - s;
+    let r = sqrt(dot(d, d) + 0.0004);
+    let un = d / r;
+    let w = a * exp(-r * dec);
+    let c = cos(k * r - ph);
+    let sn = sin(k * r - ph);
+    hgt += w * c;
+    g += -w * k * sn * un;
+    // Hessian: radial curvature along u, the ring's curvature across it.
+    let hr = -w * k * k * c;
+    let ht = -w * k * sn / r;
+    hxx += hr * un.x * un.x + ht * (1.0 - un.x * un.x);
+    hyy += hr * un.y * un.y + ht * (1.0 - un.y * un.y);
+    hxy += (hr - ht) * un.x * un.y;
+}
+// The focusing of the light through the surface.
+let det = (1.0 + hxx) * (1.0 + hyy) - hxy * hxy;
+let foc = 1.0 / max(abs(det), 0.04);
+let ca = clamp(foc - 0.6, 0.0, 25.0);
+let cau = 1.0 - exp(-ca * 0.22);
+// The tint, from the height over the floor.
+let hn = clamp(hgt / (ab + am + at + 1e-4) * 0.8, -1.0, 1.0);
+let h1 = 0.48 + 0.04 * sin(tau * hu);
+let h2 = 0.9 + 0.03 * sin(tau * hu + 2.0);
+var c1 = 0.5 + 0.5 * cos(tau * (vec3f(h1) + vec3f(0.0, 0.33, 0.67)));
+var c2 = 0.5 + 0.5 * cos(tau * (vec3f(h2) + vec3f(0.0, 0.33, 0.67)));
+c1 = c1 * c1 / max(c1.r * c1.r, max(c1.g * c1.g, c1.b * c1.b));
+c2 = c2 * c2 / max(c2.r * c2.r, max(c2.g * c2.g, c2.b * c2.b));
+let tint = mix(c1, c2, smoothstep(-0.6, 0.6, hn));
+let rp = length(p);
+let inside = smoothstep(1.0, 0.97, rp);
+// Dark water, faintly lit from below in the middle.
+var col = vec3f(0.006, 0.012, 0.026) * (0.5 + 0.8 * exp(-rp * rp * 1.5));
+col += tint * (cau * 1.45 + 0.07 * min(foc, 3.0)) * inside;
+// A glint of the lamp overhead on the crests.
+let n = normalize(vec3f(-g * 22.0, 1.0));
+let hv = normalize(vec3f(0.3, 0.4, 1.0));
+col += vec3f(1.0, 0.92, 0.8) * pow(max(dot(n, hv), 0.0), 120.0) * 0.6 * inside;
+// The dish's rim.
+col += mix(c1, vec3f(1.0), 0.3) * exp(-abs(rp - 1.0) * 60.0) * 0.25;
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.15, vec3f(0.0));
+return col / (1.0 + 0.3 * col);
+'''

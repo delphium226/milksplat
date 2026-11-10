@@ -27,8 +27,8 @@ device, so just start your music and run it.
 | **Bubble Chamber**: particle tracks curling into spirals in a magnetic field | **Fractal Reliquary**: an orbiting flight through the carved halls of a breathing Mandelbox |
 | ![Cosmic Web](docs/images/cosmic-web.png) | ![Quantum Orbitals](docs/images/quantum-orbitals.png) |
 | **Cosmic Web**: a flight through glowing filaments of galaxies streaming into their clusters | **Quantum Orbitals**: glowing hydrogen electron clouds melting from one quantum state to the next |
-| ![Ferrofluid](docs/images/ferrofluid.png) | |
-| **Ferrofluid**: black magnetic fluid rising into a hexagonal forest of glossy spikes with the bass | |
+| ![Ferrofluid](docs/images/ferrofluid.png) | ![Cymatics](docs/images/cymatics.png) |
+| **Ferrofluid**: black magnetic fluid rising into a hexagonal forest of glossy spikes with the bass | **Cymatics**: ringing water focusing light into a caustic mandala of rings and petals |
 
 These are single frames; every preset moves and changes with the music.
 
