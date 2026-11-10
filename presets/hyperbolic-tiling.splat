@@ -1,0 +1,211 @@
+# Hyperbolic Tiling: the Poincare disc, tiled by regular p-gons meeting q
+# at every vertex ({p,q} with 1/p + 1/q < 1/2, so the plane is
+# hyperbolic and the tiles shrink without end toward the rim), drawn per
+# pixel in the composite shader with glowing edges and burning vertices.
+#
+# Each pixel is folded into the fundamental triangle of the central tile:
+# a dihedral fold puts it in the wedge of angle pi/p, then, while it lies
+# inside the circle that carries the tile's edge (orthogonal to the rim,
+# meeting the wedge's side at pi/q), it is inverted in that circle, and
+# folded again (at most 40 times). The number of inversions says which
+# ring of tiles it is in and the parity of all the reflections gives the
+# classic alternating triangles; the stretch the folds applied gives
+# lines of a constant width on screen, and where the tiles grow smaller
+# than a few pixels near the rim they fade to their average glow.
+#
+# The disc drifts under hyperbolic translations, a Moebius map
+# z -> (z - a) / (1 - conj(a) z) whose a wanders inside the disc, and
+# turns slowly, so tiles sweep in from the rim, swell through the centre
+# and shrink away again.
+#
+# Bass drives the drift (an accumulated phase, never time times the bass)
+# and how far it reaches. Mids turn the tiling and light the triangle web
+# inside the tiles. Treble glints along the edges. A kick (at most every
+# eight seconds) eases, over a second, to a new {p,q}.
+version = 1
+
+[meta]
+name = "Hyperbolic Tiling"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+feedback_format = "rgba8"
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+pa = 7; qa = 3;
+pb = 7; qb = 3;
+wb = 1;
+ht = 0;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+sm = sm + (min(mid_att, 2.5) - sm) * 0.03;
+st = st + (min(treb, 2.5) - st) * 0.12;
+bt = max(bt * 0.94, beat);
+be = be + (bt - be) * 0.12;
+// The drift (accumulated, wrapped), quicker with the bass.
+dr = dr + 0.0018 + 0.004 * min(sb, 2) / 2;
+dr = dr - 6.2831853 * 13 * floor(dr / (6.2831853 * 13));
+// How far from the centre the translation reaches.
+am = 0.42 + 0.18 * min(sb, 2) / 2;
+ax = am * (0.75 * sin(dr * 1.0) + 0.25 * sin(dr * 2.3 + 1.0));
+ay = am * (0.75 * cos(dr * 0.77 + 0.4) + 0.25 * sin(dr * 1.9 + 2.0));
+// The turn (accumulated, wrapped), quicker with the mids.
+rt = rt + 0.0008 + 0.0022 * min(sm, 2) / 2;
+rt = rt - 6.2831853 * floor(rt / 6.2831853);
+// A new {p,q} on a kick, at most every eight seconds and at least every
+// thirty.
+ht = ht + 1;
+if(wb >= 1 && ht > 480 && (be > 0.55 || ht > 1800),
+  pa = pb; qa = qb;
+  k = rand(8);
+  k = if(abs(k - kk) < 0.5, (k + 3) % 8, k);
+  kk = k;
+  pb = if(k < 1, 4, if(k < 2, 5, if(k < 3, 3, if(k < 4, 6, if(k < 5, 4, if(k < 6, 8, if(k < 7, 5, 7)))))));
+  qb = if(k < 1, 5, if(k < 2, 4, if(k < 3, 8, if(k < 4, 4, if(k < 5, 6, if(k < 6, 3, if(k < 7, 5, 3)))))));
+  wb = 0;
+  ht = 0,
+  0);
+wb = min(1, wb + 1 / 60);
+ws = wb * wb * (3 - 2 * wb);
+hu = hu + 0.0005;
+hu = hu - floor(hu);
+q1 = pa; q2 = qa; q3 = pb; q4 = qb;
+q5 = ws; q6 = ax; q7 = ay; q8 = rt;
+q9 = hu; q10 = sb; q11 = sm; q12 = st;
+q13 = be;
+'''
+
+[shader]
+comp = '''
+let tau = 6.2831853;
+let pi = 3.14159265;
+let asp = u.texsize.x * u.texsize.w;
+let ws = u.q[1].x;
+let av = u.q[1].yz;
+let rt = u.q[1].w;
+let hu = u.q[2].x;
+let sb = min(u.q[2].y, 2.0) * 0.5;
+let sm = min(u.q[2].z, 2.0) * 0.5;
+let st = max(0.0, min(u.q[2].w, 2.5) - 0.4);
+let be = min(u.q[3].x, 1.0);
+// The disc fills the height of the screen.
+let rd = 0.97;
+let s0 = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y) * 2.0 / rd;
+let r0 = length(s0);
+// Outside the disc, a dim mirror image of it (inverted in the rim: the
+// other hemisphere of the sphere), so the tiling fills the screen.
+let outside = r0 > 1.0;
+let sz = select(s0, s0 / (r0 * r0), outside);
+// Disc units per line-width unit: a pixel, or more above 540 lines, so
+// the picture looks the same at any size.
+let pxd = max(2.0 * u.texsize.w, 2.0 / 540.0) / rd;
+let px0 = select(pxd, pxd / (r0 * r0), outside);
+var acc = vec3f(0.0);
+{
+    // The Moebius drift: w = (z - a) / (1 - conj(a) z), then a turn.
+    let num = sz - av;
+    let den = vec2f(1.0 - (av.x * sz.x + av.y * sz.y), -(av.x * sz.y - av.y * sz.x));
+    let dd = dot(den, den);
+    let w0 = vec2f(num.x * den.x + num.y * den.y, num.y * den.x - num.x * den.y) / dd;
+    let cr = cos(rt);
+    let sr = sin(rt);
+    let w1 = vec2f(cr * w0.x - sr * w0.y, sr * w0.x + cr * w0.y);
+    let scl0 = (1.0 - dot(av, av)) / dd;
+    for (var cfg = 0; cfg < 2; cfg++) {
+        let wt = select(1.0 - ws, ws, cfg == 1);
+        if (wt < 0.002) {
+            continue;
+        }
+        let p = select(u.q[0].x, u.q[0].z, cfg == 1);
+        let q = select(u.q[0].y, u.q[0].w, cfg == 1);
+        let th = pi / p;
+        let sp = sin(th);
+        let cq = cos(pi / q);
+        // The edge circle: orthogonal to the rim (c^2 = 1 + r^2), meeting
+        // the wedge's side at pi/q.
+        let r2 = sp * sp / (cq * cq - sp * sp);
+        let rr = sqrt(r2);
+        let cc = sqrt(1.0 + r2);
+        let ctr = vec2f(cc, 0.0);
+        let sec = 2.0 * th;
+        var z = w1;
+        var scl = scl0;
+        var n = 0.0;
+        var par = 0.0;
+        for (var i = 0; i < 40; i++) {
+            // Dihedral fold into the wedge [0, pi/p].
+            var a = atan2(z.y, z.x);
+            a = a - sec * floor(a / sec);
+            if (a > th) {
+                a = sec - a;
+                par += 1.0;
+            }
+            z = length(z) * vec2f(cos(a), sin(a));
+            let d = z - ctr;
+            let d2 = dot(d, d);
+            if (d2 >= r2) {
+                break;
+            }
+            z = ctr + d * (r2 / d2);
+            scl = scl * r2 / d2;
+            n += 1.0;
+            par += 1.0;
+        }
+        let px = px0 / max(scl, 1e-9);
+        // Distances, in pixels, to the tile's edge, to the triangle web
+        // inside it, and to its vertex.
+        let de = abs(length(z - ctr) - rr) / px;
+        let nl = vec2f(-sin(th), cos(th));
+        let dw = min(abs(z.y), abs(dot(z, nl))) / px;
+        let ct = cos(th);
+        let tv = cc * ct - sqrt(max(cc * cc * ct * ct - 1.0, 0.0));
+        let dv = length(z - tv * vec2f(ct, sin(th))) / px;
+        // Tile colours: by ring of tiles, the triangles alternating.
+        let odd = par - 2.0 * floor(par * 0.5);
+        let h = hu + 0.13 * n + 0.04 * odd;
+        var pal = 0.5 + 0.5 * cos(tau * (vec3f(h) + vec3f(0.0, 0.33, 0.67)));
+        pal = pal * pal;
+        pal = pal / max(max(pal.r, pal.g), max(pal.b, 0.05));
+        // A dark fill, a soft glow at the centre of every tile.
+        let cg = exp(-length(z) / (0.25 * tv + 0.01));
+        var col = pal * (0.14 + 0.1 * odd + 0.3 * cg * (0.6 + 0.6 * sm));
+        // The web, lit by the mids.
+        col += pal * (exp(-dw / 1.2) * (0.2 + 0.35 * sm) + exp(-dw / 6.0) * 0.08);
+        // The edges: a hot core and a coloured halo; treble glints along
+        // them.
+        let gl = textureSampleLevel(sampler_noisevol_hq, s_fw, vec3f(z * 2.0 + vec2f(n * 0.37, odd * 0.5), u.time * 0.25), 0.0).x;
+        let glint = smoothstep(0.62, 0.9, gl) * st * 1.4;
+        let edge = exp(-de / (1.7 + 0.6 * sb)) * (1.1 + 0.4 * sb + 0.4 * be + glint) + exp(-de / 11.0) * (0.4 + 0.2 * be);
+        col += mix(pal, vec3f(1.0), 0.3) * edge;
+        // The vertices burn.
+        col += vec3f(1.0, 0.92, 0.8) * (exp(-dv / 1.6) * 1.2 + exp(-dv / 8.0) * 0.25);
+        // Where the tiles shrink to a few pixels, fade to their average.
+        let size = tv / px;
+        let avg = pal * (0.18 + 0.06 * sm) + vec3f(0.06, 0.05, 0.04) * (1.0 + sb);
+        col = mix(avg, col, smoothstep(3.0, 14.0, size));
+        acc += wt * col;
+    }
+    // The crowded tiles darken toward the rim; the mirror image outside
+    // is dim and fades away from it.
+    let rz = length(sz);
+    acc *= 0.4 + 0.6 * smoothstep(1.0, 0.85, rz);
+    acc *= select(1.0, 0.35 * exp(-(r0 - 1.0) * 1.2), outside);
+}
+// The rim of the disc: a thin glowing circle, and a faint halo outside.
+let dr = abs(r0 - 1.0) / pxd;
+let rim = exp(-dr / 1.2) * 0.8 + exp(-abs(r0 - 1.0) / 0.05) * 0.15;
+let rh = hu + 0.5 + 0.12 * s0.x;
+let rc = 0.5 + 0.5 * cos(tau * (vec3f(rh) + vec3f(0.0, 0.33, 0.67)));
+var col = acc + rc * rim * (0.8 + 0.4 * be) + vec3f(0.008, 0.006, 0.02);
+let lc = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lc) + (col - vec3f(lc)) * 1.2, vec3f(0.0));
+return col / (1.0 + 0.3 * col);
+'''
