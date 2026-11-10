@@ -1,0 +1,178 @@
+# Fractal Reliquary: a flight through the halls of a Mandelbox, ray-marched
+# per pixel in the composite shader. Ten times over, space is folded back
+# into a box (a point beyond a face is reflected through it), then folded
+# through a sphere (inverted in it, or scaled up inside a smaller core),
+# then scaled by a negative factor and shifted back by the starting point;
+# the running derivative of all that gives a bound on the distance to the
+# fractal. With a scale near -1.8 the box grows into carved chambers,
+# pierced domes and ribbed vaults, and the camera orbits slowly inside
+# them, looking toward the centre, drifting nearer and further.
+#
+# Each ray marches at most 90 steps, stopping a pixel's width from the
+# surface. The surface is dark lacquer: it glows where it turns away from
+# the eye (a rim light that outlines every edge), along veins of warm
+# light that follow the folds' orbit trap, and in a haze where rays graze
+# it. Crevices that took many steps to reach fall into shadow (an ambient
+# occlusion from the march), and the far halls fade into the dark.
+#
+# Bass breathes the folds: the scale deepens with the smoothed bass and
+# the box's fold limit sways on a phase that quickens with it
+# (accumulated, never time times the bass). Mids reshape the sphere fold,
+# opening and closing the pierced domes. Treble makes the veins glitter.
+# Each kick flares the rims and the haze, eased in and out.
+version = 1
+
+[meta]
+name = "Fractal Reliquary"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+feedback_format = "rgba8"
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.02;
+sm = sm + (min(mid_att, 2.5) - sm) * 0.02;
+st = st + (min(treb, 2.5) - st) * 0.15;
+bt = max(bt * 0.94, beat);
+be = be + (bt - be) * 0.1;
+// The breath (accumulated, wrapped), quicker with the bass.
+bp = bp + 0.006 + 0.014 * min(sb, 2) / 2;
+bp = bp - 6.2831853 * floor(bp / 6.2831853);
+// The sphere fold's sway (accumulated, wrapped), quicker with the mids.
+ra = ra + 0.0007 + 0.0022 * min(sm, 2) / 2;
+ra = ra - 6.2831853 * floor(ra / 6.2831853);
+// The camera's orbit (wrapped).
+ca = ca + 0.0016 + 0.0008 * min(sb, 2) / 2;
+ca = ca - 6.2831853 * floor(ca / 6.2831853);
+hu = hu + 0.00025;
+hu = hu - floor(hu);
+// The scale deepens with the bass; the box fold sways with the breath;
+// the sphere fold's core radius (squared) sways with the mids.
+q1 = -1.72 - 0.12 * min(sb, 2) / 2 - 0.03 * sin(bp);
+q2 = 1 + (0.02 + 0.05 * min(sb, 2) / 2) * sin(bp * 2 + 0.6);
+q3 = 0.22 + 0.08 * sin(ra); q4 = ca;
+q5 = hu; q6 = sb; q7 = st; q8 = be;
+'''
+
+[shader]
+comp = '''
+let tau = 6.2831853;
+let asp = u.texsize.x * u.texsize.w;
+let sc0 = u.q[0].x;
+let fl = u.q[0].y;
+let mr2 = u.q[0].z;
+let ca = u.q[0].w;
+let hu = u.q[1].x;
+let sb = min(u.q[1].y, 2.0) * 0.5;
+let st = max(0.0, min(u.q[1].z, 2.5) - 0.4);
+let be = min(u.q[1].w, 1.0);
+// The camera, orbiting and rising and sinking slowly.
+let el = 0.35 + 0.3 * sin(u.time * 0.019);
+let cd = 3.4 + 0.4 * sin(u.time * 0.013 + 1.0);
+let ro = vec3f(cos(ca) * cos(el), sin(el), sin(ca) * cos(el)) * cd;
+let fw = normalize(-ro);
+let rt = normalize(cross(fw, vec3f(0.0, 1.0, 0.0)));
+let up = cross(rt, fw);
+let sp = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
+let rd = normalize(fw * 1.2 + rt * sp.x + up * sp.y);
+let pxa = u.texsize.w / 1.2;
+let bb = dot(ro, rd);
+let disc = bb * bb - dot(ro, ro) + 49.0;
+var t = max(-bb - sqrt(max(disc, 0.0)), 0.0);
+let tmax = -bb + sqrt(max(disc, 0.0));
+var hit = false;
+var steps = 0.0;
+var glow = 0.0;
+var trap = 0.0;
+let asc = abs(sc0);
+if (disc > 0.0) {
+    for (var k = 0; k < 90; k++) {
+        let p = ro + rd * t;
+        var z = p;
+        var dr = 1.0;
+        var tr = 1e3;
+        for (var i = 0; i < 10; i++) {
+            z = clamp(z, vec3f(-fl), vec3f(fl)) * 2.0 - z;
+            let r2 = dot(z, z);
+            let m = select(select(1.0, 1.0 / r2, r2 < 1.0), 1.0 / mr2, r2 < mr2);
+            z *= m;
+            dr *= m;
+            z = z * sc0 + p;
+            dr = dr * asc + 1.0;
+            tr = min(tr, r2);
+        }
+        let d = length(z) / abs(dr);
+        glow += exp(-d * 6.0);
+        steps += 1.0;
+        if (d < t * pxa * 0.6) {
+            hit = true;
+            trap = tr;
+            break;
+        }
+        t += d * 0.95;
+        if (t > tmax) { break; }
+    }
+}
+let sky = vec3f(0.006, 0.006, 0.018) + vec3f(0.01, 0.004, 0.02) * (1.0 - abs(sp.y));
+// Two hues: one wandering from magenta through blue to cyan, and a warm
+// accent from gold to rose.
+let he = 0.335 + 0.165 * sin(tau * hu);
+let hb = 0.93 + 0.07 * sin(tau * hu * 2.0 + 1.0);
+let pa = 0.5 + 0.5 * cos(tau * (vec3f(he) + vec3f(0.0, 0.33, 0.67)));
+let pb = 0.5 + 0.5 * cos(tau * (vec3f(hb) + vec3f(0.0, 0.33, 0.67)));
+let ca2 = pa * pa / max(max(pa.r * pa.r, pa.g * pa.g), max(pa.b * pa.b, 0.05));
+let cb2 = pb * pb / max(max(pb.r * pb.r, pb.g * pb.g), max(pb.b * pb.b, 0.05));
+var col = sky + cb2 * glow * (0.008 + 0.006 * be + 0.004 * sb);
+if (hit) {
+    let p0 = ro + rd * t;
+    let e = max(t * pxa, 1e-4);
+    var n = vec3f(0.0);
+    for (var j = 0; j < 4; j++) {
+        let o = select(select(select(vec3f(1.0, -1.0, -1.0), vec3f(-1.0, -1.0, 1.0), j == 1), vec3f(-1.0, 1.0, -1.0), j == 2), vec3f(1.0, 1.0, 1.0), j == 3);
+        let p = p0 + o * e;
+        var z = p;
+        var dr = 1.0;
+        for (var i = 0; i < 10; i++) {
+            z = clamp(z, vec3f(-fl), vec3f(fl)) * 2.0 - z;
+            let r2 = dot(z, z);
+            let m = select(select(1.0, 1.0 / r2, r2 < 1.0), 1.0 / mr2, r2 < mr2);
+            z *= m;
+            dr *= m;
+            z = z * sc0 + p;
+            dr = dr * asc + 1.0;
+        }
+        n += o * (length(z) / abs(dr));
+    }
+    n = normalize(n + vec3f(1e-7));
+    let ao = pow(clamp(1.0 - steps / 90.0, 0.0, 1.0), 2.0);
+    let lt = normalize(vec3f(0.5, 0.8, 0.3));
+    let dif = max(dot(n, lt), 0.0);
+    let dif2 = max(dot(n, normalize(vec3f(-0.6, -0.5, -0.4))), 0.0);
+    let fr = pow(1.0 - abs(dot(n, rd)), 3.0);
+    let spc = pow(max(dot(n, normalize(lt - rd)), 0.0), 40.0);
+    // Veins along the orbit trap, glittering with the treble.
+    let lt2 = sqrt(trap) * 2.2 + hu * 6.0;
+    let vf = abs(fract(lt2) - 0.5);
+    let gn = textureSampleLevel(sampler_noise_hq, s_pw, uv * u.texsize.xy / 256.0, 0.0).x;
+    let vein = exp(-vf * vf * 160.0) * (0.7 + st * 1.4 * smoothstep(0.6, 0.95, gn));
+    let ph = fract(lt2 * 0.3);
+    let pv = 0.5 + 0.5 * cos(tau * (vec3f(he + 0.13 * sin(tau * ph)) + vec3f(0.0, 0.33, 0.67)));
+    var sc = vec3f(0.015, 0.015, 0.025) + (pv * pv * (0.025 + 0.2 * dif) + cb2 * 0.08 * dif2) * ao;
+    sc += mix(ca2, pv, 0.5) * fr * (1.5 + 0.5 * sb + 0.4 * be) * (0.3 + 0.7 * ao);
+    sc += cb2 * vein * 1.5 * ao;
+    sc += vec3f(1.0, 0.95, 0.9) * spc * 0.5 * ao;
+    let fog = exp(-max(t - 0.6, 0.0) * 0.42);
+    col = mix(col, sc, fog);
+}
+let lc = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lc) + (col - vec3f(lc)) * 1.35, vec3f(0.0));
+col *= 1.12;
+return col / (1.0 + 0.35 * col);
+'''
