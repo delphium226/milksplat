@@ -31,8 +31,8 @@ device, so just start your music and run it.
 | **Ferrofluid**: black magnetic fluid rising into a hexagonal forest of glossy spikes with the bass | **Cymatics**: ringing water focusing light into a caustic mandala of rings and petals |
 | ![Three Body Problem](docs/images/three-body.png) | ![Boreal Veil](docs/images/boreal-veil.png) |
 | **Three Body Problem**: three chaotic orbiting masses weaving luminous gravitational field lines | **Boreal Veil**: northern-lights curtains folding over a dark ridge and a mirror lake |
-| ![Plasma Globe](docs/images/plasma-globe.png) | |
-| **Plasma Globe**: branching violet lightning writhing from a hot electrode to the glass | |
+| ![Plasma Globe](docs/images/plasma-globe.png) | ![Soap Film](docs/images/soap-film.png) |
+| **Plasma Globe**: branching violet lightning writhing from a hot electrode to the glass | **Soap Film**: rainbow interference bands swirling through a draining soap film |
 
 These are single frames; every preset moves and changes with the music.
 

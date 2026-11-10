@@ -1,0 +1,178 @@
+# Soap Film: a soap film stretched across a wire ring in the dark, its
+# colours swirling as the liquid drains and churns, with a few bubbles
+# drifting up past it.
+#
+# The colours are thin-film interference, worked out per pixel from the
+# film's thickness: light reflected from the front and the back of the
+# film interferes, so each wavelength's reflectance is sin^2(2 pi n d /
+# lambda) for a film d thick (n = 1.33), taken at red, green and blue.
+# Where the film is thinnest, near the top, it reflects almost nothing
+# (the black film); lower down it runs through gold, magenta, blue and
+# green in bands, then into paler pinks and greens where it is thickest.
+# The thickness field drains downward and is stirred by two wandering
+# eddies that twist it back and forth and two layers of smooth swirling
+# flow, each on its own accumulated phase. The bubbles show the
+# same colours in rings, bright at their rims where the light glances off
+# and clear in the middle.
+#
+# Bass churns the film harder and swells its billows. Mids add the finer
+# eddies. Treble sets glints twinkling across the film.
+# Each kick sends a gentle ring of thickening out from the middle, eased
+# in and out.
+version = 1
+
+[meta]
+name = "Soap Film"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+feedback_format = "rgba8"
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+rt = 9;
+b1 = 0.1; b2 = 0.35; b3 = 0.6; b4 = 0.8; b5 = 0.95;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+sm = sm + (min(mid_att, 2.5) - sm) * 0.03;
+st = st + (min(treb_att, 2.5) - st) * 0.1;
+bt = max(bt * 0.94, beat);
+be = be + (bt - be) * 0.1;
+// The flows' phases through the noise volume (accumulated, wrapped to
+// the volume's period of 1).
+f1 = f1 + 0.0009 + 0.0022 * min(sb, 2) / 2;
+f1 = f1 - floor(f1);
+f2 = f2 + 0.0015 + 0.002 * min(sm, 2) / 2;
+f2 = f2 - floor(f2);
+f3 = f3 + 0.0011;
+f3 = f3 - floor(f3);
+// A slow turn of the whole film.
+sw = sw + 0.0012 + 0.002 * min(sb, 2) / 2;
+sw = sw - 6.2831853 * floor(sw / 6.2831853);
+// A ring of thickening on a kick, at most every 1.5 seconds.
+rt = rt + 1 / 60;
+if(be > 0.5 && rt > 1.5, rt = 0, 0);
+// The bubbles rising.
+b1 = b1 + 0.0011; b1 = b1 - floor(b1);
+b2 = b2 + 0.0008; b2 = b2 - floor(b2);
+b3 = b3 + 0.0013; b3 = b3 - floor(b3);
+b4 = b4 + 0.0009; b4 = b4 - floor(b4);
+b5 = b5 + 0.0012; b5 = b5 - floor(b5);
+q1 = sb; q2 = sm; q3 = st; q4 = be;
+q5 = f1; q6 = f2; q7 = f3; q8 = sw;
+q9 = rt; q10 = b1; q11 = b2; q12 = b3;
+q13 = b4; q14 = b5;
+'''
+
+[shader]
+comp = '''
+let tau = 6.2831853;
+let asp = u.texsize.x * u.texsize.w;
+let sb = min(u.q[0].x, 2.0) * 0.5;
+let sm = min(u.q[0].y, 2.0) * 0.5;
+let st = max(0.0, min(u.q[0].z, 2.5) - 0.3);
+let be = min(u.q[0].w, 1.0);
+let f1 = u.q[1].x;
+let f2 = u.q[1].y;
+let f3 = u.q[1].z;
+let sw = u.q[1].w;
+let rt = u.q[2].x;
+let p = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
+let lam = vec3f(650.0, 532.0, 460.0);
+let nn = 1.33;
+let rr = 0.47;
+let pf = p / rr;
+let r = length(pf);
+// ---- The film in the ring.
+let cs = cos(0.25 * sin(sw));
+let sn = sin(0.25 * sin(sw));
+var pr = vec2f(cs * pf.x - sn * pf.y, sn * pf.x + cs * pf.y);
+// Two eddies, wandering, each twisting the film back and forth.
+for (var v = 0; v < 2; v++) {
+    let fv = f32(v);
+    let vc = vec2f(0.45 * sin(f1 * tau + fv * 2.5), -0.1 + 0.35 * sin(f2 * tau * 2.0 + fv * 1.9));
+    let dv = pr - vc;
+    let tw = (1.6 + 1.4 * sb) * sin(f1 * tau * 3.0 + fv * 3.1) * exp(-dot(dv, dv) / 0.12);
+    let ct = cos(tw);
+    let stw = sin(tw);
+    pr = vc + vec2f(ct * dv.x - stw * dv.y, stw * dv.x + ct * dv.y);
+}
+// Two layers of swirling flow (smooth sine fields, so the bands never
+// crease), each on its own accumulated phase.
+let a1 = f1 * tau;
+let a2 = f2 * tau;
+let w1 = vec2f(sin(pr.y * 2.3 + a1) + 0.5 * sin(pr.y * 1.1 - pr.x * 1.7 - a1 * 2.0),
+    sin(pr.x * 2.1 - a1 + 1.3) + 0.5 * sin(pr.x * 1.3 + pr.y * 1.9 + a1 * 3.0 + 0.5));
+let pw = pr + w1 * (0.12 + 0.12 * sb);
+let w2 = vec2f(sin(pw.y * 5.3 - a2 * 2.0 + 0.7) + 0.6 * sin(pw.x * 4.1 + pw.y * 3.2 + a2 * 3.0),
+    sin(pw.x * 4.7 + a2 * 2.0 + 2.1) + 0.6 * sin(pw.y * 4.4 - pw.x * 2.9 - a2 * 4.0));
+let pw2 = pw + w2 * (0.025 + 0.045 * sm);
+let n3 = textureSampleLevel(sampler_noisevol_lq, s_fw, vec3f(pw2 * 0.12, f3), 0.0).x;
+// Draining: thin at the top, thick at the bottom.
+let dr = smoothstep(-1.3, 1.2, -pw2.y);
+var th = 15.0 + 1000.0 * dr * dr + 160.0 * (n3 - 0.5) * (0.6 + 0.6 * sb);
+// The kick's ring of thickening.
+let rk = rt * 0.7;
+th += 110.0 * exp(-pow((r - rk) / 0.12, 2.0)) * smoothstep(0.0, 0.25, rt) * exp(-rt * 1.3);
+th = max(th, 0.0);
+let ph = tau * nn * th / lam;
+let film = sin(ph) * sin(ph);
+// The light it reflects: a soft window and a dimmer fill.
+let lw = 0.55 + 0.45 * smoothstep(1.1, -0.2, length(pf - vec2f(-0.35, 0.35)));
+let inside = smoothstep(1.0, 0.985, r);
+var col = vec3f(0.006, 0.006, 0.014);
+col += vec3f(0.03, 0.02, 0.05) * exp(-max(r - 1.0, 0.0) * 2.5) * (1.0 - inside);
+let fl = dot(film, vec3f(0.33));
+let fc = max(vec3f(fl) + (film - vec3f(fl)) * 1.7, vec3f(0.0));
+col = mix(col, fc * (0.62 + 0.18 * sb) * lw, inside);
+// Treble: glints twinkling on the film.
+let lwp = max(1.0, u.texsize.y / 360.0);
+let gc = floor(uv * u.texsize.xy / (3.0 * lwp));
+let gh = fract(sin(dot(gc, vec2f(12.9898, 78.233))) * 43758.5453);
+let gd = length(fract(uv * u.texsize.xy / (3.0 * lwp)) - vec2f(0.5));
+let gtw = smoothstep(0.5, 0.1, gd) * pow(max(0.0, sin(u.time * (1.5 + 4.0 * gh) + gh * 70.0)), 30.0) * step(0.75, gh);
+col += mix(vec3f(1.0), fc, 0.4) * gtw * st * 0.9 * inside * lw;
+// The wire ring.
+let ring = exp(-pow((r - 1.0) * rr / 0.006, 2.0));
+let rl = 0.5 + 0.5 * cos(atan2(pf.y, pf.x) - 2.3);
+col += vec3f(0.7, 0.75, 0.85) * ring * (0.15 + 0.6 * pow(rl, 6.0));
+// ---- The bubbles drifting up beside it.
+for (var k = 0; k < 5; k++) {
+    let fk = f32(k);
+    let ph0 = u.q[2].y;
+    var bph = ph0;
+    if (k == 1) { bph = u.q[2].z; }
+    if (k == 2) { bph = u.q[2].w; }
+    if (k == 3) { bph = u.q[3].x; }
+    if (k == 4) { bph = u.q[3].y; }
+    let side = select(-1.0, 1.0, k % 2 == 1);
+    let br = 0.05 + 0.025 * fract(fk * 0.618 + 0.2);
+    let bx = side * (0.56 + 0.2 * fract(fk * 0.37 + 0.5)) * asp / 1.7778 + 0.03 * sin(bph * tau * 3.0 + fk);
+    let by = -0.62 + 1.24 * bph;
+    let d = (p - vec2f(bx, by)) / br;
+    let dr2 = dot(d, d);
+    if (dr2 < 1.0) {
+        let mu = sqrt(1.0 - dr2);
+        // The path through the film grows at a glance; so does the
+        // reflection.
+        let bt = 380.0 + 260.0 * (d.y * 0.5 + 0.5) + 120.0 * sin(fk * 2.0 + bph * 9.0 + d.x * 3.0);
+        let bp = tau * nn * bt * (0.4 + 0.6 * mu) / lam;
+        var bc = sin(bp) * sin(bp);
+        let bl = dot(bc, vec3f(0.33));
+        bc = max(vec3f(bl) + (bc - vec3f(bl)) * 1.7, vec3f(0.0));
+        let fres = 0.15 + 0.85 * pow(1.0 - mu, 2.0);
+        let edge = smoothstep(1.0, 0.9, dr2);
+        let fade = smoothstep(-0.6, -0.45, by) * smoothstep(0.6, 0.45, by);
+        let hl = exp(-dot(d - vec2f(-0.35, 0.4), d - vec2f(-0.35, 0.4)) / 0.015);
+        col += (bc * fres * 0.9 + vec3f(0.9) * hl * 0.5) * edge * fade;
+    }
+}
+return col / (1.0 + 0.25 * col);
+'''
