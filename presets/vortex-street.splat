@@ -1,0 +1,229 @@
+# Vortex Street: a river of light flows past a dark pillar and breaks into
+# a Karman vortex street, the swirls peeling off the pillar's back one side
+# then the other and rolling away downstream in two staggered rows.
+#
+# The flow is a formula and the dye lives in the feedback buffer. The
+# frame code sheds the vortices: a shedding phase advances at the
+# Strouhal rate (0.21 times the flow speed over the pillar's width), and
+# each half cycle a new vortex is born behind the pillar, alternately
+# above and below, spinning against the side it came from. Every vortex
+# is carried downstream a little slower than the stream, settles into its
+# row and leaves on the right; twelve of them are kept in the preset's
+# megabuf and handed to the shaders. The warp shader builds the velocity
+# at each pixel from the stream, the potential flow around the pillar, a
+# slow wake behind it and the swirl of each vortex (a Lamb-Oseen core),
+# and carries the dye back along it (a midpoint step). Dye bleeds off the
+# pillar's skin, cyan from the top and rose from the bottom, and thin
+# smoke wires of colour enter from the left, so the streaks show the
+# street winding up.
+#
+# The composite glows the dye over a deep blue-black, with a halo from
+# the blurred dye and a lit rim on the pillar.
+#
+# Bass speeds the stream (and with it the shedding). Mids quicken the
+# shedding at a given speed, packing the street tighter. Treble glitters in
+# the dye. Each kick thickens the dye the pillar sheds, eased.
+version = 1
+
+[meta]
+name = "Vortex Street"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+feedback_format = "fp16"
+decay = 1.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+b1n = 0.0
+b1x = 1.0
+b2n = 0.0
+b2x = 1.0
+b3n = 0.0
+b3x = 1.0
+
+[code]
+init = '''
+slot = 0; side = 1; sp = 0;
+i = 0;
+loop(12, megabuf(i) = 9; megabuf(20 + i) = 0; i = i + 1);
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+sm = sm + (min(mid_att, 2.5) - sm) * 0.03;
+st = st + (min(treb_att, 2.5) - st) * 0.1;
+bt = max(bt * 0.94, beat);
+be = be + (bt - be) * 0.08;
+// The stream (height units per tick).
+uu = 0.0016 + 0.0024 * min(sb, 2) / 2 + 0.0004 * min(be, 1);
+rr = 0.046;
+xc = -0.62;
+// The shedding: Strouhal number 0.21; the mids pack the street tighter.
+sp = sp + 2 * 0.21 * uu / (2 * rr) * (0.75 + 0.55 * min(sm, 2) / 2);
+if(sp >= 1,
+  sp = sp - 1; side = -side; slot = (slot + 1) % 12;
+  megabuf(slot) = xc + rr * 1.5;
+  megabuf(20 + slot) = side * rr * 0.35,
+  0);
+i = 0;
+loop(12,
+  vx = megabuf(i);
+  if(vx < 5,
+    // Born slow behind the pillar, then carried at 0.85 of the stream.
+    gw = min(1, max(0, (vx - xc - rr) / 0.3));
+    megabuf(i) = vx + uu * (0.25 + 0.6 * gw);
+    vy = megabuf(20 + i);
+    megabuf(20 + i) = vy + (sign(vy) * 0.058 - vy) * 0.012;
+    if(megabuf(i) > 1.15, megabuf(i) = 9, 0),
+    0);
+  i = i + 1);
+hu = hu + 0.00012;
+hu = hu - floor(hu);
+q1 = megabuf(0); q2 = megabuf(1); q3 = megabuf(2); q4 = megabuf(3);
+q5 = megabuf(4); q6 = megabuf(5); q7 = megabuf(6); q8 = megabuf(7);
+q9 = megabuf(8); q10 = megabuf(9); q11 = megabuf(10); q12 = megabuf(11);
+q13 = megabuf(20); q14 = megabuf(21); q15 = megabuf(22); q16 = megabuf(23);
+q17 = megabuf(24); q18 = megabuf(25); q19 = megabuf(26); q20 = megabuf(27);
+q21 = megabuf(28); q22 = megabuf(29); q23 = megabuf(30); q24 = megabuf(31);
+q25 = uu; q26 = rr; q27 = xc; q28 = sb;
+q29 = st; q30 = be; q31 = hu; q32 = sm;
+'''
+
+[shader]
+warp = '''
+let asp = u.texsize.x * u.texsize.w;
+let uu = u.q[6].x;
+let rr = u.q[6].y;
+let c = vec2f(u.q[6].z, 0.0);
+let be = min(u.q[7].z, 1.0);
+let hu = u.q[7].w;
+let p = vec2f((uv_orig.x - 0.5) * asp, 0.5 - uv_orig.y);
+var vx = array<f32, 12>(u.q[0].x, u.q[0].y, u.q[0].z, u.q[0].w, u.q[1].x, u.q[1].y,
+    u.q[1].z, u.q[1].w, u.q[2].x, u.q[2].y, u.q[2].z, u.q[2].w);
+var vy = array<f32, 12>(u.q[3].x, u.q[3].y, u.q[3].z, u.q[3].w, u.q[4].x, u.q[4].y,
+    u.q[4].z, u.q[4].w, u.q[5].x, u.q[5].y, u.q[5].z, u.q[5].w);
+// Two velocity evaluations (a midpoint step).
+var q = p;
+var vel = vec2f(0.0);
+for (var it = 0; it < 2; it++) {
+    let d = q - c;
+    let r2 = max(dot(d, d), rr * rr);
+    let r4 = r2 * r2;
+    let k = rr * rr / r4;
+    // Potential flow around the pillar.
+    var v = uu * vec2f(1.0 - k * (d.x * d.x - d.y * d.y), -k * 2.0 * d.x * d.y);
+    // The slow wake behind it.
+    let wk = exp(-d.y * d.y / (rr * rr * 1.2)) * smoothstep(0.0, rr, d.x) * exp(-d.x / 0.5);
+    v.x *= 1.0 - 0.5 * wk;
+    // The vortices (Lamb-Oseen cores), spinning against their side.
+    for (var i = 0; i < 12; i++) {
+        let o = vec2f(vx[i], vy[i]);
+        if (o.x > 5.0) {
+            continue;
+        }
+        let e = q - o;
+        let e2 = dot(e, e) + 1e-6;
+        let grow = smoothstep(c.x + rr, c.x + rr + 0.3, o.x);
+        let fade = 1.0 - smoothstep(0.6, 1.1, o.x);
+        let g = -sign(o.y) * 0.17 * uu * grow * (0.7 + 0.3 * fade);
+        let core = 0.03;
+        v += g * (1.0 - exp(-e2 / (core * core))) / e2 * vec2f(-e.y, e.x);
+    }
+    vel = v;
+    q = p - 0.5 * v;
+}
+let src = p - vel;
+let suv = vec2f(src.x / asp + 0.5, 0.5 - src.y);
+// Catmull-Rom resampling (nine bilinear taps), clamped to the four
+// nearest texels, so the dye does not blur away as it is carried.
+let ts = u.texsize.xy;
+let sp = suv * ts;
+let t1 = floor(sp - 0.5) + 0.5;
+let f = sp - t1;
+let w0 = f * (-0.5 + f * (1.0 - 0.5 * f));
+let w1 = 1.0 + f * f * (-2.5 + 1.5 * f);
+let w2 = f * (0.5 + f * (2.0 - 1.5 * f));
+let w3 = f * f * (-0.5 + 0.5 * f);
+let w12 = w1 + w2;
+let tc0 = (t1 - 1.0) * u.texsize.zw;
+let tc3 = (t1 + 2.0) * u.texsize.zw;
+let tc12 = (t1 + w2 / w12) * u.texsize.zw;
+var s0 = vec3f(0.0);
+s0 += textureSampleLevel(sampler_main, s_fc, vec2f(tc0.x, tc0.y), 0.0).rgb * w0.x * w0.y;
+s0 += textureSampleLevel(sampler_main, s_fc, vec2f(tc12.x, tc0.y), 0.0).rgb * w12.x * w0.y;
+s0 += textureSampleLevel(sampler_main, s_fc, vec2f(tc3.x, tc0.y), 0.0).rgb * w3.x * w0.y;
+s0 += textureSampleLevel(sampler_main, s_fc, vec2f(tc0.x, tc12.y), 0.0).rgb * w0.x * w12.y;
+s0 += textureSampleLevel(sampler_main, s_fc, vec2f(tc12.x, tc12.y), 0.0).rgb * w12.x * w12.y;
+s0 += textureSampleLevel(sampler_main, s_fc, vec2f(tc3.x, tc12.y), 0.0).rgb * w3.x * w12.y;
+s0 += textureSampleLevel(sampler_main, s_fc, vec2f(tc0.x, tc3.y), 0.0).rgb * w0.x * w3.y;
+s0 += textureSampleLevel(sampler_main, s_fc, vec2f(tc12.x, tc3.y), 0.0).rgb * w12.x * w3.y;
+s0 += textureSampleLevel(sampler_main, s_fc, vec2f(tc3.x, tc3.y), 0.0).rgb * w3.x * w3.y;
+let pa = textureSampleLevel(sampler_main, s_pc, t1 * u.texsize.zw, 0.0).rgb;
+let pb = textureSampleLevel(sampler_main, s_pc, (t1 + vec2f(1.0, 0.0)) * u.texsize.zw, 0.0).rgb;
+let pc = textureSampleLevel(sampler_main, s_pc, (t1 + vec2f(0.0, 1.0)) * u.texsize.zw, 0.0).rgb;
+let pd = textureSampleLevel(sampler_main, s_pc, (t1 + vec2f(1.0, 1.0)) * u.texsize.zw, 0.0).rgb;
+let lo = min(min(pa, pb), min(pc, pd));
+let hi = max(max(pa, pb), max(pc, pd));
+var dye = clamp(s0, lo, hi) * 0.9993;
+if (suv.x < 0.0) {
+    dye = vec3f(0.0);
+}
+// Smoke wires entering from the left.
+let left = -0.5 * asp;
+// (On the first ticks the wires already span the stream.)
+if (p.x < left + 0.012 || u.frame < 2.0) {
+    let w = abs(fract(p.y / 0.07 + 0.5) - 0.5);
+    let li = smoothstep(0.16, 0.02, w);
+    let h = 0.5 + 0.5 * cos(6.2831853 * (hu + p.y * 0.6 + vec3f(0.0, 0.33, 0.67)));
+    dye = max(dye, mix(vec3f(0.25, 0.4, 1.0), h, 0.6) * li * 0.7);
+}
+// Dye bleeding off the pillar's skin: cyan above, rose below.
+let d = p - c;
+let r = length(d);
+if (r < rr) {
+    dye = vec3f(0.0);
+} else if (r < rr + 0.016) {
+    let up = smoothstep(-0.3, 0.3, d.y / rr);
+    let top = vec3f(0.1, 0.85, 1.0);
+    let bot = vec3f(1.0, 0.2, 0.55);
+    let hs = 0.5 + 0.5 * cos(6.2831853 * (hu + vec3f(0.0, 0.33, 0.67)));
+    let tint = mix(mix(bot, top, up), hs, 0.15);
+    dye = max(dye, tint * (0.85 + 0.15 * be));
+}
+return dye;
+'''
+comp = '''
+let asp = u.texsize.x * u.texsize.w;
+let rr = u.q[6].y;
+let c = vec2f(u.q[6].z, 0.0);
+let sb = min(u.q[6].w, 2.0) * 0.5;
+let st = max(0.0, min(u.q[7].x, 2.5) - 0.3);
+let p = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
+let dye = textureSampleLevel(sampler_main, s_fc, uv, 0.0).rgb;
+let b1 = GetBlur1(uv);
+let b3 = GetBlur3(uv);
+// Deep blue-black water.
+let n = textureSampleLevel(sampler_noise_lq, s_fw, p * 0.5 + vec2f(0.3, 0.7), 0.0).x;
+var col = vec3f(0.012, 0.02, 0.05) * (0.8 + 0.5 * n) * (1.0 - 0.4 * dot(p, p));
+col += b3 * (0.4 + 0.3 * sb) + b1 * 0.3;
+col += dye * dye * 1.0 + dye * 1.3;
+// Treble: glitter in the dye.
+let lw = max(1.0, u.texsize.y / 360.0);
+let cell = floor(uv * u.texsize.xy / (2.0 * lw));
+let gh = fract(sin(dot(cell, vec2f(12.9898, 78.233))) * 43758.5453);
+let gt = pow(max(0.0, sin(u.time * (2.0 + 4.0 * gh) + gh * 50.0)), 20.0) * step(0.75, gh);
+col += vec3f(1.0) * gt * st * smoothstep(0.25, 0.6, dot(dye, vec3f(0.4))) * 1.4;
+// The pillar: dark, with a lit rim.
+let d = p - c;
+let r = length(d);
+let px = u.texsize.w;
+let inside = smoothstep(rr + px, rr - px, r);
+let shade = 0.5 + 0.5 * dot(d / max(r, 1e-4), vec2f(-0.6, 0.8));
+col = mix(col, vec3f(0.02, 0.025, 0.05) + vec3f(0.08, 0.12, 0.2) * shade * shade, inside);
+col += vec3f(0.5, 0.75, 1.0) * exp(-abs(r - rr) / (1.5 * px)) * (0.25 + 0.5 * shade);
+let lc = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lc) + (col - vec3f(lc)) * 1.25, vec3f(0.0));
+return col / (1.0 + 0.35 * col);
+'''
