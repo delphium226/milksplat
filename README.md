@@ -25,8 +25,8 @@ device, so just start your music and run it.
 | **Hyperbolic Tiling**: a glowing Poincare disc of tiles drifting toward the infinite rim | **Spiral Galaxy**: stars on turning ellipses crowding into density-wave arms |
 | ![Bubble Chamber](docs/images/bubble-chamber.png) | ![Fractal Reliquary](docs/images/fractal-reliquary.png) |
 | **Bubble Chamber**: particle tracks curling into spirals in a magnetic field | **Fractal Reliquary**: an orbiting flight through the carved halls of a breathing Mandelbox |
-| ![Cosmic Web](docs/images/cosmic-web.png) | |
-| **Cosmic Web**: a flight through glowing filaments of galaxies streaming into their clusters | |
+| ![Cosmic Web](docs/images/cosmic-web.png) | ![Quantum Orbitals](docs/images/quantum-orbitals.png) |
+| **Cosmic Web**: a flight through glowing filaments of galaxies streaming into their clusters | **Quantum Orbitals**: glowing hydrogen electron clouds melting from one quantum state to the next |
 
 These are single frames; every preset moves and changes with the music.
 

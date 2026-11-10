@@ -1,0 +1,243 @@
+# Quantum Orbitals: the electron clouds of a hydrogen atom, rendered as
+# glowing volumes. Each cloud is the probability density |psi|^2 of a
+# stationary state (n, l, m), psi being a radial part (an exponential
+# times an associated Laguerre polynomial) times a real spherical
+# harmonic, built here as a solid harmonic: a polynomial in z and r^2 from
+# the associated Legendre recurrence, times the real part of (x + iy)^m.
+# The lobes where psi is positive glow rose and gold, those where it is
+# negative glow cyan and blue, and the dark nodal surfaces between them
+# (spheres, cones and planes) cut the cloud into its shells and petals.
+#
+# The composite shader marches 48 jittered steps through the cloud's
+# bounding sphere, accumulating the glow with a little absorption, so the
+# near lobes veil the far ones. Each state's brightest density is found
+# once, in the frame code, by scanning a grid of radius and angle when the
+# state arrives, and the density is measured against it; a gain per state
+# (worked out offline from each state's total glow) evens out how bright
+# the large and the compact clouds look. A tiny nucleus burns at the
+# centre.
+#
+# Kicks change the state (at most every five seconds; every twelve
+# without): the next one is picked at random and the two clouds cross-fade
+# over a second and a half, eased, the old lobes melting into the new.
+# Mids turn the quantisation axis (tilting and spinning it, accumulated).
+# Bass swells the cloud and brightens it, smoothed. Treble sparkles: single
+# electrons, caught where the cloud is dense.
+version = 1
+
+[meta]
+name = "Quantum Orbitals"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+feedback_format = "rgba8"
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+// The states: n, l, m, and a gain that evens out their glow (from the
+// integral of each state's glow over the sphere, worked out offline).
+megabuf(0) = 3; megabuf(1) = 2; megabuf(2) = 0; megabuf(3) = 1.295;
+megabuf(4) = 2; megabuf(5) = 1; megabuf(6) = 0; megabuf(7) = 1.511;
+megabuf(8) = 4; megabuf(9) = 3; megabuf(10) = 1; megabuf(11) = 0.917;
+megabuf(12) = 3; megabuf(13) = 2; megabuf(14) = 1; megabuf(15) = 0.905;
+megabuf(16) = 4; megabuf(17) = 2; megabuf(18) = 1; megabuf(19) = 0.894;
+megabuf(20) = 4; megabuf(21) = 3; megabuf(22) = 2; megabuf(23) = 0.845;
+megabuf(24) = 3; megabuf(25) = 1; megabuf(26) = 1; megabuf(27) = 1.461;
+megabuf(28) = 5; megabuf(29) = 4; megabuf(30) = 2; megabuf(31) = 0.864;
+megabuf(32) = 4; megabuf(33) = 3; megabuf(34) = 0; megabuf(35) = 1.286;
+megabuf(36) = 3; megabuf(37) = 2; megabuf(38) = 2; megabuf(39) = 0.906;
+megabuf(40) = 5; megabuf(41) = 3; megabuf(42) = 2; megabuf(43) = 0.819;
+megabuf(44) = 5; megabuf(45) = 3; megabuf(46) = 1; megabuf(47) = 0.986;
+megabuf(48) = 4; megabuf(49) = 3; megabuf(50) = 3; megabuf(51) = 0.901;
+megabuf(52) = 4; megabuf(53) = 2; megabuf(54) = 2; megabuf(55) = 0.898;
+ns = 14;
+ia = 0; ib = 0;
+tb = 1; tm = 0; need = 1;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+sm = sm + (min(mid_att, 2.5) - sm) * 0.03;
+st = st + (min(treb, 2.5) - st) * 0.15;
+bt = max(bt * 0.94, beat);
+be = be + (bt - be) * 0.12;
+// A new state on a kick (at most every five seconds), or every twelve.
+tm = tm + 1;
+if(tb >= 1 && tm > 300 && (be > 0.5 || tm > 720),
+  ia = ib; nra = nrb;
+  ib = (ib + 1 + rand(ns - 1)) % ns;
+  need = 1; tb = 0; tm = 0,
+  0);
+// The arriving state's brightest density, from a grid of radius and
+// polar angle (at azimuth 0, where (x + iy)^m is real and largest).
+if(need,
+  nn = megabuf(ib * 4); ll = megabuf(ib * 4 + 1); mm = megabuf(ib * 4 + 2);
+  rs = 2 * nn * nn + 4;
+  mx = 0; i = 0;
+  loop(2048,
+    rr = rs * ((i % 64) + 0.5) / 64;
+    th = 3.14159265 * (floor(i / 64) + 0.5) / 32;
+    pz = rr * cos(th); px = rr * sin(th); r2 = rr * rr;
+    kk = nn - ll - 1; al = 2 * ll + 1; xr = 2 * rr / nn;
+    l0 = 1; l1 = 1 + al - xr; j = 1;
+    loop(kk - 1,
+      l2 = ((2 * j + 1 + al - xr) * l1 - (j + al) * l0) / (j + 1);
+      l0 = l1; l1 = l2; j = j + 1);
+    lg = if(kk < 1, 1, l1);
+    t0 = 1; t1 = pz * (2 * mm + 1); j = mm + 2;
+    loop(ll - mm - 1,
+      t2 = ((2 * j - 1) * pz * t1 - (j + mm - 1) * r2 * t0) / (j - mm);
+      t0 = t1; t1 = t2; j = j + 1);
+    tt = if(ll - mm < 1, 1, t1);
+    ps = exp(-rr / nn) * lg * tt * pow(px, mm);
+    mx = max(mx, ps * ps);
+    i = i + 1);
+  nrb = 1 / max(mx, 1e-30);
+  need = 0,
+  0);
+tb = min(tb + 1 / 90, 1);
+// The quantisation axis: tilted and spun (accumulated), quicker with the
+// mids; the view turns slowly round it.
+ax = ax + 0.0015 + 0.004 * min(sm, 2) / 2;
+ax = ax - 6.2831853 * floor(ax / 6.2831853);
+yw = yw + 0.0013;
+yw = yw - 6.2831853 * floor(yw / 6.2831853);
+hu = hu + 0.0002;
+hu = hu - floor(hu);
+q1 = megabuf(ia * 4); q2 = megabuf(ia * 4 + 1); q3 = megabuf(ia * 4 + 2);
+q4 = 2 * q1 * q1 + 4;
+q5 = megabuf(ib * 4); q6 = megabuf(ib * 4 + 1); q7 = megabuf(ib * 4 + 2);
+q8 = 2 * q5 * q5 + 4;
+q9 = nra; q10 = nrb;
+q11 = tb * tb * (3 - 2 * tb);
+q12 = yw;
+q13 = 0.75 * sin(ax) + 0.35;
+q14 = ax * 2;
+q15 = sb; q16 = st; q17 = be; q18 = hu;
+q19 = megabuf(ia * 4 + 3) * (1 - q11) + megabuf(ib * 4 + 3) * q11;
+'''
+
+[shader]
+comp = '''
+let tau = 6.2831853;
+let asp = u.texsize.x * u.texsize.w;
+let bl = u.q[2].z;
+let yaw = u.q[2].w;
+let tilt = u.q[3].x;
+let spin = u.q[3].y;
+let sb = min(u.q[3].z, 2.0) * 0.5;
+let st = max(0.0, min(u.q[3].w, 2.5) - 0.4);
+let be = min(u.q[4].x, 1.0);
+let hu = u.q[4].y;
+let gain = u.q[4].z;
+let sp = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
+// The camera looks down -z at the atom; the atom's frame is turned.
+let cy = cos(yaw);
+let sy = sin(yaw);
+let cx = cos(tilt);
+let sx = sin(tilt);
+let cz = cos(spin);
+let sz = sin(spin);
+let ry = mat3x3f(vec3f(cy, 0.0, -sy), vec3f(0.0, 1.0, 0.0), vec3f(sy, 0.0, cy));
+let rx = mat3x3f(vec3f(1.0, 0.0, 0.0), vec3f(0.0, cx, sx), vec3f(0.0, -sx, cx));
+let rz = mat3x3f(vec3f(cz, sz, 0.0), vec3f(-sz, cz, 0.0), vec3f(0.0, 0.0, 1.0));
+let mr = rz * rx * ry;
+let ro = mr * vec3f(0.0, 0.0, 3.0);
+let rd = mr * normalize(vec3f(sp.x, sp.y, -1.55));
+// Rose and gold for psi > 0, cyan and blue for psi < 0.
+let hp = 0.08 + 0.06 * sin(tau * hu);
+let hn = 0.45 + 0.06 * sin(tau * hu + 1.0);
+var cp = 0.5 + 0.5 * cos(tau * (vec3f(hp) + vec3f(0.0, 0.33, 0.67)));
+var cn = 0.5 + 0.5 * cos(tau * (vec3f(hn) + vec3f(0.0, 0.33, 0.67)));
+cp = cp * cp / max(cp.r * cp.r, max(cp.g * cp.g, cp.b * cp.b));
+cn = cn * cn / max(cn.r * cn.r, max(cn.g * cn.g, cn.b * cn.b));
+// A deep violet-blue dark.
+var col = vec3f(0.006, 0.006, 0.02) + vec3f(0.012, 0.006, 0.026) * exp(-dot(sp, sp) * 3.0);
+let scl = 1.0 + 0.12 * sb;
+let bb = dot(ro, rd);
+let disc = bb * bb - dot(ro, ro) + 1.44;
+var acc = 0.0;
+if (disc > 0.0) {
+    let t0 = -bb - sqrt(disc);
+    let dt = 2.0 * sqrt(disc) / 48.0;
+    let jit = textureSampleLevel(sampler_noise_hq, s_pw, uv * u.texsize.xy / 256.0, 0.0).x;
+    var tr = 1.0;
+    var gl = vec3f(0.0);
+    for (var i = 0; i < 48; i++) {
+        let w = ro + rd * (t0 + (f32(i) + jit) * dt);
+        var den = 0.0;
+        var sgn = 0.0;
+        for (var s = 0; s < 2; s++) {
+            let ws = select(bl, 1.0 - bl, s == 0);
+            if (ws < 0.001) { continue; }
+            let pr = select(u.q[1], u.q[0], s == 0);
+            let nf = pr.x;
+            let n = i32(pr.x + 0.5);
+            let l = i32(pr.y + 0.5);
+            let m = i32(pr.z + 0.5);
+            let nrm = select(u.q[2].y, u.q[2].x, s == 0);
+            let p = w * pr.w / scl;
+            let r2 = dot(p, p);
+            let r = sqrt(r2);
+            // The associated Laguerre polynomial L_{n-l-1}^{2l+1}(2r/n).
+            let al = f32(2 * l + 1);
+            let xr = 2.0 * r / nf;
+            var l0 = 1.0;
+            var l1 = 1.0 + al - xr;
+            let kk = n - l - 1;
+            for (var j = 1; j < kk; j++) {
+                let fj = f32(j);
+                let l2 = ((2.0 * fj + 1.0 + al - xr) * l1 - (fj + al) * l0) / (fj + 1.0);
+                l0 = l1;
+                l1 = l2;
+            }
+            let lg = select(l1, 1.0, kk < 1);
+            // The solid harmonic: Legendre recurrence in z and r^2.
+            let fm = f32(m);
+            var t0p = 1.0;
+            var t1p = p.z * (2.0 * fm + 1.0);
+            for (var j = m + 2; j <= l; j++) {
+                let fj = f32(j);
+                let t2p = ((2.0 * fj - 1.0) * p.z * t1p - (fj + fm - 1.0) * r2 * t0p) / (fj - fm);
+                t0p = t1p;
+                t1p = t2p;
+            }
+            let tt = select(t1p, 1.0, l - m < 1);
+            // Re (x + iy)^m.
+            var q = vec2f(1.0, 0.0);
+            for (var j = 0; j < m; j++) {
+                q = vec2f(q.x * p.x - q.y * p.y, q.x * p.y + q.y * p.x);
+            }
+            let psi = exp(-r / nf) * lg * tt * q.x;
+            let d = psi * psi * nrm * ws;
+            den += d;
+            sgn += d * sign(psi);
+        }
+        let dn1 = min(den, 1.0);
+        // A soft body, and a brighter skin where the density crosses a
+        // fixed level, so every lobe has a crisp edge.
+        let sk = exp(-pow((dn1 - 0.16) / 0.05, 2.0));
+        let em = dn1 * 0.7 + 0.3 * sqrt(dn1);
+        let c = mix(cn, cp, 0.5 + 0.5 * sgn / max(den, 1e-9));
+        gl += tr * (em * c + sk * mix(c, vec3f(1.0), 0.35) * 1.6) * dt;
+        acc += tr * em * dt;
+        tr *= exp(-em * dt * 1.6);
+    }
+    col += gl * gain * (2.4 + 0.7 * sb + 0.4 * be);
+}
+// The nucleus: a tiny white point at the centre.
+let dn = length(cross(ro, rd));
+col += vec3f(1.0, 0.95, 0.9) * 0.00004 / (dn * dn + 0.00005) * (0.7 + 0.3 * be);
+// Single electrons, sparkling with the treble where the cloud is dense.
+let fl = floor(u.time * 7.0);
+let gn = textureSampleLevel(sampler_noise_hq, s_pw, uv * u.texsize.xy / 256.0 + vec2f(fl * 0.371, fl * 0.719), 0.0).x;
+col += vec3f(0.9, 0.95, 1.0) * smoothstep(0.985, 1.0, gn) * min(acc * 3.0, 1.0) * (0.4 + 1.6 * st);
+let lc = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lc) + (col - vec3f(lc)) * 1.15, vec3f(0.0));
+return col / (1.0 + 0.3 * col);
+'''
