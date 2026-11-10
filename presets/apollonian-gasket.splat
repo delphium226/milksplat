@@ -1,0 +1,176 @@
+# Apollonian Gasket: circles packed inside the gaps between circles,
+# forever. The view falls endlessly into the packing, turning as it goes,
+# each circle's glowing rim swelling past while smaller ones bloom in the
+# gaps behind it.
+#
+# All in the composite shader. The packing is unrolled into a strip: two
+# lines and a row of unit circles between them. Each pixel is folded into
+# one curvilinear triangle of that strip (the gap between two circles and
+# a line), and the map F(z) = 2i / (z - 1) - 1, a Mobius map, blows that
+# gap back up into the whole strip; repeating it walks down the levels of
+# the packing until the pixel lands inside a circle (or the circles get
+# smaller than a pixel). How much each step magnifies gives the distance
+# to every rim it passed, in pixels.
+#
+# The fall is seamless: F has a fixed point inside the gap, and the view
+# is a Mobius map that puts that point at the centre of the screen and
+# F's other fixed point at infinity, so zooming in by F's multiplier
+# (about 2.89, with a turn of 128 degrees) shows exactly the picture one
+# level down. A phase the frame code advances with the music runs that
+# zoom and wraps; colours follow the level minus the phase, so the wrap
+# never shows.
+#
+# Bass speeds the fall and brightens the glow. Mids thicken the rims and
+# light the circles' glassy insides. Treble twinkles the circles too small
+# to draw. Each kick sends an eased pulse of light down the levels.
+version = 1
+
+[meta]
+name = "Apollonian Gasket"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+ph = 0; ro = 0; bp = 4;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+sm = sm + (min(mid_att, 2.5) - sm) * 0.04;
+st = st + (min(treb_att, 2.5) - st) * 0.1;
+bt = max(bt * 0.94, beat);
+be = be + (bt - be) * 0.1;
+// The fall: one level every 7 to 16 seconds (wrapped).
+ph = ph + 0.00105 + 0.0012 * min(sb, 2) / 2 + 0.0003 * min(be, 1);
+ph = ph - floor(ph);
+// A slow extra turn of the view (wrapped).
+ro = ro + 0.0006;
+ro = ro - 6.2831853 * floor(ro / 6.2831853);
+// Each kick starts a pulse down the levels.
+bp = bp + 0.025;
+if(beat > 0.5 && bp > 1.5, bp = 0, 0);
+hu = hu + 0.00007;
+hu = hu - floor(hu);
+q1 = ph; q2 = ro; q3 = sb; q4 = sm;
+q5 = st; q6 = be; q7 = bp; q8 = hu;
+'''
+
+[shader]
+comp = '''
+let tau = 6.2831853;
+let ph = u.q[0].x;
+let ro = u.q[0].y;
+let sb = min(u.q[0].z, 2.0) * 0.5;
+let sm = min(u.q[0].w, 2.0) * 0.5;
+let st = max(0.0, min(u.q[1].x, 2.5) - 0.3);
+let be = min(u.q[1].y, 1.0);
+let bp = u.q[1].z;
+let hu = u.q[1].w;
+let asp = u.texsize.x * u.texsize.w;
+let p = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
+// The fixed point of F in the gap, sqrt(1 + 2i), and F's multiplier there
+// (modulus 2.89007, argument 2.23671).
+let zx = 1.27201965;
+let zy = 0.78615138;
+let s0 = 0.0195 * exp(-ph * 1.06128);
+let a0 = -ph * 2.23671 + ro;
+let ca = cos(a0);
+let sa = sin(a0);
+let w = s0 * vec2f(ca * p.x - sa * p.y, sa * p.x + ca * p.y);
+// z = zs (1 - w) / (1 + w).
+let nu = vec2f(1.0 - w.x, -w.y);
+let de = vec2f(1.0 + w.x, w.y);
+let dd = dot(de, de);
+let qz = vec2f(nu.x * de.x + nu.y * de.y, nu.y * de.x - nu.x * de.y) / dd;
+var z = vec2f(zx * qz.x - zy * qz.y, zx * qz.y + zy * qz.x);
+// The size of a pixel at z.
+let lw = max(1.0, u.texsize.y / 540.0);
+let pz = 2.0 * 1.49534878 / dd * s0 * u.texsize.w;
+var sc = 1.0;
+var rim = 1e9;
+var rimd = 0.0;
+var inside = 0.0;
+var depth = 0.0;
+var crad = 0.0;
+var dust = 0.0;
+for (var i = 0; i < 64; i++) {
+    let fi = f32(i);
+    z.x = z.x - 2.0 * floor(z.x * 0.5 + 0.5);
+    if (z.x < 0.0) {
+        z.x += 2.0;
+    }
+    z.y = abs(z.y);
+    let px = pz * sc;
+    let da = length(z) - 1.0;
+    let db = length(z - vec2f(2.0, 0.0)) - 1.0;
+    let dl = 1.0 - z.y;
+    // The rims bounding this gap, in pixels.
+    let dr = min(min(abs(da), abs(db)), abs(dl)) / px;
+    if (dr < rim) {
+        rim = dr;
+        rimd = fi;
+    }
+    if (da < 0.0 || db < 0.0 || dl < 0.0) {
+        inside = 1.0;
+        depth = fi;
+        // How deep inside its circle (0 at the rim, 1 at the centre).
+        crad = clamp(max(max(-da, -db), -dl), 0.0, 1.0);
+        // Inside a circle only its own rim glows (the halos of rims met
+        // at earlier levels would break along the folds).
+        rim = max(max(-da, -db), -dl) / px;
+        rimd = fi;
+        break;
+    }
+    // Circles smaller than a couple of pixels: dust.
+    if (0.25 / px < 1.5 * lw) {
+        dust = 1.0;
+        depth = fi;
+        break;
+    }
+    let d = z - vec2f(1.0, 0.0);
+    let d2 = dot(d, d);
+    z = vec2f(2.0 * d.y / d2 - 1.0, 2.0 * d.x / d2);
+    sc *= 2.0 / d2;
+}
+// Colour by level, less the zoom phase, so the wrap never shows.
+let lv = rimd - ph;
+// A four-stop cycle of neon colours: cyan, violet, magenta, amber.
+var pal = array<vec3f, 4>(vec3f(0.1, 0.85, 1.0), vec3f(0.5, 0.3, 1.0),
+    vec3f(1.0, 0.2, 0.65), vec3f(1.0, 0.68, 0.15));
+let tr = fract(hu + lv * 0.17) * 4.0;
+let ti = u32(floor(tr)) % 4u;
+let tint = mix(pal[ti], pal[(ti + 1u) % 4u], smoothstep(0.0, 1.0, fract(tr))) * 1.1;
+let pulse = exp(-pow((lv - 1.0) - bp * 6.0, 2.0) * 0.6) * step(bp, 1.2);
+// The rims: a sharp line and a soft halo.
+let rr = rim / lw;
+let thick = 0.9 + 0.8 * sm;
+var col = tint * (exp(-rr / thick) * 1.4 + exp(-rr / 12.0) * (0.3 + 0.25 * sb));
+col += vec3f(1.0, 0.95, 0.9) * exp(-rr / thick) * pulse * (0.4 + 0.5 * be);
+// The glassy inside of the circle the pixel is in.
+if (inside > 0.5) {
+    let lvi = depth - ph;
+    let tq = fract(hu + lvi * 0.17) * 4.0;
+    let tj = u32(floor(tq)) % 4u;
+    let hi = mix(pal[tj], pal[(tj + 1u) % 4u], smoothstep(0.0, 1.0, fract(tq)));
+    let fr = crad;
+    col += hi * (0.05 + 0.06 * sm) * (pow(1.0 - fr, 5.0) * 4.0 + 0.3 + 0.5 * fr * fr);
+}
+// The dust: circles too small to draw glow faintly and twinkle.
+if (dust > 0.5) {
+    let cell = floor(uv * u.texsize.xy / (2.0 * lw));
+    let gh = fract(sin(dot(cell, vec2f(12.9898, 78.233))) * 43758.5453);
+    let tw = pow(max(0.0, sin(u.time * (1.5 + 3.0 * gh) + gh * 40.0)), 16.0) * step(0.6, gh);
+    col += mix(tint, vec3f(0.9), 0.5) * 0.3 + vec3f(1.0) * tw * st * 1.2;
+}
+col *= 0.85 + 0.25 * sb;
+let lc = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lc) + (col - vec3f(lc)) * 1.2, vec3f(0.0));
+return col / (1.0 + 0.3 * col);
+'''

@@ -35,6 +35,8 @@ device, so just start your music and run it.
 | **Plasma Globe**: branching violet lightning writhing from a hot electrode to the glass | **Soap Film**: rainbow interference bands swirling through a draining soap film |
 | ![Frost Bloom](docs/images/frost-bloom.png) | ![Vortex Street](docs/images/vortex-street.png) |
 | **Frost Bloom**: a glowing snowflake growing fern-like branches, then melting away to regrow | **Vortex Street**: glowing smoke wires winding into swirls shed by a pillar in the stream |
+| ![Apollonian Gasket](docs/images/apollonian-gasket.png) | |
+| **Apollonian Gasket**: an endless spiralling fall into circles packed inside circles | |
 
 These are single frames; every preset moves and changes with the music.
 
