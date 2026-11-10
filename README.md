@@ -33,6 +33,8 @@ device, so just start your music and run it.
 | **Three Body Problem**: three chaotic orbiting masses weaving luminous gravitational field lines | **Boreal Veil**: northern-lights curtains folding over a dark ridge and a mirror lake |
 | ![Plasma Globe](docs/images/plasma-globe.png) | ![Soap Film](docs/images/soap-film.png) |
 | **Plasma Globe**: branching violet lightning writhing from a hot electrode to the glass | **Soap Film**: rainbow interference bands swirling through a draining soap film |
+| ![Frost Bloom](docs/images/frost-bloom.png) | |
+| **Frost Bloom**: a glowing snowflake growing fern-like branches, then melting away to regrow | |
 
 These are single frames; every preset moves and changes with the music.
 

@@ -1,0 +1,261 @@
+# Frost Bloom: a snowflake grows out of the dark. Six fern-like arms push
+# out from a small hexagonal plate, sprouting side branches and twigs as
+# their tips pass, glowing white at the growing front; when it is
+# complete it hangs for a moment, then melts away, the finest twigs first
+# and the plate last, and a new, different crystal begins.
+#
+# The growth runs in the feedback buffer. The warp shader keeps, for every
+# pixel, how far the growth front must travel from the seed to reach it
+# through the crystal's shape (a distance relaxed a little further each
+# tick from its neighbours, like a flood fill), and a pixel freezes into
+# ice when the growing radius, a number the frame code advances with the
+# music, passes that distance. The shape the front may grow into is a
+# dendrite drawn in the warp shader: the plane folded into a 30-degree
+# wedge (so the crystal has the six-fold symmetry of ice), an arm, side
+# branches at 60 degrees, longest halfway out, and twigs on those,
+# with proportions chosen afresh for each crystal. It is consulted only
+# where the ice has not yet formed, so the structure the music shaped as
+# each part grew is kept. Each pixel also freezes in how far it lies
+# inside the shape; melting eats away everything thinner than a rising
+# level, which takes the twigs first.
+#
+# The composite shader turns the slowly rotating crystal into ice: cool
+# violet at the old heart, cyan toward the tips, white-hot at the growing
+# front, bright along the edges, with a halo from the blurred ice.
+#
+# Bass speeds the growth and swells a cold light behind the pane. Mids lengthen the side branches and twigs that
+# are growing at that moment, so the music is frozen into the flake.
+# Treble sets glints twinkling on the ice. Each kick gives the growth an
+# eased push and a flare at the front.
+version = 1
+
+[meta]
+name = "Frost Bloom"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+feedback_format = "fp16"
+decay = 1.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+b1n = 0.0
+b1x = 1.0
+b2n = 0.0
+b2x = 1.0
+b3n = 0.0
+b3x = 1.0
+
+[code]
+init = '''
+ph = 0; gr = 0; ml = 0; rs = 1;
+th = 0.3; rc = 0.05; sp = 0.055; lf = 0.32; wa = 0.009; hs = 0.37;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.04;
+sm = sm + (min(mid_att, 2.5) - sm) * 0.04;
+st = st + (min(treb_att, 2.5) - st) * 0.1;
+bt = max(bt * 0.94, beat);
+be = be + (bt - be) * 0.1;
+// The life of a crystal: grow (0), hang (1), melt (2), then a new seed.
+rs = 0;
+if(ph < 0.5,
+  gr = gr + 0.00016 + 0.00042 * min(sb, 2) / 2 + 0.00018 * min(be, 1);
+  if(gr > 0.47, ph = 1; ht = 0, 0),
+  0);
+if(ph > 0.5 && ph < 1.5,
+  ht = ht + 1 / 60;
+  if(ht > 5, ph = 2; mt = 0, 0),
+  0);
+if(ph > 1.5,
+  mt = mt + 1 / 540;
+  ml = 0.075 * pow(min(mt, 1), 2.5);
+  if(mt >= 1,
+    ph = 0; gr = 0; ml = 0; mt = 0; rs = 1;
+    th = rand(1000) / 1000 * 1.0472;
+    rc = 0.03 + rand(1000) / 1000 * 0.05;
+    sp = 0.045 + rand(1000) / 1000 * 0.03;
+    lf = 0.22 + rand(1000) / 1000 * 0.22;
+    wa = 0.007 + rand(1000) / 1000 * 0.005;
+    hs = rand(1000) / 1000,
+    0),
+  0);
+// Mids lengthen the branches growing now.
+lm = lf * (0.7 + 0.6 * min(sm, 2) / 2);
+// The crystal's slow turn (wrapped).
+ro = ro + 0.0008;
+ro = ro - 6.2831853 * floor(ro / 6.2831853);
+// How much it has melted, eased (0 to 1).
+mf = if(ph > 1.5, min(1, mt * 1.2), 0);
+hu = hu + 0.0002;
+hu = hu - floor(hu);
+q1 = gr; q2 = ml; q3 = rs; q4 = th;
+q5 = rc; q6 = sp; q7 = lm; q8 = wa;
+q9 = hs; q10 = sb; q11 = st; q12 = be;
+q13 = ro; q14 = mf; q15 = hu; q16 = sm;
+'''
+
+[shader]
+warp = '''
+// Channels: r = the front's travel distance from the seed (9: not
+// reached), g = how far inside the shape the pixel was when it froze,
+// b = the ice (1 where frozen and not yet melted).
+let asp = u.texsize.x * u.texsize.w;
+let gr = u.q[0].x;
+let ml = u.q[0].y;
+let reset = u.q[0].z > 0.5 || u.frame < 3.0;
+let th = u.q[0].w;
+let rc = u.q[1].x;
+let sp = u.q[1].y;
+let lm = u.q[1].z;
+let wa = u.q[1].w;
+let hs = u.q[2].x;
+let p = vec2f((uv_orig.x - 0.5) * asp, 0.5 - uv_orig.y);
+let prev = textureSampleLevel(sampler_main, s_pc, uv_orig, 0.0).rgb;
+if (reset) {
+    let seed = select(9.0, 0.0, length(p) < 0.006);
+    return vec3f(seed, 0.01, prev.b * 0.985);
+}
+let frozen = prev.r < gr;
+var d = prev.r;
+var g = prev.g;
+if (!frozen) {
+    // The shape, in the folded wedge: arm along +x, y >= 0.
+    let c0 = cos(th);
+    let s0 = sin(th);
+    let pr = vec2f(c0 * p.x - s0 * p.y, s0 * p.x + c0 * p.y);
+    let r = length(pr);
+    var a = atan2(pr.y, pr.x);
+    a = a - 1.0471976 * floor(a / 1.0471976);
+    a = min(a, 1.0471976 - a);
+    let q = vec2f(cos(a), sin(a)) * r;
+    let la = 0.46;
+    // The plate: a hexagon with its corners on the arms.
+    var sd = rc * 0.866 - dot(q, vec2f(0.866, 0.5));
+    // The arm, tapering.
+    sd = max(sd, min(wa * (1.0 - 0.55 * q.x / la) - q.y, la - q.x));
+    // Side branches at 60 degrees, shorter toward the tip, with twigs.
+    let bd = vec2f(0.5, 0.866);
+    let bn = vec2f(-0.866, 0.5);
+    let x0 = rc * 0.9;
+    let kn = clamp(floor((q.x - x0) / sp), 0.0, 20.0);
+    for (var j = -1; j <= 1; j++) {
+        let k = kn + f32(j);
+        if (k < 0.0) {
+            continue;
+        }
+        let xk = x0 + k * sp;
+        if (xk > la * 0.92) {
+            continue;
+        }
+        let hk = fract(sin(k * 12.9898 + hs * 78.233) * 43758.5453);
+        let xf = xk / la;
+        let lk = la * lm * 3.2 * xf * (1.0 - xf) * (0.75 + 0.5 * hk);
+        let wb = wa * 0.7;
+        let dv = q - vec2f(xk, 0.0);
+        let al = dot(dv, bd);
+        let pp = dot(dv, bn);
+        sd = max(sd, min(min(wb * (1.0 - 0.6 * al / max(lk, 1e-3)) - abs(pp), al + wb), lk - al));
+        // Twigs: parallel to the arm on the outer side, at 120 degrees
+        // on the inner side.
+        let sp2 = sp * 0.42;
+        let tj = clamp(floor(al / sp2 + 0.5), 1.0, 12.0) * sp2;
+        if (tj < lk * 0.85) {
+            let lt = (lk - tj) * 0.5 * lm / 0.32;
+            let o = vec2f(xk, 0.0) + bd * tj;
+            let wt = wb * 0.6;
+            let d1 = q - o;
+            let a1 = d1.x;
+            let p1 = d1.y;
+            sd = max(sd, min(min(wt - abs(p1), a1 + wt), lt - a1));
+            let t2 = vec2f(-0.5, 0.866);
+            let a2 = dot(d1, t2);
+            let p2 = dot(d1, vec2f(-0.866, -0.5));
+            sd = max(sd, min(min(wt - abs(p2), a2 + wt), lt * 0.7 - a2));
+        }
+    }
+    if (sd > 0.0) {
+        // Relax the travel distance from the neighbours.
+        let px = u.texsize.zw;
+        let ih = u.texsize.w;
+        // A 5x5 chamfer: the eight neighbours and the eight knight's moves,
+        // whole texels apart, so the distance is close to Euclidean in
+        // every direction.
+        var offs = array<vec2f, 16>(
+            vec2f(1.0, 0.0), vec2f(-1.0, 0.0), vec2f(0.0, 1.0), vec2f(0.0, -1.0),
+            vec2f(1.0, 1.0), vec2f(-1.0, 1.0), vec2f(1.0, -1.0), vec2f(-1.0, -1.0),
+            vec2f(1.0, 2.0), vec2f(-1.0, 2.0), vec2f(1.0, -2.0), vec2f(-1.0, -2.0),
+            vec2f(2.0, 1.0), vec2f(-2.0, 1.0), vec2f(2.0, -1.0), vec2f(-2.0, -1.0));
+        for (var k = 0; k < 16; k++) {
+            let o = offs[k];
+            let nb = textureSampleLevel(sampler_main, s_pc, uv_orig + o * px, 0.0).r;
+            d = min(d, nb + length(o) * ih);
+        }
+        g = sd;
+    } else {
+        // Outside the shape and not frozen: unreached.
+        d = 9.0;
+        g = 0.0;
+    }
+}
+// The ice, with an afterglow that fades over a few seconds once it melts.
+let ice = select(prev.b * 0.985, 1.0, d < gr && g > ml);
+return vec3f(d, g, ice);
+'''
+comp = '''
+let tau = 6.2831853;
+let asp = u.texsize.x * u.texsize.w;
+let gr = u.q[0].x;
+let ml = u.q[0].y;
+let sb = min(u.q[2].y, 2.0) * 0.5;
+let st = max(0.0, min(u.q[2].z, 2.5) - 0.3);
+let be = min(u.q[2].w, 1.0);
+let ro = u.q[3].x;
+let mf = u.q[3].y;
+let hu = u.q[3].z;
+let p = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
+// The crystal turns slowly.
+let cr = cos(ro);
+let sr = sin(ro);
+let pq = vec2f(cr * p.x - sr * p.y, sr * p.x + cr * p.y);
+let uvr = vec2f(pq.x / asp + 0.5, 0.5 - pq.y);
+let m = textureSampleLevel(sampler_main, s_fc, uvr, 0.0).rgb;
+let b1 = GetBlur1(uvr).b;
+let b2 = GetBlur2(uvr).b;
+let px = u.texsize.w;
+let ice = smoothstep(0.0, 1.5 * px, gr - m.r) * smoothstep(0.0, 1.5 * px, m.g - ml) * step(m.r, 5.0);
+// Colour by where the front was: violet heart, cyan tips.
+let rn = clamp(m.r / 0.47, 0.0, 1.0);
+let hsh = 0.5 + 0.5 * cos(tau * (hu + vec3f(0.0, 0.33, 0.67)));
+var tint = mix(vec3f(0.55, 0.3, 1.0), vec3f(0.2, 0.6, 1.0), smoothstep(0.0, 0.4, rn));
+tint = mix(tint, vec3f(0.3, 1.0, 0.95), smoothstep(0.4, 0.95, rn));
+tint = mix(tint, tint * (0.6 + 0.8 * hsh), 0.3);
+// Melting: the ice turns to bluer water and dims.
+tint = mix(tint, vec3f(0.25, 0.45, 1.0), mf * 0.6);
+let rim = exp(-max(m.g - ml, 0.0) / 0.0028);
+let front = exp(-max(gr - m.r, 0.0) / 0.012) * (1.0 - mf);
+// A frosted pane of dark glass behind it.
+let fz = textureSampleLevel(sampler_noise_lq, s_fw, p * 0.35 + vec2f(0.2, 0.6), 0.0).x;
+let fz2 = textureSampleLevel(sampler_noise_mq, s_fw, p * 1.3 + vec2f(0.5, 0.1), 0.0).x;
+var col = mix(vec3f(0.025, 0.04, 0.1), vec3f(0.05, 0.08, 0.18), fz * 0.7 + fz2 * 0.3)
+    * (0.75 + 0.6 * exp(-dot(p, p) * 3.0)) * (0.82 + 0.4 * sb);
+// A cold light behind the pane that swells with the bass.
+col += vec3f(0.12, 0.25, 0.55) * 0.2 * sb * exp(-dot(p, p) * 2.5);
+let b3 = GetBlur3(uvr).b;
+col += tint * b3 * (0.55 + 0.35 * sb);
+col += tint * b2 * 0.35;
+col += tint * b1 * 0.2;
+let body = tint * (0.9 + 1.3 * rim) + vec3f(0.9, 0.97, 1.0) * front * (0.9 + 0.8 * be);
+col += body * ice * (1.0 - 0.5 * mf);
+// Treble: glints on the ice.
+let lw = max(1.0, u.texsize.y / 360.0);
+let gcell = floor(uv * u.texsize.xy / (2.0 * lw));
+let gh = fract(sin(dot(gcell, vec2f(12.9898, 78.233))) * 43758.5453);
+let gt = pow(max(0.0, sin(u.time * (2.0 + 5.0 * gh) + gh * 60.0)), 24.0) * step(0.7, gh);
+col += vec3f(0.9, 0.95, 1.0) * gt * st * 1.5 * ice;
+let lc = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lc) + (col - vec3f(lc)) * 1.2, vec3f(0.0));
+return col / (1.0 + 0.3 * col);
+'''
