@@ -23,6 +23,8 @@ device, so just start your music and run it.
 | **Harmonograph**: damped pendulums tracing glowing Lissajous spirals | **Complex Poles**: neon contours of a complex function whose zeros and poles wander |
 | ![Hyperbolic Tiling](docs/images/hyperbolic-tiling.png) | ![Spiral Galaxy](docs/images/spiral-galaxy.png) |
 | **Hyperbolic Tiling**: a glowing Poincare disc of tiles drifting toward the infinite rim | **Spiral Galaxy**: stars on turning ellipses crowding into density-wave arms |
+| ![Bubble Chamber](docs/images/bubble-chamber.png) | |
+| **Bubble Chamber**: particle tracks curling into spirals in a magnetic field | |
 
 These are single frames; every preset moves and changes with the music.
 
