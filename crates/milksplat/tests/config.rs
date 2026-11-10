@@ -88,7 +88,7 @@ fn one_bad_field_others_kept() {
     let path = dir.0.join("config.toml");
     std::fs::write(&path, "auto_advance_s = \"x\"\nblend_s = 5\n").unwrap();
     let (c, warnings) = load_config(&path);
-    assert_eq!(c.auto_advance_s, 20.0);
+    assert_eq!(c.auto_advance_s, 60.0);
     assert_eq!(c.blend_s, 5.0);
     assert_eq!(warnings.len(), 1, "{warnings:?}");
     assert!(warnings[0].contains("auto_advance_s"), "{warnings:?}");

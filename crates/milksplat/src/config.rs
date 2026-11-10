@@ -145,7 +145,7 @@ impl Default for Config {
         Config {
             audio_device: None,
             av_offsets_ms: BTreeMap::new(),
-            auto_advance_s: 20.0,
+            auto_advance_s: 60.0,
             blend_s: 2.7,
             hard_cuts: true,
             hard_cut_strength: 2.0,

@@ -132,7 +132,7 @@ pub struct DirectorConfig {
 impl Default for DirectorConfig {
     fn default() -> Self {
         DirectorConfig {
-            auto_advance_s: 20.0,
+            auto_advance_s: 60.0,
             blend_s: 2.7,
             hard_cuts: true,
             hard_cut_strength: 2.0,

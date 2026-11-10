@@ -97,7 +97,7 @@ fn aspect_scales_the_shorter_side() {
 #[test]
 fn config_defaults() {
     let c = Config::default();
-    assert_eq!(c.auto_advance_s, 20.0);
+    assert_eq!(c.auto_advance_s, 60.0);
     assert_eq!(c.blend_s, 2.7);
     assert!(c.hard_cuts);
     assert_eq!(c.hard_cut_strength, 2.0);

@@ -307,7 +307,7 @@ Then draw on-screen text.
 
 ### 7.3 Selection
 
-- **Auto-advance:** default 20 s ± 25% random. `L` locks the current preset.
+- **Auto-advance:** default 60 s ± 25% random. `L` locks the current preset.
 - **Shuffle:** a history of the last 50 presets. `←` steps back through history. Presets shown in the last 30% of the library are not repeated.
 - **Favourites:** shown twice as often.
 - **Banned presets:** never shown.
