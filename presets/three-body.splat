@@ -1,0 +1,301 @@
+# Three Body Problem: three glowing masses on a genuinely simulated,
+# chaotic three-body orbit, with the gravitational field between them drawn
+# as luminous flux lines and equipotential contours that pinch and stretch
+# through the gaps as the bodies swing past each other. The bodies leave
+# fading trails in the feedback buffer.
+#
+# The frame code integrates Newtonian gravity (G = 1, equal masses,
+# softened by 0.12) with velocity Verlet: twelve fixed substeps per tick,
+# so the run is deterministic. It starts on the Chenciner-Montgomery
+# figure-eight, which the music soon knocks into chaos. Safeguards keep it
+# on screen and interesting, all applied smoothly: the barycentre is
+# recentred every tick; a soft wall pulls back a body that strays beyond a
+# radius of 0.85; a gentle thermostat eases the energy (the wall's
+# included) back toward the figure-eight's whenever it strays by more
+# than 0.1; speeds are capped. If the system settles into a tight pair
+# with a lonely third body, or all three huddle together, for eight
+# seconds, it is steered over four seconds onto a new figure-eight or an
+# (unstable) turning Lagrange triangle, from which the chaos starts again.
+#
+# The composite shader draws the field of the three bodies in closed form:
+# the field lines are contours of the summed polar angles around the
+# bodies (the flux function of the plane's field; nine lines leave each
+# body, more as the mids rise), the equipotentials are contours of the log
+# of the Newtonian potential, and both are coloured by the field strength,
+# violet where it is weak through cyan to gold beside the masses. Pulses
+# of light fall along the field lines toward the bodies.
+#
+# Bass adds mass (smoothed): the orbits quicken (scaling the masses is
+# the same as running the clock faster, so the integrator takes more of
+# its fixed steps), the field strengthens and the glow swells. Mids weave a
+# second, finer set of field lines and brighten the equipotentials. Treble
+# makes sparks twinkle along the lines. Each kick turns every velocity a
+# little, eased in (a swirl that changes the angular momentum but never
+# the energy).
+version = 1
+
+[meta]
+name = "Three Body Problem"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+feedback_format = "fp16"
+decay = 1.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+// The figure-eight (Chenciner and Montgomery), G = m = 1.
+x1 = -0.97000436; y1 = 0.24308753;
+x2 = 0.97000436; y2 = -0.24308753;
+x3 = 0; y3 = 0;
+vx1 = 0.46620369; vy1 = 0.43236573;
+vx2 = vx1; vy2 = vy1;
+vx3 = -0.93240737; vy3 = -0.86473146;
+e2 = 0.0144;
+m = 1;
+// Its energy (softened), the thermostat's target per unit mass squared.
+r12 = sqrt(sqr(x1 - x2) + sqr(y1 - y2) + e2);
+r13 = sqrt(sqr(x1 - x3) + sqr(y1 - y3) + e2);
+r23 = sqrt(sqr(x2 - x3) + sqr(y2 - y3) + e2);
+e0 = 0.5 * (sqr(vx1) + sqr(vy1) + sqr(vx2) + sqr(vy2) + sqr(vx3) + sqr(vy3))
+  - (1 / r12 + 1 / r13 + 1 / r23);
+ox1 = x1; oy1 = y1; ox2 = x2; oy2 = y2; ox3 = x3; oy3 = y3;
+dt = 0.0017;
+tgt = 0;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+sm = sm + (min(mid_att, 2.5) - sm) * 0.03;
+st = st + (min(treb_att, 2.5) - st) * 0.1;
+bt = max(bt * 0.94, beat);
+be = be + (bt - be) * 0.1;
+// Bass adds mass, smoothed. Scaling every mass by m is the same orbit
+// run sqrt(m) times faster, so the integrator takes more of its fixed
+// steps instead (the orbits keep their size and the chaos its character).
+m = 1 + 0.6 * min(sb, 2) / 2;
+ns = floor(12 * sqrt(m) + 0.5);
+// A kick: every velocity turns a little, eased in with the envelope's
+// rise (it changes the angular momentum, never the energy).
+kk = max(0, be - bp) * 0.35;
+bp = be;
+ca = cos(kk); sa = sin(kk);
+s = vx1; vx1 = ca * s - sa * vy1; vy1 = sa * s + ca * vy1;
+s = vx2; vx2 = ca * s - sa * vy2; vy2 = sa * s + ca * vy2;
+s = vx3; vx3 = ca * s - sa * vy3; vy3 = sa * s + ca * vy3;
+ox1 = x1; oy1 = y1; ox2 = x2; oy2 = y2; ox3 = x3; oy3 = y3;
+// Velocity Verlet, fixed steps.
+loop(ns,
+  vx1 = vx1 + 0.5 * dt * ax1; vy1 = vy1 + 0.5 * dt * ay1;
+  vx2 = vx2 + 0.5 * dt * ax2; vy2 = vy2 + 0.5 * dt * ay2;
+  vx3 = vx3 + 0.5 * dt * ax3; vy3 = vy3 + 0.5 * dt * ay3;
+  x1 = x1 + dt * vx1; y1 = y1 + dt * vy1;
+  x2 = x2 + dt * vx2; y2 = y2 + dt * vy2;
+  x3 = x3 + dt * vx3; y3 = y3 + dt * vy3;
+  hx = x2 - x1; hy = y2 - y1; rr = hx * hx + hy * hy + e2; iv = 1 / (rr * sqrt(rr));
+  fax = hx * iv; fay = hy * iv;
+  hx = x3 - x1; hy = y3 - y1; rr = hx * hx + hy * hy + e2; iv = 1 / (rr * sqrt(rr));
+  fbx = hx * iv; fby = hy * iv;
+  hx = x3 - x2; hy = y3 - y2; rr = hx * hx + hy * hy + e2; iv = 1 / (rr * sqrt(rr));
+  fcx = hx * iv; fcy = hy * iv;
+  ax1 = fax + fbx; ay1 = fay + fby;
+  ax2 = fcx - fax; ay2 = fcy - fay;
+  ax3 = -fbx - fcx; ay3 = -fby - fcy;
+  // The soft wall beyond a radius of 1.0.
+  rr = sqrt(x1 * x1 + y1 * y1) + 1e-6; w = 80 * max(0, rr - 0.85) / rr;
+  ax1 = ax1 - w * x1; ay1 = ay1 - w * y1;
+  rr = sqrt(x2 * x2 + y2 * y2) + 1e-6; w = 80 * max(0, rr - 0.85) / rr;
+  ax2 = ax2 - w * x2; ay2 = ay2 - w * y2;
+  rr = sqrt(x3 * x3 + y3 * y3) + 1e-6; w = 80 * max(0, rr - 0.85) / rr;
+  ax3 = ax3 - w * x3; ay3 = ay3 - w * y3;
+  vx1 = vx1 + 0.5 * dt * ax1; vy1 = vy1 + 0.5 * dt * ay1;
+  vx2 = vx2 + 0.5 * dt * ax2; vy2 = vy2 + 0.5 * dt * ay2;
+  vx3 = vx3 + 0.5 * dt * ax3; vy3 = vy3 + 0.5 * dt * ay3
+);
+// Recentre on the barycentre.
+gx = (x1 + x2 + x3) / 3; gy = (y1 + y2 + y3) / 3;
+x1 = x1 - gx; x2 = x2 - gx; x3 = x3 - gx;
+y1 = y1 - gy; y2 = y2 - gy; y3 = y3 - gy;
+ox1 = ox1 - gx; ox2 = ox2 - gx; ox3 = ox3 - gx;
+oy1 = oy1 - gy; oy2 = oy2 - gy; oy3 = oy3 - gy;
+gx = (vx1 + vx2 + vx3) / 3; gy = (vy1 + vy2 + vy3) / 3;
+vx1 = vx1 - gx; vx2 = vx2 - gx; vx3 = vx3 - gx;
+vy1 = vy1 - gy; vy2 = vy2 - gy; vy3 = vy3 - gy;
+// The thermostat: when the energy (the wall's included) strays more than
+// 0.1 from the figure-eight's, ease it back.
+r12 = sqrt(sqr(x1 - x2) + sqr(y1 - y2) + e2);
+r13 = sqrt(sqr(x1 - x3) + sqr(y1 - y3) + e2);
+r23 = sqrt(sqr(x2 - x3) + sqr(y2 - y3) + e2);
+pe = -(1 / r12 + 1 / r13 + 1 / r23)
+  + 40 * (sqr(max(0, sqrt(sqr(x1) + sqr(y1)) - 0.85)) + sqr(max(0, sqrt(sqr(x2) + sqr(y2)) - 0.85))
+  + sqr(max(0, sqrt(sqr(x3) + sqr(y3)) - 0.85)));
+ke = 0.5 * (sqr(vx1) + sqr(vy1) + sqr(vx2) + sqr(vy2) + sqr(vx3) + sqr(vy3));
+er = ke + pe - e0;
+er = sign(er) * max(0, abs(er) - 0.1);
+s = sqrt(max(ke - er * 0.02, 0.01) / max(ke, 0.0001));
+vx1 = vx1 * s; vy1 = vy1 * s; vx2 = vx2 * s; vy2 = vy2 * s; vx3 = vx3 * s; vy3 = vy3 * s;
+// Speed cap.
+vm = 7;
+s = min(1, vm / (sqrt(sqr(vx1) + sqr(vy1)) + 1e-6)); vx1 = vx1 * s; vy1 = vy1 * s;
+s = min(1, vm / (sqrt(sqr(vx2) + sqr(vy2)) + 1e-6)); vx2 = vx2 * s; vy2 = vy2 * s;
+s = min(1, vm / (sqrt(sqr(vx3) + sqr(vy3)) + 1e-6)); vx3 = vx3 * s; vy3 = vy3 * s;
+// A tight pair with a lonely third body for ten seconds: steer onto a
+// fresh configuration over a few seconds.
+dmin = min(r12, min(r13, r23));
+far = if(r12 <= dmin, sqrt(sqr(x3) + sqr(y3)), if(r13 <= dmin, sqrt(sqr(x2) + sqr(y2)), sqrt(sqr(x1) + sqr(y1))));
+dmax = max(r12, max(r13, r23));
+bored = if((dmin < 0.4 && far > 0.75) || dmax < 0.5, bored + 1 / 60, max(0, bored - 0.5 / 60));
+if(bored > 8 && steer <= 0,
+  steer = 240; bored = 0; tgt = 1 - tgt;
+  ta = rand(1000) / 1000 * 6.2831853,
+  0);
+if(steer > 0,
+  steer = steer - 1;
+  ca = cos(ta); sa = sin(ta); sv = 1;
+  if(tgt > 0.5,
+    // The figure-eight, turned by ta.
+    t1x = -0.97000436; t1y = 0.24308753; t2x = -t1x; t2y = -t1y; t3x = 0; t3y = 0;
+    u1x = 0.46620369; u1y = 0.43236573; u2x = u1x; u2y = u1y; u3x = -0.93240737; u3y = -0.86473146,
+    // The Lagrange triangle, turning.
+    t1x = 0.75; t1y = 0; t2x = -0.375; t2y = 0.649519; t3x = -0.375; t3y = -0.649519;
+    vl = sqrt(1 / (1.7320508 * 0.75));
+    u1x = 0; u1y = vl; u2x = -0.866025 * vl; u2y = -0.5 * vl; u3x = 0.866025 * vl; u3y = -0.5 * vl);
+  k = 0.02;
+  x1 = x1 + (ca * t1x - sa * t1y - x1) * k; y1 = y1 + (sa * t1x + ca * t1y - y1) * k;
+  x2 = x2 + (ca * t2x - sa * t2y - x2) * k; y2 = y2 + (sa * t2x + ca * t2y - y2) * k;
+  x3 = x3 + (ca * t3x - sa * t3y - x3) * k; y3 = y3 + (sa * t3x + ca * t3y - y3) * k;
+  vx1 = vx1 + ((ca * u1x - sa * u1y) * sv - vx1) * k; vy1 = vy1 + ((sa * u1x + ca * u1y) * sv - vy1) * k;
+  vx2 = vx2 + ((ca * u2x - sa * u2y) * sv - vx2) * k; vy2 = vy2 + ((sa * u2x + ca * u2y) * sv - vy2) * k;
+  vx3 = vx3 + ((ca * u3x - sa * u3y) * sv - vx3) * k; vy3 = vy3 + ((sa * u3x + ca * u3y) * sv - vy3) * k,
+  0);
+// Never off screen.
+s = min(1, 1.1 / (sqrt(sqr(x1) + sqr(y1)) + 1e-6)); x1 = x1 * s; y1 = y1 * s;
+s = min(1, 1.1 / (sqrt(sqr(x2) + sqr(y2)) + 1e-6)); x2 = x2 * s; y2 = y2 * s;
+s = min(1, 1.1 / (sqrt(sqr(x3) + sqr(y3)) + 1e-6)); x3 = x3 * s; y3 = y3 * s;
+// The pulses falling along the field lines (accumulated, wrapped).
+fp = fp + 0.03 + 0.05 * min(sb, 2) / 2;
+fp = fp - 6.2831853 * floor(fp / 6.2831853);
+hu = hu + 0.0002;
+hu = hu - floor(hu);
+q1 = x1; q2 = y1; q3 = x2; q4 = y2;
+q5 = x3; q6 = y3; q7 = ox1; q8 = oy1;
+q9 = ox2; q10 = oy2; q11 = ox3; q12 = oy3;
+q13 = m; q14 = fp; q15 = sm; q16 = st;
+q17 = be; q18 = hu; q19 = sb;
+'''
+
+[shader]
+warp = '''
+// The trails: the old image fades, and each body draws the segment it
+// moved along this tick.
+let asp = u.texsize.x * u.texsize.w;
+let p = vec2f((uv_orig.x - 0.5) * asp, 0.5 - uv_orig.y) * 2.4;
+var col = textureSampleLevel(sampler_main, s_pc, uv_orig, 0.0).rgb * 0.986;
+let b1 = vec2f(u.q[0].x, u.q[0].y);
+let b2 = vec2f(u.q[0].z, u.q[0].w);
+let b3 = vec2f(u.q[1].x, u.q[1].y);
+let o1 = vec2f(u.q[1].z, u.q[1].w);
+let o2 = vec2f(u.q[2].x, u.q[2].y);
+let o3 = vec2f(u.q[2].z, u.q[2].w);
+let sg = 0.02;
+let s1 = clamp(dot(p - o1, b1 - o1) / max(dot(b1 - o1, b1 - o1), 1e-8), 0.0, 1.0);
+let d1 = length(p - o1 - (b1 - o1) * s1);
+let s2 = clamp(dot(p - o2, b2 - o2) / max(dot(b2 - o2, b2 - o2), 1e-8), 0.0, 1.0);
+let d2 = length(p - o2 - (b2 - o2) * s2);
+let s3 = clamp(dot(p - o3, b3 - o3) / max(dot(b3 - o3, b3 - o3), 1e-8), 0.0, 1.0);
+let d3 = length(p - o3 - (b3 - o3) * s3);
+col += vec3f(1.0, 0.5, 0.12) * exp(-d1 * d1 / (sg * sg)) * 0.3;
+col += vec3f(0.15, 0.75, 1.0) * exp(-d2 * d2 / (sg * sg)) * 0.3;
+col += vec3f(1.0, 0.22, 0.7) * exp(-d3 * d3 / (sg * sg)) * 0.3;
+return col;
+'''
+comp = '''
+let tau = 6.2831853;
+let asp = u.texsize.x * u.texsize.w;
+let sc = 2.4;
+let p = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y) * sc;
+// World units per pixel.
+let pxw = sc * u.texsize.w;
+// Line width in pixels: about the same share of the screen at any size.
+let lw = max(1.0, u.texsize.y / 380.0);
+let m = u.q[3].x;
+let fp = u.q[3].y;
+let sm = min(u.q[3].z, 2.0) * 0.5;
+let st = max(0.0, min(u.q[3].w, 2.5) - 0.3);
+let be = min(u.q[4].x, 1.0);
+let hu = u.q[4].y;
+let sb = min(u.q[4].z, 2.0) * 0.5;
+var bs: array<vec2f, 3>;
+bs[0] = vec2f(u.q[0].x, u.q[0].y);
+bs[1] = vec2f(u.q[0].z, u.q[0].w);
+bs[2] = vec2f(u.q[1].x, u.q[1].y);
+var bc: array<vec3f, 3>;
+bc[0] = vec3f(1.0, 0.5, 0.12);
+bc[1] = vec3f(0.15, 0.75, 1.0);
+bc[2] = vec3f(1.0, 0.22, 0.7);
+var psi = 0.0;
+var gpsi = vec2f(0.0);
+var phi = 0.0;
+var gphi = vec2f(0.0);
+var glow = vec3f(0.0);
+for (var i = 0; i < 3; i++) {
+    let d = p - bs[i];
+    let r2 = dot(d, d);
+    psi += atan2(d.y, d.x);
+    gpsi += vec2f(-d.y, d.x) / max(r2, 1e-6);
+    let rs2 = r2 + 0.003;
+    let iv = inverseSqrt(rs2);
+    phi += iv;
+    gphi -= d * iv * iv * iv;
+    glow += bc[i] * (0.0035 * (1.0 + 0.6 * sb) / (r2 + 0.0025) + 1.6 * exp(-r2 / 0.0009));
+}
+phi *= m;
+gphi *= m;
+let gs = length(gphi);
+// Colour by field strength: violet, blue, cyan, gold.
+let t = clamp((log(gs) + 0.6) / 5.5, 0.0, 1.0);
+var pal = mix(vec3f(0.45, 0.18, 1.0), vec3f(0.12, 0.45, 1.0), smoothstep(0.0, 0.3, t));
+pal = mix(pal, vec3f(0.1, 0.95, 0.9), smoothstep(0.3, 0.6, t));
+pal = mix(pal, vec3f(1.0, 0.8, 0.35), smoothstep(0.6, 0.95, t));
+let hs = 0.5 + 0.5 * cos(tau * (hu + vec3f(0.0, 0.33, 0.67)));
+pal = mix(pal, pal * (0.6 + 0.8 * hs), 0.25);
+// Field lines: contours of the summed angles, nine per body (seamless:
+// each angle's jump of tau moves the contour index by a whole number).
+let lp = log(phi);
+let pulse = 0.45 + 0.55 * pow(0.5 + 0.5 * sin(lp * 4.0 - fp * 2.0), 3.0);
+let ga = length(gpsi) / tau;
+var lines = 0.0;
+for (var k = 0; k < 2; k++) {
+    let n = select(9.0, 27.0, k == 1);
+    let wgt = select(1.0, 0.75 * sm, k == 1);
+    let f = psi * n / tau;
+    let cpp = ga * n * pxw * lw;
+    let dpx = abs(fract(f + 0.5) - 0.5) / max(cpp, 1e-5);
+    lines += wgt * exp(-dpx * dpx / (1.1 + 0.4 * sb)) * smoothstep(0.5, 0.15, cpp);
+}
+// Equipotentials: contours of the log of the potential.
+let ke = 3.0;
+let fe = lp * ke;
+let cpe = gs / phi * ke * pxw * lw;
+let dpe = abs(fract(fe + 0.5) - 0.5) / max(cpe, 1e-5);
+let equi = exp(-dpe * dpe / 1.2) * smoothstep(0.5, 0.15, cpe) * (0.45 + 0.4 * sm);
+// Treble: sparks twinkling along the lines.
+let cell = floor(uv * u.texsize.xy / (3.0 * lw));
+let hh = fract(sin(dot(cell, vec2f(12.9898, 78.233))) * 43758.5453);
+let tw = pow(max(0.0, sin(u.time * (2.0 + 5.0 * hh) + hh * 60.0)), 24.0) * step(0.6, hh);
+var col = vec3f(0.006, 0.007, 0.022);
+col += pal * (0.03 + 0.12 * t * t);
+col += pal * lines * pulse * (1.1 + 0.4 * sb);
+col += mix(pal, vec3f(1.0, 0.35, 0.8), 0.5) * equi;
+col += vec3f(0.9, 0.95, 1.0) * tw * lines * st * 1.5;
+// The trails, and the bodies' glow.
+col += textureSampleLevel(sampler_main, s_fc, uv, 0.0).rgb * (1.0 + 0.4 * be);
+col += glow * (1.0 + 0.3 * be);
+let lc = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lc) + (col - vec3f(lc)) * 1.2, vec3f(0.0));
+return col / (1.0 + 0.4 * col);
+'''
