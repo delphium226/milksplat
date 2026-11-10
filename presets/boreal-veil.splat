@@ -1,0 +1,164 @@
+# Boreal Veil: curtains of the northern lights hang over a dark ridge and a
+# still lake, folding and rippling in the magnetic field as the music
+# plays. Their lower hems are sharp and bright green, they fade upward
+# through teal into violet and crimson, and they are combed into fine
+# vertical rays; a second, fainter veil hangs further off near the
+# horizon. Stars glitter behind, and the lake mirrors it all, broken by a
+# slow ripple.
+#
+# The composite shader traces each pixel's ray from the shore. Each
+# curtain is a thin vertical sheet standing on a folded line on the
+# ground plan; the shader marches out along the ray's ground track, finds
+# where it crosses that line (up to a few times, where the curtain folds
+# back), and lights the crossing by its height above the curtain's hem.
+# So the curtains are seen in true perspective, near ones tall and high,
+# far ones low on the horizon, and they glow brightest where a fold turns
+# the sheet edge-on to you. The rays are a noise along the curtain, the
+# same at every height, and patches brighten and fade along its length.
+#
+# Bass sends waves rolling along the curtains and swells their light;
+# mids deepen the folds; treble shimmers the rays; each kick sends a
+# brighter pulse of light sweeping along the curtains, eased in and out.
+version = 1
+
+[meta]
+name = "Boreal Veil"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+feedback_format = "rgba8"
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+sm = sm + (min(mid_att, 2.5) - sm) * 0.02;
+st = st + (min(treb_att, 2.5) - st) * 0.08;
+bt = max(bt * 0.95, beat);
+be = be + (bt - be) * 0.08;
+// The waves rolling along the curtains (accumulated, wrapped).
+p1 = p1 + 0.004 + 0.012 * min(sb, 2) / 2;
+p1 = p1 - 6.2831853 * floor(p1 / 6.2831853);
+p2 = p2 + 0.0023 + 0.005 * min(sm, 2) / 2;
+p2 = p2 - 6.2831853 * floor(p2 / 6.2831853);
+// The rays' slow drift and the treble's shimmer.
+p3 = p3 + 0.0015 + 0.004 * min(st, 2) / 2;
+p3 = p3 - 64 * floor(p3 / 64);
+// The kick's pulse: where along the curtain it is.
+if(be > 0.45 && pa > 1.2, pa = 0, 0);
+pa = pa + 1 / 60;
+hu = hu + 0.00015;
+hu = hu - floor(hu);
+q1 = sb; q2 = sm; q3 = st; q4 = be;
+q5 = p1; q6 = p2; q7 = p3; q8 = pa;
+q9 = hu;
+'''
+
+[shader]
+comp = '''
+let tau = 6.2831853;
+let asp = u.texsize.x * u.texsize.w;
+let sb = min(u.q[0].x, 2.0) * 0.5;
+let sm = min(u.q[0].y, 2.0) * 0.5;
+let st = max(0.0, min(u.q[0].z, 2.5) - 0.4);
+let be = min(u.q[0].w, 1.0);
+let p1 = u.q[1].x;
+let p2 = u.q[1].y;
+let p3 = u.q[1].z;
+let pa = u.q[1].w;
+let hu = u.q[2].x;
+let p0 = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
+let yh = -0.24;
+// The lake mirrors the sky, broken by a slow ripple.
+let refl = p0.y < yh;
+let rip = 0.0015 * sin(14.0 / (yh - p0.y + 0.06) + u.time * 0.8) * smoothstep(0.0, 0.05, yh - p0.y);
+let p = select(p0, vec2f(p0.x + rip, 2.0 * yh - p0.y), refl);
+// The ray from the shore, looking a little upward.
+let e = max(p.y - yh, 0.0);
+let dir = vec3f(p.x * 1.4, e * 1.4 + 0.004, 1.0);
+var aur = vec3f(0.0);
+let fold = 0.25 + 0.45 * sm;
+for (var c = 0; c < 2; c++) {
+    let zc = select(1.35, 3.2, c == 1);
+    let ph = p1 * select(1.0, 0.7, c == 1) + f32(c) * 2.1;
+    let gain = select(1.0, 0.6, c == 1);
+    // March out along the ray's ground track and find where it crosses
+    // the curtain's line (the root of z - line(x)), up to a few times.
+    var zp = 0.25;
+    var fp = 1.0;
+    var acc = vec3f(0.0);
+    for (var k = 0; k <= 56; k++) {
+        let z = 0.25 + f32(k) * (zc + 1.2 - 0.25) / 56.0;
+        let x = dir.x * z;
+        let cz = zc + 0.32 * sin(1.6 * x + ph) + fold * 0.22 * sin(3.7 * x - p2 * 2.0 + 0.8 * sin(1.3 * x + ph))
+            + 0.05 * sin(9.0 * x + ph * 2.0);
+        let f = z - cz;
+        if (k > 0 && f * fp <= 0.0) {
+            let zr = zp + (z - zp) * fp / (fp - f);
+            let xr = dir.x * zr;
+            let h = dir.y * zr;
+            // The line's slope there, for how edge-on the sheet is seen.
+            let sl = 0.512 * cos(1.6 * xr + ph) + fold * 0.22 * cos(3.7 * xr - p2 * 2.0 + 0.8 * sin(1.3 * xr + ph))
+                * (3.7 + 1.04 * cos(1.3 * xr + ph)) + 0.45 * cos(9.0 * xr + ph * 2.0);
+            let cs = abs(dir.x * (-sl) + 1.0) / (sqrt(sl * sl + 1.0) * sqrt(dir.x * dir.x + 1.0));
+            let thick = min(1.0 / (cs + 0.25), 2.6);
+            // The hem and the fade upward.
+            let hb = 0.42 + 0.06 * sin(2.3 * xr - ph * 1.3);
+            let hv = h - hb;
+            let prof = smoothstep(-0.03, 0.006, hv) * exp(-max(hv, 0.0) / (0.4 + 0.15 * sb));
+            // Rays: a noise along the curtain, the same at every height.
+            let r1 = textureSampleLevel(sampler_noise_hq, s_fw, vec2f(xr * 0.11 + p3 * 0.02, 0.37 + f32(c) * 0.3), 0.0).x;
+            let r2 = textureSampleLevel(sampler_noise_hq, s_fw, vec2f(xr * 0.37 - p3 * 0.09, 0.71 + f32(c) * 0.2), 0.0).x;
+            // Patches: the curtain brightens and fades along its length.
+            let pn = textureSampleLevel(sampler_noise_lq, s_fw, vec2f(xr * 0.045 + ph * 0.01, 0.5 + f32(c) * 0.25), 0.0).x;
+            let pat = 0.25 + 0.75 * smoothstep(0.25, 0.65, pn);
+            let rays = pat * (0.3 + 1.4 * r1 * r1 + (0.5 + 1.0 * st) * r2 * r2 * r2 * 2.0);
+            // The kick's pulse sweeping along.
+            let pu = 1.0 + 0.8 * be * exp(-pow(xr - (pa * 2.5 - 1.8), 2.0) * 6.0);
+            // Colour by height: a sharp green hem, teal, then violet and
+            // crimson.
+            var col = mix(vec3f(0.15, 1.0, 0.4), vec3f(0.05, 0.85, 0.8), smoothstep(0.04, 0.22, hv));
+            col = mix(col, vec3f(0.55, 0.2, 1.0), smoothstep(0.2, 0.55, hv));
+            col = mix(col, vec3f(1.0, 0.15, 0.4), smoothstep(0.55, 1.0, hv));
+            let hs = 0.5 + 0.5 * cos(tau * (hu + f32(c) * 0.3 + vec3f(0.0, 0.33, 0.67)));
+            col = mix(col, col * (0.5 + hs), 0.2);
+            let edge = 1.0 + 1.3 * exp(-max(hv, 0.0) / 0.02) * smoothstep(-0.02, 0.0, hv);
+            acc += col * prof * rays * pu * edge * thick;
+        }
+        zp = z;
+        fp = f;
+    }
+    aur += acc * gain * 0.6;
+}
+aur *= (0.9 + 0.7 * sb);
+// The night sky: deep blue, a little lighter at the horizon.
+var col = mix(vec3f(0.02, 0.035, 0.07), vec3f(0.004, 0.006, 0.022), smoothstep(0.0, 0.6, e));
+// Stars.
+let g = p * 70.0;
+let cell = floor(g);
+let hh = fract(sin(dot(cell, vec2f(12.9898, 78.233))) * 43758.5453);
+let hj = fract(hh * 91.7);
+let so = vec2f(fract(hh * 13.1), fract(hh * 7.3)) * 0.6 + vec2f(0.2);
+let sd = length(g - cell - so);
+let tw = 0.7 + 0.3 * sin(u.time * (1.0 + 3.0 * hj) + hh * 50.0);
+col += vec3f(0.8, 0.88, 1.0) * exp(-sd * sd * 30.0) * step(0.86, hh) * (0.3 + 0.9 * hj) * tw * smoothstep(0.0, 0.05, e);
+col += aur;
+// The ridge: a dark silhouette along the horizon.
+let rx = p.x;
+let ridge = yh + 0.035 + 0.035 * sin(rx * 3.1 + 1.0) + 0.02 * sin(rx * 7.3 + 2.0) + 0.008 * sin(rx * 23.0);
+let land = smoothstep(ridge + 0.002, ridge - 0.002, p.y);
+col = mix(col, vec3f(0.004, 0.006, 0.012), land);
+// The lake: darker, bluer, with a faint glint along the shore.
+if (refl) {
+    col = col * vec3f(0.45, 0.55, 0.65) + vec3f(0.002, 0.004, 0.01);
+    col += aur * 0.08 * exp(-(yh - p0.y) * 30.0);
+}
+let lc = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lc) + (col - vec3f(lc)) * 1.15, vec3f(0.0));
+return col / (1.0 + 0.35 * col);
+'''
