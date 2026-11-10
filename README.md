@@ -21,8 +21,8 @@ device, so just start your music and run it.
 | **Silk Attractor**: a Clifford strange attractor spun into iridescent silk | **Indra's Pearls**: jewelled circles nested in circles, sinking forever toward a limit point |
 | ![Harmonograph](docs/images/harmonograph.png) | ![Complex Poles](docs/images/complex-poles.png) |
 | **Harmonograph**: damped pendulums tracing glowing Lissajous spirals | **Complex Poles**: neon contours of a complex function whose zeros and poles wander |
-| ![Hyperbolic Tiling](docs/images/hyperbolic-tiling.png) | |
-| **Hyperbolic Tiling**: a glowing Poincare disc of tiles drifting toward the infinite rim | |
+| ![Hyperbolic Tiling](docs/images/hyperbolic-tiling.png) | ![Spiral Galaxy](docs/images/spiral-galaxy.png) |
+| **Hyperbolic Tiling**: a glowing Poincare disc of tiles drifting toward the infinite rim | **Spiral Galaxy**: stars on turning ellipses crowding into density-wave arms |
 
 These are single frames; every preset moves and changes with the music.
 

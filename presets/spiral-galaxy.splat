@@ -1,0 +1,281 @@
+# Spiral Galaxy: a grand-design spiral seen at a slant, its arms made the
+# way density-wave theory says real ones are. Every star runs round an
+# ellipse, and each ellipse is turned a little further than the one
+# inside it (by an angle proportional to the log of its size), so where
+# neighbouring orbits crowd together, at the ends of their long axes,
+# two logarithmic spiral arms appear, although no star stays in them:
+# the stars stream through the arms, slowing as they pass. The pattern
+# itself turns slowly and rigidly, the stars at their own pace (faster
+# inside).
+#
+# Four custom waves move 2048 stars along their orbits (dots, leaving
+# short glowing trails in the feedback buffer). The composite shader
+# lays the glowing body of the galaxy under them on the same spiral:
+# blue-white arms knotted with pink star-forming clumps, dark dust lanes
+# along their inner edges, a warm bulge and a white-hot core, over a
+# near-black sky with faint distant stars.
+#
+# Bass swells and brightens the core and hastens the orbits (an
+# accumulated time, never time times the bass). Mids wind the arms
+# tighter (smoothed). Treble makes the stars twinkle. Each kick flares
+# the core, eased in and out.
+version = 1
+
+[meta]
+name = "Spiral Galaxy"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+feedback_format = "fp16"
+decay = 1.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [16, 12]
+b1n = 0.0
+b1x = 3.0
+
+[code]
+init = '''
+// Each star's orbit, fixed: size, ellipticity, starting phase, angular
+// speed (faster inside), brightness and twinkle rate (six slots each).
+loop(2048,
+  h1 = sin(i * 12.9898) * 43758.5453; h1 = h1 - floor(h1);
+  h2 = sin(i * 78.233 + 1.7) * 24634.6345; h2 = h2 - floor(h2);
+  h3 = sin(i * 39.425 + 3.1) * 15731.7431; h3 = h3 - floor(h3);
+  ra = 0.07 + 0.95 * pow(h1, 0.85);
+  megabuf(i * 6) = ra;
+  megabuf(i * 6 + 1) = 1 - (0.2 + 0.04 * h3);
+  megabuf(i * 6 + 2) = i * 2.3999632;
+  megabuf(i * 6 + 3) = 0.18 / pow(ra, 1.2);
+  megabuf(i * 6 + 4) = 0.3 + 0.6 * h2 * h2;
+  megabuf(i * 6 + 5) = 3 + 4 * h2;
+  i = i + 1);
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+sm = sm + (min(mid_att, 2.5) - sm) * 0.02;
+st = st + (min(treb, 2.5) - st) * 0.15;
+bt = max(bt * 0.94, beat);
+be = be + (bt - be) * 0.12;
+// Orbital time (accumulated), quicker with the bass.
+ot = ot + 0.006 + 0.01 * min(sb, 2) / 2 + 0.004 * min(be, 1);
+// The pattern's turn (wrapped).
+pp = pp + 0.0011 + 0.0012 * min(sb, 2) / 2;
+pp = pp - 6.2831853 * floor(pp / 6.2831853);
+// How tightly the arms wind: the orbits' twist per unit of log radius.
+tw = 1.5 + 0.8 * min(sm, 2) / 2 + 0.15 * sin(time * 0.029);
+// The view: a slow sway of the tilt and of the turn on screen.
+ci = 0.56 + 0.1 * sin(time * 0.021);
+ps = 0.18 + 0.2 * sin(time * 0.017 + 1);
+q1 = ot; q2 = pp; q3 = tw; q4 = ci;
+q5 = cos(ps); q6 = sin(ps); q7 = sb; q8 = 0.8 * max(0, min(st, 2.5) - 0.4);
+q9 = be; q10 = sm;
+'''
+
+[[wave]]
+enabled = true
+samples = 512
+usedots = 1
+thick = 1
+additive = 1
+frame = '''
+a = 1;
+'''
+point = '''
+id = (floor(sample * 511 + 0.5) + 0) * 6;
+ra = megabuf(id);
+ea = megabuf(id + 2) + q1 * megabuf(id + 3);
+ex = ra * cos(ea); ey = ra * megabuf(id + 1) * sin(ea);
+ph = q3 * log(ra) + q2;
+cp = cos(ph); sp = sin(ph);
+gx = ex * cp - ey * sp;
+gy = (ex * sp + ey * cp) * q4;
+x = 0.5 + (gx * q5 - gy * q6) * 0.56 * aspecty;
+y = 0.5 + (gx * q6 + gy * q5) * 0.56;
+w = 1 - ra * 0.8;
+r = 0.55 + 0.45 * w; g = 0.65 + 0.3 * w; b = 1 - 0.35 * w * w;
+tk = sin(id * 0.6 + time * megabuf(id + 5)) * 0.5 + 0.5;
+a = megabuf(id + 4) * (0.7 + 0.3 * tk + q8 * tk);
+'''
+
+[[wave]]
+enabled = true
+samples = 512
+usedots = 1
+thick = 1
+additive = 1
+frame = '''
+a = 1;
+'''
+point = '''
+id = (floor(sample * 511 + 0.5) + 512) * 6;
+ra = megabuf(id);
+ea = megabuf(id + 2) + q1 * megabuf(id + 3);
+ex = ra * cos(ea); ey = ra * megabuf(id + 1) * sin(ea);
+ph = q3 * log(ra) + q2;
+cp = cos(ph); sp = sin(ph);
+gx = ex * cp - ey * sp;
+gy = (ex * sp + ey * cp) * q4;
+x = 0.5 + (gx * q5 - gy * q6) * 0.56 * aspecty;
+y = 0.5 + (gx * q6 + gy * q5) * 0.56;
+w = 1 - ra * 0.8;
+r = 0.55 + 0.45 * w; g = 0.65 + 0.3 * w; b = 1 - 0.35 * w * w;
+tk = sin(id * 0.6 + time * megabuf(id + 5)) * 0.5 + 0.5;
+a = megabuf(id + 4) * (0.7 + 0.3 * tk + q8 * tk);
+'''
+
+[[wave]]
+enabled = true
+samples = 512
+usedots = 1
+thick = 1
+additive = 1
+frame = '''
+a = 1;
+'''
+point = '''
+id = (floor(sample * 511 + 0.5) + 1024) * 6;
+ra = megabuf(id);
+ea = megabuf(id + 2) + q1 * megabuf(id + 3);
+ex = ra * cos(ea); ey = ra * megabuf(id + 1) * sin(ea);
+ph = q3 * log(ra) + q2;
+cp = cos(ph); sp = sin(ph);
+gx = ex * cp - ey * sp;
+gy = (ex * sp + ey * cp) * q4;
+x = 0.5 + (gx * q5 - gy * q6) * 0.56 * aspecty;
+y = 0.5 + (gx * q6 + gy * q5) * 0.56;
+w = 1 - ra * 0.8;
+r = 0.55 + 0.45 * w; g = 0.65 + 0.3 * w; b = 1 - 0.35 * w * w;
+tk = sin(id * 0.6 + time * megabuf(id + 5)) * 0.5 + 0.5;
+a = megabuf(id + 4) * (0.7 + 0.3 * tk + q8 * tk);
+'''
+
+[[wave]]
+enabled = true
+samples = 512
+usedots = 1
+thick = 1
+additive = 1
+frame = '''
+a = 1;
+'''
+point = '''
+id = (floor(sample * 511 + 0.5) + 1536) * 6;
+ra = megabuf(id);
+ea = megabuf(id + 2) + q1 * megabuf(id + 3);
+ex = ra * cos(ea); ey = ra * megabuf(id + 1) * sin(ea);
+ph = q3 * log(ra) + q2;
+cp = cos(ph); sp = sin(ph);
+gx = ex * cp - ey * sp;
+gy = (ex * sp + ey * cp) * q4;
+x = 0.5 + (gx * q5 - gy * q6) * 0.56 * aspecty;
+y = 0.5 + (gx * q6 + gy * q5) * 0.56;
+w = 1 - ra * 0.8;
+r = 0.55 + 0.45 * w; g = 0.65 + 0.3 * w; b = 1 - 0.35 * w * w;
+tk = sin(id * 0.6 + time * megabuf(id + 5)) * 0.5 + 0.5;
+a = megabuf(id + 4) * (0.7 + 0.3 * tk + q8 * tk);
+'''
+
+[shader]
+warp = '''
+// Short glowing trails behind the stars.
+return textureSampleLevel(sampler_main, s_fc, uv_orig, 0.0).rgb * 0.55;
+'''
+comp = '''
+let tau = 6.2831853;
+let asp = u.texsize.x * u.texsize.w;
+let pp = u.q[0].y;
+let tw = u.q[0].z;
+let ci = u.q[0].w;
+let cs = u.q[1].x;
+let sn = u.q[1].y;
+let sb = min(u.q[1].z, 2.0) * 0.5;
+let st = max(0.0, min(u.q[1].w, 2.5) - 0.4);
+let be = min(u.q[2].x, 1.0);
+let sm = min(u.q[2].y, 2.0) * 0.5;
+// Screen (y up, height 1) to the galaxy's plane: undo the turn on screen
+// and the tilt.
+let ps = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y) / 0.56;
+let pt = vec2f(cs * ps.x + sn * ps.y, -sn * ps.x + cs * ps.y);
+let g = vec2f(pt.x, pt.y / ci);
+let r = max(length(g), 1e-4);
+let th = atan2(g.y, g.x);
+// The arms: the density of the nested orbits. An orbit of size a has
+// radius a k(psi) at angle psi from its long axis (k from the ellipse,
+// axis ratio 1 - e), its long axis at tw ln a + pp; so orbits crowd
+// where d(radius)/da = k - tw k' is small. psi is solved from the pixel's
+// radius with one fixed-point step.
+let e = 0.22;
+let ib = 1.0 / ((1.0 - e) * (1.0 - e)) - 1.0;
+let psi0 = th - tw * log(r) - pp;
+let c0 = cos(psi0);
+let s0 = sin(psi0);
+let k0 = 1.0 / sqrt(1.0 + s0 * s0 * ib);
+let psi = psi0 + tw * log(k0);
+var dens = 0.0;
+var lanes = 0.0;
+for (var j = 0; j < 2; j++) {
+    // The density on the arm, and just ahead of it (the dust lane).
+    let ps2 = psi + select(0.0, 0.38, j == 1);
+    let c = cos(ps2);
+    let s = sin(ps2);
+    let k = 1.0 / sqrt(1.0 + s * s * ib);
+    let kp = -k * k * k * s * c * ib;
+    let d = k / max(k - tw * kp, 0.12);
+    if (j == 0) {
+        dens = d;
+    } else {
+        lanes = d;
+    }
+}
+// Normalised: about 0 between the arms, 1 on them.
+let pk = 1.0 / max(1.0 - tw * 0.24, 0.2) - 1.0;
+let arm = pow(clamp((dens - 1.0) / pk, 0.0, 1.0), 0.75);
+let lane = clamp((lanes - 1.0) / pk, 0.0, 1.0);
+// Clumps, in coordinates that turn with the pattern.
+let gr = vec2f(cos(pp) * g.x + sin(pp) * g.y, -sin(pp) * g.x + cos(pp) * g.y);
+let n1 = textureSampleLevel(sampler_noisevol_hq, s_fw, vec3f(gr * 0.9, u.time * 0.004), 0.0).x;
+let n2 = textureSampleLevel(sampler_noisevol_hq, s_fw, vec3f(gr * 2.3 + vec2f(0.3, 0.6), u.time * 0.006), 0.0).x;
+let n3 = textureSampleLevel(sampler_noisevol_lq, s_fw, vec3f(gr * 0.35, u.time * 0.003), 0.0).x;
+// The disc's light: an exponential profile, concentrated into the arms.
+let disc = exp(-r / 0.4) * smoothstep(1.25, 0.6, r);
+let arms = arm * (0.5 + 1.0 * n1) * smoothstep(0.08, 0.3, r) * smoothstep(1.2, 0.55, r);
+var col = vec3f(0.35, 0.42, 0.85) * disc * 0.75;
+// Cyan-blue young stars, turning violet in the outer arms.
+let ac = mix(vec3f(0.2, 0.65, 1.0), vec3f(0.6, 0.3, 1.0), smoothstep(0.45, 1.0, r));
+col += ac * arms * (1.3 + 0.3 * sm);
+// Clouds of unresolved stars speckle the arms.
+let n4 = textureSampleLevel(sampler_noisevol_hq, s_fw, vec3f(gr * 9.0, 0.5), 0.0).x;
+col += vec3f(0.75, 0.85, 1.0) * smoothstep(0.55, 0.9, n4) * arm * smoothstep(1.1, 0.4, r) * 0.6;
+// Pink star-forming knots strung along the arms.
+let knot = smoothstep(0.62, 0.85, n2) * pow(arm, 2.0) * smoothstep(0.15, 0.35, r) * smoothstep(1.1, 0.6, r);
+col += vec3f(1.0, 0.25, 0.6) * knot * 2.0;
+// The dust lanes: dark and brownish, ragged.
+let dust = pow(lane, 2.0) * smoothstep(0.12, 0.3, r) * smoothstep(1.0, 0.5, r) * (0.5 + 0.7 * n3);
+col *= 1.0 - clamp(dust * 0.9, 0.0, 0.9);
+// The bulge and core: warm, swelling with the bass and the kicks.
+let rb = 0.15 + 0.06 * sb + 0.03 * be;
+let bulge = exp(-(r * r) / (rb * rb));
+col += vec3f(1.0, 0.78, 0.5) * bulge * (0.55 + 0.35 * sb + 0.4 * be);
+let rs = length(ps);
+col += vec3f(1.0, 0.95, 0.85) * exp(-rs / (0.03 + 0.012 * sb)) * (0.8 + 0.6 * be);
+// A faint halo of scattered light.
+col += vec3f(0.25, 0.22, 0.4) * exp(-r / 0.7) * 0.08;
+// The sky: near black, faint distant stars.
+let sp = vec2f((uv.x - 0.5) * asp, uv.y) * 160.0;
+let cell = floor(sp);
+let hs = fract(sin(dot(cell, vec2f(12.9898, 78.233))) * 43758.5453);
+let so = vec2f(fract(hs * 17.0), fract(hs * 31.0)) * 0.6 + vec2f(0.2);
+let sd = length(sp - cell - so);
+let sky = step(0.93, hs) * exp(-sd * sd * 16.0) * (0.3 + 0.7 * fract(hs * 7.0));
+col += vec3f(0.006, 0.006, 0.016) + vec3f(0.8, 0.85, 1.0) * sky * 0.45 * (1.0 - disc);
+// The stars, and their glow.
+let c = textureSampleLevel(sampler_main, s_fc, uv, 0.0).rgb;
+let b1 = GetBlur1(uv);
+col += (vec3f(1.0) - exp(-c * 1.2)) * 0.9 + (1.0 - exp(-b1 * 1.5)) * (0.35 + 0.2 * st);
+let lc = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lc) + (col - vec3f(lc)) * 1.3, vec3f(0.0));
+return col / (1.0 + 0.35 * col);
+'''
