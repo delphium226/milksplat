@@ -208,8 +208,9 @@ for (var cfg = 0; cfg < 2; cfg++) {
     var gem = 0.5 + 0.5 * cos(tau * (vec3f(h) + vec3f(0.0, 0.33, 0.67)));
     gem = pow(gem, vec3f(1.6));
     gem = gem / max(max(gem.r, gem.g), max(gem.b, 0.05));
-    // A pearly sheen: lighter toward the middle of each gap.
-    var col = gem * (0.4 + 0.2 * mid) + vec3f(0.08) * mid * mid;
+    // The gaps stay dark (a deep jewel tint, a faint pearly sheen toward
+    // the middle), so the rims and pearls glow out of them.
+    var col = gem * (0.06 + 0.05 * mid) + vec3f(0.012) * mid * mid;
     // Glowing rims, of constant width on screen.
     let rim = exp(-de / (px * (1.0 + 0.6 * sb)));
     let halo = exp(-de / (px * 9.0));
@@ -217,18 +218,18 @@ for (var cfg = 0; cfg < 2; cfg++) {
     // Treble glitters along the rims.
     let gl = textureSampleLevel(sampler_noisevol_hq, s_fw, vec3f(w * 3.0, u.time * 0.3), 0.0).x;
     let glit = smoothstep(0.7, 0.95, gl) * st * 1.5;
-    col += rimc * (rim * (0.9 + 0.5 * sb + 0.4 * be + glit) + halo * (0.22 + 0.15 * be));
+    col += rimc * (rim * (0.9 + 0.5 * sb + 0.4 * be + glit) + halo * (0.26 + 0.15 * be));
     // Unresolved points crowd the limit set: let them glow.
     // Where the pearls shrink to a few pixels, fade their detail to its
     // average, so the finest nesting shimmers softly instead of aliasing.
     let size = rc / max(scl, 1e-12);
     let aa = smoothstep(px * 2.0, px * 9.0, size);
-    let avg = gem * 0.5 + mix(vec3f(1.0, 0.92, 0.75), gem, 0.35) * (0.3 + 0.1 * sb);
+    let avg = gem * 0.25 + mix(vec3f(1.0, 0.92, 0.75), gem, 0.35) * (0.3 + 0.1 * sb);
     col = mix(avg, col, aa);
     col = select(avg, col, done);
     acc += wt * col;
 }
 // A soft bloom toward the limit point.
-acc += vec3f(0.25, 0.2, 0.3) * exp(-length(z - p) * 2.0) * (0.4 + 0.4 * be);
+acc += vec3f(0.2, 0.16, 0.26) * exp(-length(z - p) * 2.0) * (0.4 + 0.4 * be);
 return acc / (1.0 + 0.25 * acc);
 '''

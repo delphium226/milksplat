@@ -103,10 +103,11 @@ let sr = sin(roll);
 let p0 = (uv - vec2f(0.5)) * vec2f(asp, 1.0);
 let p = vec2f(cr * p0.x - sr * p0.y, sr * p0.x + cr * p0.y);
 let px = 2.0 * u.texsize.w;
-// The haze between pockets drifts slowly through the spectrum.
+// The haze between pockets: a deep, dark tint drifting slowly through the
+// spectrum, so the gates and the pocket geometry glow out of it.
 let hz = tm * 0.006;
 let fogc = 0.5 + 0.5 * cos(tau * (vec3f(hz, hz + 0.33, hz + 0.67) + vec3f(0.0, 0.1, 0.2)));
-let haze = 0.12 + 0.7 * fogc;
+let haze = 0.015 + 0.08 * fogc;
 var acc = vec3f(0.0);
 var tr = 1.0;
 for (var i = 1; i <= 8; i++) {
@@ -151,26 +152,26 @@ for (var i = 1; i <= 8; i++) {
     let g = q * fr + vec2f(tm * 0.05 * dir, tm * 0.03);
     // Fine detail fades to its average where it would alias.
     let detail = smoothstep(0.5, 0.15, aa * fr);
-    var v = 0.4;
+    var v = 0.15;
     var w = 0.0;
     if (kind == 0u) {
         // Lattice: struts and glowing nodes.
         let c = fract(g) - vec2f(0.5);
         let strut = exp(-min(abs(c.x), abs(c.y)) * 14.0);
         let node = exp(-dot(c, c) * 28.0);
-        v = 0.15 + 0.35 * strut + 0.9 * node;
+        v = 0.02 + 0.4 * strut + 1.1 * node;
         w = fract(dot(floor(g), vec2f(0.37, 0.61)));
     } else if (kind == 1u) {
         // Filaments: ridges of a slowly boiling noise volume.
         let nv = textureSampleLevel(sampler_noisevol_hq, s_fw, vec3f(q * 0.45, tm * 0.012 + f32(nn) * 0.071), 0.0);
         let ridge = 1.0 - abs(2.0 * nv.x - 1.0);
-        v = 0.25 + 1.0 * pow(ridge, 5.0);
+        v = 0.02 + 1.2 * pow(ridge, 5.0);
         w = nv.y;
     } else if (kind == 2u) {
         // Interference: two wave sources beating against each other.
         let s1 = sin(length(q - vec2f(0.3, 0.1)) * fr * 2.5 - tm * 1.4);
         let s2 = sin(length(q + vec2f(0.25, 0.2)) * fr * 2.5 - tm * 1.1);
-        v = 0.2 + 0.6 * (0.5 + 0.5 * s1 * s2);
+        v = 0.02 + 0.85 * pow(0.5 + 0.5 * s1 * s2, 3.0);
         w = 0.3 * r + 0.2 * s1;
     } else if (kind == 3u) {
         // Crystal: triangular facets with bright seams.
@@ -178,7 +179,7 @@ for (var i = 1; i <= 8; i++) {
         let fe = fract(e);
         let edge = min(min(min(fe.x, 1.0 - fe.x), min(fe.y, 1.0 - fe.y)), min(fe.z, 1.0 - fe.z));
         let facet = fract(dot(floor(e), vec3f(0.171, 0.293, 0.417)) * 7.31);
-        v = 0.2 + 0.45 * facet + 0.8 * exp(-edge * 20.0);
+        v = 0.03 + 0.2 * facet + 1.0 * exp(-edge * 20.0);
         w = facet * 0.5;
     } else {
         // Voxels: a blocky pocket of quantised space.
@@ -187,10 +188,10 @@ for (var i = 1; i <= 8; i++) {
         let cv = textureSampleLevel(sampler_noise_hq, s_pw, (cell + vec2f(0.5)) / 256.0, 0.0);
         let cf = fract(gb);
         let bevel = min(min(cf.x, 1.0 - cf.x), min(cf.y, 1.0 - cf.y));
-        v = 0.3 + 0.8 * cv.x * cv.x * smoothstep(0.0, 0.12, bevel);
+        v = 0.03 + 0.9 * cv.x * cv.x * smoothstep(0.0, 0.12, bevel);
         w = cv.y * 0.6;
     }
-    v = mix(0.4, v, detail);
+    v = mix(0.15, v, detail);
     let pph = rb + tm * 0.003;
     let pal = 0.5 + 0.5 * cos(tau * (vec3f(w + pph) + vec3f(0.0, 0.33, 0.67) * (0.6 + 0.8 * ra)));
     var col = pow(pal, vec3f(1.4)) * v * (1.0 + 0.4 * rc);
@@ -199,7 +200,7 @@ for (var i = 1; i <= 8; i++) {
     col = max(vec3f(lc) + (col - vec3f(lc)) * 1.6, vec3f(0.0));
     // Atmospheric perspective: deeper pockets sink into the haze.
     let fog = 1.0 - exp(-d * 0.25);
-    let atmo = 0.15 + 0.75 * (0.5 + 0.5 * cos(tau * (vec3f(rb + 0.15 + tm * 0.003) + vec3f(0.0, 0.33, 0.67))));
+    let atmo = 0.02 + 0.1 * (0.5 + 0.5 * cos(tau * (vec3f(rb + 0.15 + tm * 0.003) + vec3f(0.0, 0.33, 0.67))));
     col = mix(col, mix(atmo, haze, 0.3), fog);
     // Gates condense out of the fog far away and dissolve as you cross.
     let vis = smoothstep(0.15, 0.7, d) * smoothstep(8.0, 6.2, d);
@@ -216,9 +217,9 @@ for (var i = 1; i <= 8; i++) {
     acc += tr * alpha * col;
     tr *= 1.0 - alpha;
 }
-// Beyond the last gate: the luminous haze of the deep.
+// Beyond the last gate: the dim haze of the deep, a faint glow at its heart.
 let core = exp(-length(p0) * 3.0);
-acc += tr * (haze * 1.2 + (0.4 + 0.6 * fogc) * core * 0.7);
+acc += tr * (haze * 1.2 + (0.4 + 0.6 * fogc) * core * 0.35);
 // Motes from the feedback buffer.
 acc += textureSampleLevel(sampler_main, s_fw, uv, 0.0).rgb * 0.8;
 return acc / (1.0 + 0.3 * acc);

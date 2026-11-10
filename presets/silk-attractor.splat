@@ -277,12 +277,13 @@ let b3 = GetBlur3(uv);
 // The silk: exposure that keeps the colour of thin threads and rolls
 // the dense folds toward white.
 let silk = vec3f(1.0) - exp(-c * 1.1);
-// A luminous, iridescent backdrop that the glow of the cloud tints.
+// A deep, dark iridescent backdrop (tinted near black) that the glow of
+// the cloud lights up, so the silk stands out.
 let bh = hu + 0.4 * length(p) + 0.18 * p.x + 0.12 * p.y;
 let bg = 0.5 + 0.5 * cos(tau * (vec3f(bh + 0.55) + vec3f(0.0, 0.33, 0.67)));
 // (Normalised to a steady luminance whatever the hue.)
 let bq = bg * bg + vec3f(0.04);
-var col = bq / dot(bq, vec3f(0.2126, 0.7152, 0.0722)) * (0.25 + 0.04 * sb) + vec3f(0.05, 0.04, 0.1);
+var col = bq / dot(bq, vec3f(0.2126, 0.7152, 0.0722)) * (0.045 + 0.015 * sb) + vec3f(0.01, 0.008, 0.025);
 col *= 1.0 - 0.35 * smoothstep(0.3, 1.0, length(p));
 col += (1.0 - exp(-b3 * 1.5)) * 0.22;
 col += (1.0 - exp(-b2 * 1.2)) * (0.16 + 0.45 * be);
