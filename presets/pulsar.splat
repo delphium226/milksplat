@@ -1,0 +1,317 @@
+# Pulsar: a neutron star turning in the dark, wrapped in the looping
+# field lines of its magnetosphere, two beams of light sweeping out from
+# its magnetic poles, and a faint wind nebula, a ring and two jets,
+# around its spin axis.
+#
+# The star is drawn in 3D and projected. Its spin axis leans a little
+# right and toward the viewer; its magnetic axis is tilted 34 degrees from
+# it and turns around it with a phase the frame code advances (about one
+# turn every ten seconds, a little quicker with the bass), so the beams
+# sweep smoothly round a cone that never points at the viewer: they swing
+# and foreshorten rather than flash.
+#
+# The field lines are custom waves: dipole lines, r = L sin^2(theta)
+# about the magnetic axis, sixteen closed loops on two shells, and open
+# lines from the polar caps that trail back in a spiral as the star turns.
+# They are drawn into the feedback buffer, which decays fast (a short
+# motion trail), and hidden where they pass behind the star. A fourth
+# wave sends sparks streaming out along the open lines. The composite
+# glows the lines, draws the beams as cones of light (the line integral of
+# a widening Gaussian along each view ray), the star with hot polar caps,
+# and the nebula and a few stars behind.
+#
+# Bass quickens the spin a little and swells the beams and the nebula.
+# Mids inflate the outer loops and brighten the field. Treble sets the
+# sparks streaming and the stars twinkling. Each kick gives the star an
+# eased flare.
+version = 1
+
+[meta]
+name = "Pulsar"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.55
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+b1n = 0.0
+b1x = 1.0
+b2n = 0.0
+b2x = 1.0
+
+[code]
+init = '''
+ph = 0.6; sk = 0;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+sm = sm + (min(mid_att, 2.5) - sm) * 0.03;
+st = st + (min(treb_att, 2.5) - st) * 0.08;
+bt = max(bt * 0.94, beat);
+be = be + (bt - be) * 0.08;
+// The spin: about a turn every ten seconds, at most one every six.
+ph = ph + 0.0105 + 0.006 * min(sb, 2) / 2;
+ph = ph - 6.2831853 * floor(ph / 6.2831853);
+// The spin axis S, leaning right and toward the viewer.
+a1 = 0.35; a2 = 0.3;
+sx = sin(a1) * cos(a2); sy = cos(a1) * cos(a2); sz = sin(a2);
+n = sqrt(sx * sx + sy * sy);
+e1x = sy / n; e1y = -sx / n; e1z = 0;
+e2x = sy * e1z - sz * e1y; e2y = sz * e1x - sx * e1z; e2z = sx * e1y - sy * e1x;
+// The magnetic axis M, 34 degrees off S, turning around it.
+al = 0.6;
+mx = cos(al) * sx + sin(al) * (cos(ph) * e1x + sin(ph) * e2x);
+my = cos(al) * sy + sin(al) * (cos(ph) * e1y + sin(ph) * e2y);
+mz = cos(al) * sz + sin(al) * (cos(ph) * e1z + sin(ph) * e2z);
+// N1 = S x M (normalised), N2 = M x N1: the frame around M.
+ax = sy * mz - sz * my; ay = sz * mx - sx * mz; az = sx * my - sy * mx;
+an = sqrt(ax * ax + ay * ay + az * az);
+ax = ax / an; ay = ay / an; az = az / an;
+bx = my * az - mz * ay; by = mz * ax - mx * az; bz = mx * ay - my * ax;
+// Sparks streaming out along the open lines (wrapped).
+sk = sk + 0.004 + 0.01 * max(0, min(st, 2.5) - 0.4);
+sk = sk - floor(sk);
+hu = hu + 0.00008;
+hu = hu - floor(hu);
+q1 = mx; q2 = my; q3 = mz; q4 = ax;
+q5 = ay; q6 = az; q7 = bx; q8 = by;
+q9 = bz; q10 = sx; q11 = sy; q12 = sz;
+// Shell sizes: the outer loops breathe with the mids.
+q13 = 0.19; q14 = 0.33 + 0.06 * min(sm, 2) / 2;
+q15 = sb; q16 = sm; q17 = st; q18 = be;
+q19 = ph; q20 = sk; q21 = hu;
+// The star's radius.
+q22 = 0.038;
+'''
+
+# Closed loops on the inner shell: 8 lines, 64 points each.
+[[wave]]
+enabled = true
+samples = 512
+thick = 1
+additive = 1
+a = 1.0
+frame = '''
+t1 = min(1, max(0.5, pixelsy / 540));
+'''
+point = '''
+j = floor(sample * 511 + 0.5);
+k = floor(j / 64);
+f = (j - k * 64) / 63;
+ll = q13;
+t0 = asin(sqrt(q22 / ll));
+th = t0 + (3.14159265 - 2 * t0) * f;
+s = sin(th); c = cos(th);
+r = ll * s * s;
+bb = k * 0.785398 + 0.3;
+cb = cos(bb) * s; sb2 = sin(bb) * s;
+px = r * (c * q1 + cb * q4 + sb2 * q7);
+py = r * (c * q2 + cb * q5 + sb2 * q8);
+pz = r * (c * q3 + cb * q6 + sb2 * q9);
+x = 0.5 + px * aspecty;
+y = 0.5 + py;
+hid = (px * px + py * py < q22 * q22 * 1.1) * (pz < 0);
+dz = 0.55 + 0.45 * pz / max(r, 0.001);
+r = 0.25 + 0.3 * f; g = 0.75 - 0.2 * f; b = 1.0;
+a = if(j - k * 64 < 0.5 || j - k * 64 > 62.5 || hid, 0, (0.8 + 0.4 * min(q16, 2) / 2) * dz * t1);
+'''
+
+# Closed loops on the outer shell, between the inner ones.
+[[wave]]
+enabled = true
+samples = 512
+thick = 1
+additive = 1
+a = 1.0
+frame = '''
+t1 = min(1, max(0.5, pixelsy / 540));
+'''
+point = '''
+j = floor(sample * 511 + 0.5);
+k = floor(j / 64);
+f = (j - k * 64) / 63;
+ll = q14;
+t0 = asin(sqrt(q22 / ll));
+th = t0 + (3.14159265 - 2 * t0) * f;
+s = sin(th); c = cos(th);
+r = ll * s * s;
+bb = k * 0.785398 + 0.3 + 0.392699;
+cb = cos(bb) * s; sb2 = sin(bb) * s;
+px = r * (c * q1 + cb * q4 + sb2 * q7);
+py = r * (c * q2 + cb * q5 + sb2 * q8);
+pz = r * (c * q3 + cb * q6 + sb2 * q9);
+x = 0.5 + px * aspecty;
+y = 0.5 + py;
+hid = (px * px + py * py < q22 * q22 * 1.1) * (pz < 0);
+dz = 0.55 + 0.45 * pz / max(r, 0.001);
+r = 0.6 - 0.2 * f; g = 0.35 + 0.2 * f; b = 1.0;
+a = if(j - k * 64 < 0.5 || j - k * 64 > 62.5 || hid, 0, (0.7 + 0.45 * min(q16, 2) / 2) * dz * t1);
+'''
+
+# Open lines from both polar caps, trailing back in a spiral: 2 caps x 6
+# lines x 40 points.
+[[wave]]
+enabled = true
+samples = 480
+thick = 1
+additive = 1
+a = 1.0
+frame = '''
+t1 = min(1, max(0.5, pixelsy / 540));
+'''
+point = '''
+j = floor(sample * 479 + 0.5);
+k = floor(j / 40);
+f = (j - k * 40) / 39;
+cap = if(k < 5.5, 1, -1);
+bb = k * 1.047198 + 0.5;
+// A dipole line of large L, from the cap out to about r = 0.75.
+ll = 2.2;
+t0 = asin(sqrt(q22 / ll));
+th = t0 + (0.62 - t0) * f;
+s = sin(th); c = cos(th) * cap;
+r = ll * s * s;
+cb = cos(bb) * s; sb2 = sin(bb) * s;
+px = r * (c * q1 + cb * q4 + sb2 * q7);
+py = r * (c * q2 + cb * q5 + sb2 * q8);
+pz = r * (c * q3 + cb * q6 + sb2 * q9);
+// Swept back around the spin axis, more the further out.
+tw = -r * 2.2;
+ct = cos(tw); stw = sin(tw);
+dd = px * q10 + py * q11 + pz * q12;
+cx2 = q11 * pz - q12 * py; cy2 = q12 * px - q10 * pz; cz2 = q10 * py - q11 * px;
+px2 = px * ct + cx2 * stw + q10 * dd * (1 - ct);
+py2 = py * ct + cy2 * stw + q11 * dd * (1 - ct);
+pz2 = pz * ct + cz2 * stw + q12 * dd * (1 - ct);
+x = 0.5 + px2 * aspecty;
+y = 0.5 + py2;
+hid = (px2 * px2 + py2 * py2 < q22 * q22 * 1.1) * (pz2 < 0);
+dz = 0.6 + 0.4 * pz2 / max(r, 0.001);
+r = 1.0; g = 0.3 + 0.35 * f; b = 0.75 - 0.35 * f;
+a = if(j - k * 40 < 0.5 || j - k * 40 > 38.5 || hid, 0, 0.85 * (1 - f) * dz * t1);
+'''
+
+# Sparks streaming out along the open lines (treble).
+[[wave]]
+enabled = true
+samples = 120
+usedots = 1
+thick = 1
+additive = 1
+a = 1.0
+frame = '''
+t1 = 0.15 + 0.85 * max(0, min(q17, 2.5) - 0.5) / 2;
+'''
+point = '''
+j = floor(sample * 119 + 0.5);
+k = j % 12;
+cap = if(k < 5.5, 1, -1);
+bb = k * 1.047198 + 0.5;
+f = q20 + j * 0.618034;
+f = f - floor(f);
+ll = 2.2;
+t0 = asin(sqrt(q22 / ll));
+th = t0 + (0.62 - t0) * f;
+s = sin(th); c = cos(th) * cap;
+r = ll * s * s;
+cb = cos(bb) * s; sb2 = sin(bb) * s;
+px = r * (c * q1 + cb * q4 + sb2 * q7);
+py = r * (c * q2 + cb * q5 + sb2 * q8);
+pz = r * (c * q3 + cb * q6 + sb2 * q9);
+tw = -r * 2.2;
+ct = cos(tw); stw = sin(tw);
+dd = px * q10 + py * q11 + pz * q12;
+cx2 = q11 * pz - q12 * py; cy2 = q12 * px - q10 * pz; cz2 = q10 * py - q11 * px;
+px2 = px * ct + cx2 * stw + q10 * dd * (1 - ct);
+py2 = py * ct + cy2 * stw + q11 * dd * (1 - ct);
+x = 0.5 + px2 * aspecty;
+y = 0.5 + py2;
+r = 1.0; g = 0.85; b = 0.6;
+a = t1 * (1 - f) * 0.9;
+'''
+
+[shader]
+warp = '''
+// A short motion trail behind the turning field lines.
+return textureSampleLevel(sampler_main, s_pc, uv_orig, 0.0).rgb * 0.55;
+'''
+comp = '''
+let tau = 6.2831853;
+let asp = u.texsize.x * u.texsize.w;
+let m = vec3f(u.q[0].x, u.q[0].y, u.q[0].z);
+let sp = vec3f(u.q[2].y, u.q[2].z, u.q[2].w);
+let sb = min(u.q[3].z, 2.0) * 0.5;
+let sm = min(u.q[3].w, 2.0) * 0.5;
+let st = max(0.0, min(u.q[4].x, 2.5) - 0.3);
+let be = min(u.q[4].y, 1.0);
+let hu = u.q[5].x;
+let rs = u.q[5].y;
+let p = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
+let lw = max(1.0, u.texsize.y / 540.0);
+// Deep space.
+let n1 = textureSampleLevel(sampler_noise_lq, s_fw, p * 0.4 + vec2f(0.1, 0.3), 0.0).x;
+let n2 = textureSampleLevel(sampler_noise_lq, s_fw, p * 0.9 + vec2f(0.6, 0.2), 0.0).x;
+var col = vec3f(0.008, 0.01, 0.03) + vec3f(0.02, 0.01, 0.04) * n1;
+// Stars, twinkling with the treble.
+let cell = floor(uv * u.texsize.xy / lw);
+var hx = (u32(cell.x) * 73856093u) ^ (u32(cell.y) * 19349663u);
+hx = (hx ^ (hx >> 16u)) * 2246822519u;
+hx = (hx ^ (hx >> 13u)) * 3266489917u;
+hx = hx ^ (hx >> 16u);
+let gh = f32(hx & 0xffffu) / 65535.0;
+let gs = f32(hx >> 16u) / 65535.0;
+let twk = 0.5 + 0.5 * sin(u.time * (1.0 + 3.0 * gs) + gs * 40.0);
+col += vec3f(0.7, 0.8, 1.0) * step(0.996, gh) * (0.3 + 0.7 * twk * st) * (0.3 + gs);
+// The wind nebula: a ring round the spin equator and two faint jets.
+let sp2 = normalize(vec2f(sp.x, sp.y));
+let along = dot(p, sp2);
+let across = p.x * sp2.y - p.y * sp2.x;
+// The ring is a circle of radius 0.33 in the equatorial plane, seen at a
+// slant: an ellipse squashed along the axis by sz.
+let er = length(vec2f(across, along / max(sp.z, 0.2))) - 0.5;
+let ring = exp(-er * er / 0.012) * (0.3 + 0.9 * n2);
+let jet = exp(-across * across / 0.0015) * exp(-abs(along) / 0.3) * (0.4 + 0.6 * n2);
+let neb = mix(vec3f(0.25, 0.35, 1.0), vec3f(0.9, 0.25, 0.9), n1);
+col += neb * (ring * 0.5 + jet * 0.35) * (0.75 + 0.5 * sb);
+// The field lines and their glow.
+let fl = textureSampleLevel(sampler_main, s_fc, uv, 0.0).rgb;
+col += fl * 1.8 + GetBlur1(uv) * (1.0 + 0.5 * sm) + GetBlur2(uv) * (1.0 + 0.5 * sb);
+// The beams: cones along +M and -M. For the view ray through p, the
+// closest approach to the axis, the cone's width there and the line
+// integral of a Gaussian of that width.
+let pv = vec3f(p, 0.0);
+let nn = vec3f(-m.y, m.x, 0.0);
+let sn = max(length(nn), 0.5);
+let dperp = abs(dot(pv, nn)) / max(length(nn), 1e-4);
+let tax = dot(pv, m) / max(1.0 - m.z * m.z, 0.25);
+var beam = 0.0;
+for (var i = 0; i < 2; i++) {
+    let t = select(tax, -tax, i == 1);
+    if (t > 0.0) {
+        let wd = 0.014 + t * 0.13;
+        let fall = smoothstep(0.0, 0.05, t) * exp(-t / 0.8);
+        beam += exp(-dperp * dperp / (wd * wd)) * (0.02 / wd) * fall / sn;
+    }
+}
+let bc = mix(vec3f(0.35, 0.65, 1.0), vec3f(0.85, 0.9, 1.0), clamp(beam, 0.0, 1.0));
+col += bc * beam * (0.9 + 0.5 * sb);
+// The star: a small hot sphere with glowing polar caps.
+let r = length(p);
+let sd = smoothstep(rs + 1.5 * u.texsize.w, rs - 1.5 * u.texsize.w, r);
+if (r < rs * 1.2) {
+    let zz = sqrt(max(rs * rs - r * r, 0.0));
+    let nrm = vec3f(p, zz) / rs;
+    let cap = pow(abs(dot(nrm, m)), 12.0);
+    let limb = 0.55 + 0.45 * nrm.z;
+    let sc = vec3f(0.75, 0.85, 1.0) * limb + vec3f(0.6, 0.85, 1.0) * cap * 1.5;
+    col = mix(col, sc * (1.1 + 0.5 * be), sd);
+}
+col += vec3f(0.4, 0.6, 1.0) * exp(-r / 0.03) * (0.35 + 0.35 * be) * (1.0 - sd);
+col += vec3f(0.5, 0.3, 1.0) * (exp(-r / 0.12) * (0.12 + 0.08 * be) + exp(-r / 0.4) * 0.12) + vec3f(0.15, 0.1, 0.35) * exp(-r / 0.9) * 0.12;
+let lc = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lc) + (col - vec3f(lc)) * 1.15, vec3f(0.0));
+return col / (1.0 + 0.3 * col);
+'''
