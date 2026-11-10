@@ -1,0 +1,139 @@
+# Complex Poles: domain colouring of a living rational function
+#   f(z) = (z - a1)(z - a2)(z - a3)^2 / ((z - b1)(z - b2)(z - b3))
+# drawn per pixel in the composite shader. The hue is the argument of
+# f(z), so every zero and pole is a pinwheel of the whole spectrum (the
+# double zero turns it twice, the poles the other way round). Glowing
+# rings follow the contours where |f| is a power of two, a fainter web
+# follows twelve directions of the argument, and the plane between them
+# stays dark, so the rings stand out like neon. Every line has a constant
+# width on screen: its distance in pixels comes from the analytic
+# gradient |f'/f| = |sum 1/(z - a) - sum 1/(z - b)|.
+#
+# The zeros and poles wander on slow Lissajous orbits, so the rings pinch,
+# merge and split as they pass one another. The rings also flow, from
+# the zeros (where |f| is small) out to the poles (where it blows up); the
+# flow is a wrapped phase, seamless because the contours repeat.
+#
+# Bass hastens the flow and draws the view in (both smoothed; the flow
+# is accumulated, never time times the bass). Mids drive the orbits of
+# the zeros and poles. Treble ripples the contours with fine noise. Each
+# kick makes the rings flare, eased in and out.
+version = 1
+
+[meta]
+name = "Complex Poles"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+feedback_format = "rgba8"
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+sm = sm + (min(mid_att, 2.5) - sm) * 0.03;
+st = st + (min(treb, 2.5) - st) * 0.15;
+bt = max(bt * 0.94, beat);
+be = be + (bt - be) * 0.12;
+// The orbits (accumulated, wrapped), quicker with the mids.
+ph = ph + 0.0016 + 0.005 * min(sm, 2) / 2;
+ph = ph - 6.2831853 * 7 * floor(ph / (6.2831853 * 7));
+// The contour flow (wrapped at one ring), quicker with the bass.
+fl = fl + 0.004 + 0.012 * min(sb, 2) / 2 + 0.004 * min(be, 1);
+fl = fl - floor(fl);
+// The view's turn (wrapped).
+va = va + 0.0007;
+va = va - 6.2831853 * floor(va / 6.2831853);
+hu = hu + 0.0004;
+hu = hu - floor(hu);
+// Zeros.
+q1 = 0.95 * cos(ph * 1.0 + 0.3); q2 = 0.6 * sin(ph * 1.43 + 1.1);
+q3 = -0.8 * cos(ph * 0.71 + 2.0); q4 = 0.7 * sin(ph * 1.13 + 0.4);
+q5 = 0.35 * sin(ph * 1.57 + 4.0); q6 = -0.45 * cos(ph * 0.86 + 0.9);
+// Poles.
+q7 = 1.05 * sin(ph * 0.57 + 3.1); q8 = 0.65 * cos(ph * 1.29 + 5.2);
+q9 = -0.6 * sin(ph * 1.71 + 0.7); q10 = -0.75 * cos(ph * 0.43 + 2.6);
+q11 = 0.5 * cos(ph * 1.0 + 1.9); q12 = 0.55 * sin(ph * 1.14 + 4.4);
+q13 = fl; q14 = hu; q15 = cos(va); q16 = sin(va);
+q17 = sb; q18 = st; q19 = be; q20 = sm;
+'''
+
+[shader]
+comp = '''
+let tau = 6.2831853;
+let asp = u.texsize.x * u.texsize.w;
+let fl = u.q[3].x;
+let hu = u.q[3].y;
+let cr = u.q[3].z;
+let sr = u.q[3].w;
+let sb = min(u.q[4].x, 2.0) * 0.5;
+let st = max(0.0, min(u.q[4].y, 2.5) - 0.4);
+let be = min(u.q[4].z, 1.0);
+// The plane: y up, about [-1.3, 1.3] vertically, drawn in a little by
+// the bass, slowly turning.
+let scale = 1.35 - 0.2 * sb;
+let s0 = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y) * 2.0 * scale;
+let z = vec2f(cr * s0.x - sr * s0.y, sr * s0.x + cr * s0.y);
+// Plane units per pixel.
+let px = 2.0 * scale * u.texsize.w;
+var lf = 0.0;
+var af = 0.0;
+var g = vec2f(0.0);
+var dz = 9.0;
+var dp = 9.0;
+for (var i = 0; i < 6; i++) {
+    let v = u.q[i / 2];
+    let r = select(v.xy, v.zw, i % 2 == 1);
+    let d = z - r;
+    let d2 = max(dot(d, d), 1e-10);
+    // Multiplicity: the third zero is double; the last three are poles.
+    let m = select(select(1.0, 2.0, i == 2), -1.0, i >= 3);
+    lf += m * 0.5 * log(d2);
+    af += m * atan2(d.y, d.x);
+    // f'/f, conjugated: sum m / (z - r) = m conj(d) / |d|^2.
+    g += m * vec2f(d.x, -d.y) / d2;
+    if (i < 3) {
+        dz = min(dz, sqrt(d2));
+    } else {
+        dp = min(dp, sqrt(d2));
+    }
+}
+let gm = max(length(g), 1e-6);
+// Treble ripples the contours.
+let nz = textureSampleLevel(sampler_noisevol_hq, s_fw, vec3f(z * 0.11, u.time * 0.05), 0.0).x - 0.5;
+// Contours of |f| at powers of two, flowing out from the zeros.
+let k = 1.0 / log(2.0);
+let t = lf * k - fl + nz * st * 0.35;
+let ft = fract(t);
+let dpx_m = min(ft, 1.0 - ft) / (gm * k * px);
+// Twelve directions of the argument.
+let ta = af / tau * 12.0 + hu * 12.0;
+let fa = fract(ta);
+let dpx_a = min(fa, 1.0 - fa) / (gm * 12.0 / tau * px);
+// Hue from the argument.
+let h = af / tau + hu;
+var pal = 0.5 + 0.5 * cos(tau * (vec3f(h) + vec3f(0.0, 0.33, 0.67)));
+pal = pal * pal;
+pal = pal / max(max(pal.r, pal.g), max(pal.b, 0.05));
+// Dark terraces between the rings, a little brighter just inside each.
+var col = pal * (0.035 + 0.06 * ft * ft) + vec3f(0.006, 0.004, 0.014);
+// The rings: a sharp core and a soft halo; the argument web is fainter.
+let ring = exp(-dpx_m / (0.9 + 0.5 * be)) + 0.22 * exp(-dpx_m / (6.0 + 3.0 * be));
+let web = exp(-dpx_a / 0.8) * 0.3 + 0.06 * exp(-dpx_a / 5.0);
+let rc = mix(pal, vec3f(1.0), 0.25);
+col += rc * ring * (0.95 + 0.6 * be + 0.2 * sb) + pal * web * (0.7 + 0.3 * sb);
+// Where the rings crowd too finely to draw (around the zeros and the
+// poles), fade to their average glow.
+col = mix(col, pal * 0.35 + rc * 0.25, smoothstep(4.0, 1.5, 1.0 / (gm * k * px)));
+// The poles burn white-hot; the zeros are dark wells.
+col += vec3f(1.0, 0.95, 0.9) * 0.012 / (dp * dp + 0.004) * (0.6 + 0.4 * be);
+col *= smoothstep(0.0, 0.06, dz) * 0.7 + 0.3;
+let lc = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lc) + (col - vec3f(lc)) * 1.2, vec3f(0.0));
+return col / (1.0 + 0.3 * col);
+'''

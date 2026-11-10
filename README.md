@@ -19,8 +19,8 @@ device, so just start your music and run it.
 | **Event Horizon**: a black hole bends a nebula into an Einstein ring round its blazing disc | **Singing Sand**: luminous sand settling into the nodal lines of a ringing Chladni plate |
 | ![Silk Attractor](docs/images/silk-attractor.png) | ![Indra's Pearls](docs/images/indras-pearls.png) |
 | **Silk Attractor**: a Clifford strange attractor spun into iridescent silk | **Indra's Pearls**: jewelled circles nested in circles, sinking forever toward a limit point |
-| ![Harmonograph](docs/images/harmonograph.png) | |
-| **Harmonograph**: damped pendulums tracing glowing Lissajous spirals | |
+| ![Harmonograph](docs/images/harmonograph.png) | ![Complex Poles](docs/images/complex-poles.png) |
+| **Harmonograph**: damped pendulums tracing glowing Lissajous spirals | **Complex Poles**: neon contours of a complex function whose zeros and poles wander |
 
 These are single frames; every preset moves and changes with the music.
 
