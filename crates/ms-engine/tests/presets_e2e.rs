@@ -48,7 +48,7 @@ const HAT_SEED: u64 = 0x4A75_6E6B_4861_7473;
 const RGBA8: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 
 /// The bundled presets, by file stem. `presets/` must hold exactly these.
-const BUNDLED: [&str; 33] = [
+const BUNDLED: [&str; 34] = [
     "default",
     "ink-bloom",
     "bass-tunnel",
@@ -82,6 +82,7 @@ const BUNDLED: [&str; 33] = [
     "cymatics",
     "three-body",
     "boreal-veil",
+    "plasma-globe",
 ];
 
 // ------------------------------------------------------------ synthetic audio
@@ -493,6 +494,7 @@ preset_tests! {
     preset_cymatics => "cymatics",
     preset_three_body => "three-body",
     preset_boreal_veil => "boreal-veil",
+    preset_plasma_globe => "plasma-globe",
 }
 
 /// `presets/` holds exactly the bundled set (so every file has a test
@@ -525,7 +527,7 @@ fn bundled_set_is_complete() {
 /// runs: a minute for those with long-running state (accumulated phases,
 /// state machines), twenty seconds for the rest (enough for their feedback
 /// to settle; every bundled preset but the gentle default is covered).
-const LONG_RUN: [(&str, usize); 32] = [
+const LONG_RUN: [(&str, usize); 33] = [
     ("ink-bloom", 1200),
     ("bass-tunnel", 1200),
     ("prism-drift", 1200),
@@ -558,6 +560,7 @@ const LONG_RUN: [(&str, usize); 32] = [
     ("cymatics", 3600),
     ("three-body", 3600),
     ("boreal-veil", 3600),
+    ("plasma-globe", 3600),
 ];
 
 /// A cheap guard against flashing that only develops over time (for
