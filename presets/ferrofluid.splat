@@ -1,0 +1,169 @@
+# Ferrofluid: a pool of black magnetic fluid over a hidden magnet. Where
+# the field is strong the surface can no longer stay flat (the Rosensweig
+# instability): it heaves into a dome and breaks into a hexagonal forest
+# of sharp spikes, tallest over the magnet and shrinking away from it. The
+# fluid is black and glossy, so it shows only what it reflects: coloured
+# studio lights slide along the spikes' flanks and burn on their tips,
+# over a dark that swallows the far side of the pool.
+#
+# The composite shader ray-marches the height field (at most 140 steps,
+# cautious ones since the spikes are steep, with a secant refinement at
+# the end). The height is a broad dome under the magnet plus one spike per
+# hexagonal cell, a concave cone whose height follows the field at the
+# cell's centre. The surface is lit by reflection alone: the reflected ray
+# looks up three soft coloured light strips and a faint horizon glow,
+# weighted by a Fresnel term, so the flanks that face away from the eye
+# shine brightest.
+#
+# Bass raises the spikes (smoothed, so they surge with the kicks without
+# snapping), and the magnet wanders under the pool on a path that
+# quickens with it (accumulated, never time times the bass). Mids sharpen
+# the spikes and pack them closer. Treble shivers the surface with fine
+# ripples that glint. Each kick flares the lights, eased in and out.
+version = 1
+
+[meta]
+name = "Ferrofluid"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+feedback_format = "rgba8"
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.07;
+sm = sm + (min(mid_att, 2.5) - sm) * 0.02;
+st = st + (min(treb, 2.5) - st) * 0.15;
+bt = max(bt * 0.94, beat);
+be = be + (bt - be) * 0.12;
+// The spikes' height: rises with the bass and a little with the kicks.
+ht = 0.18 + 0.62 * min(sb, 2) / 2 + 0.1 * min(be, 1);
+// The magnet's path (accumulated, wrapped), quicker with the bass.
+mp = mp + 0.0018 + 0.004 * min(sb, 2) / 2;
+mp = mp - 6.2831853 * 3 * floor(mp / (6.2831853 * 3));
+hu = hu + 0.0002;
+hu = hu - floor(hu);
+q1 = 0.35 * sin(mp * 1.0 + 0.3);
+q2 = 0.25 * sin(mp * 0.6667 + 1.7);
+q3 = ht;
+q4 = sm; q5 = st; q6 = be; q7 = hu;
+'''
+
+[shader]
+comp = '''
+let tau = 6.2831853;
+let asp = u.texsize.x * u.texsize.w;
+let mg = vec2f(u.q[0].x, u.q[0].y);
+let ht = u.q[0].z;
+let sm = min(u.q[0].w, 2.0) * 0.5;
+let st = max(0.0, min(u.q[1].x, 2.5) - 0.4);
+let be = min(u.q[1].y, 1.0);
+let hu = u.q[1].z;
+// The hexagonal lattice: spacing and sharpness from the mids.
+let sp = 0.16 - 0.025 * sm;
+let ex = 1.8 + 0.8 * sm;
+let rr = vec2f(1.0, 1.7320508) * sp;
+let hr = rr * 0.5;
+// The camera: above the pool, looking down at the magnet, drifting.
+let ca = 0.3 * sin(u.time * 0.023);
+let ro = vec3f(mg.x * 0.5 + 1.05 * sin(ca), 1.0 + 0.1 * sin(u.time * 0.017), mg.y * 0.5 + 1.05 * cos(ca));
+let ta = vec3f(mg.x * 0.6, 0.05, mg.y * 0.6);
+let fw = normalize(ta - ro);
+let rt = normalize(cross(fw, vec3f(0.0, 1.0, 0.0)));
+let up = cross(rt, fw);
+let s2 = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
+let rd = normalize(fw * 1.3 + rt * s2.x + up * s2.y);
+// Lights, as seen by reflected rays: three soft strips and a horizon.
+let ha = 0.17 + 0.04 * sin(tau * hu);
+let hb = 0.5 + 0.04 * sin(tau * hu + 2.0);
+let hc = 0.92 + 0.03 * sin(tau * hu + 4.0);
+var la = 0.5 + 0.5 * cos(tau * (vec3f(ha) + vec3f(0.0, 0.33, 0.67)));
+var lb = 0.5 + 0.5 * cos(tau * (vec3f(hb) + vec3f(0.0, 0.33, 0.67)));
+var lc3 = 0.5 + 0.5 * cos(tau * (vec3f(hc) + vec3f(0.0, 0.33, 0.67)));
+la = la * la / max(la.r * la.r, max(la.g * la.g, la.b * la.b));
+lb = lb * lb / max(lb.r * lb.r, max(lb.g * lb.g, lb.b * lb.b));
+lc3 = lc3 * lc3 / max(lc3.r * lc3.r, max(lc3.g * lc3.g, lc3.b * lc3.b));
+let fl = 4.4 * (1.0 + 0.3 * be);
+let d1 = normalize(vec3f(-1.0, 0.25, 0.1));
+let d2 = normalize(vec3f(1.0, 0.25, 0.1));
+let d3 = normalize(vec3f(0.05, 0.7, -0.7));
+let d4 = normalize(vec3f(0.0, 0.3, 1.0));
+// The sky above the pool: near black.
+var col = vec3f(0.006, 0.005, 0.014) * (1.0 + s2.y);
+// March from where the ray falls below the spikes' tips.
+let top = 0.16 * (0.4 + ht) + ht + 0.02;
+var t = max((ro.y - top) / max(-rd.y, 1e-3), 0.0);
+var hit = false;
+var tp = t;
+var fp = 1.0;
+// At most a fifth of a cell sideways per step, so no flank is skipped.
+let hst = 0.2 * sp / max(length(rd.xz), 0.05);
+if (rd.y < -0.02) {
+    for (var k = 0; k < 140; k++) {
+        let p = ro + rd * t;
+        let q = p.xz;
+        let a = q - rr * floor(q / rr) - hr;
+        let b = (q - hr) - rr * floor((q - hr) / rr) - hr;
+        let g = select(b, a, dot(a, a) < dot(b, b));
+        let cc = q - g;
+        let ec = max(exp(-dot(cc - mg, cc - mg) * 3.0) - 0.08, 0.0) / 0.92;
+        let eq = exp(-dot(q - mg, q - mg) * 2.0);
+        let h = 0.16 * eq * (0.4 + ht) + ht * ec * pow(max(1.0 - length(g) / (sp * 0.56), 0.0), ex);
+        let f = p.y - h;
+        if (f < 0.0) {
+            // Secant refinement between the last two steps.
+            t = tp + (t - tp) * fp / (fp - f);
+            hit = true;
+            break;
+        }
+        tp = t;
+        fp = f;
+        t += clamp(f * 0.3, 0.002, hst);
+        if (t > 9.0) { break; }
+    }
+}
+if (hit) {
+    let p = ro + rd * t;
+    // The normal, from central differences of the height.
+    let e = 0.0025;
+    var hh = vec4f(0.0);
+    for (var j = 0; j < 4; j++) {
+        let o = select(select(select(vec2f(e, 0.0), vec2f(-e, 0.0), j == 1), vec2f(0.0, e), j == 2), vec2f(0.0, -e), j == 3);
+        let q = p.xz + o;
+        let a = q - rr * floor(q / rr) - hr;
+        let b = (q - hr) - rr * floor((q - hr) / rr) - hr;
+        let g = select(b, a, dot(a, a) < dot(b, b));
+        let cc = q - g;
+        let ec = max(exp(-dot(cc - mg, cc - mg) * 3.0) - 0.08, 0.0) / 0.92;
+        let eq = exp(-dot(q - mg, q - mg) * 2.0);
+        hh[j] = 0.16 * eq * (0.4 + ht) + ht * ec * pow(max(1.0 - length(g) / (sp * 0.56), 0.0), ex);
+    }
+    var n = normalize(vec3f(hh.y - hh.x, 2.0 * e, hh.w - hh.z));
+    // Treble: fine ripples that make the surface glint.
+    let rn = textureSampleLevel(sampler_noisevol_lq, s_fw, vec3f(p.xz * 3.0, u.time * 0.2), 0.0).xyz - 0.5;
+    n = normalize(n + vec3f(rn.x, 0.0, rn.z) * (0.04 + 0.25 * st));
+    let r = reflect(rd, n);
+    let cv = max(dot(n, -rd), 0.0);
+    let fr = 0.06 + 0.94 * pow(1.0 - cv, 5.0);
+    var env = la * pow(max(dot(r, d1), 0.0), 10.0) * 9.0
+        + lb * pow(max(dot(r, d2), 0.0), 10.0) * 9.0
+        + lc3 * pow(max(dot(r, d3), 0.0), 40.0) * 12.0
+        + mix(lc3, vec3f(1.0), 0.4) * pow(max(dot(r, d4), 0.0), 18.0) * 6.0
+        + mix(lb, la, 0.5 + 0.5 * r.x) * 0.12 * max(r.y + 0.2, 0.0);
+    env *= fl;
+    var sc = vec3f(0.006, 0.006, 0.01) + env * fr;
+    // Sharp tips catch a white glint.
+    sc += vec3f(1.0) * pow(max(dot(r, d3), 0.0), 300.0) * 2.0 * fr;
+    // The far side of the pool fades into the dark.
+    col = mix(col, sc, exp(-max(t - 1.2, 0.0) * 1.0));
+}
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.15, vec3f(0.0));
+return col / (1.0 + 0.3 * col);
+'''
