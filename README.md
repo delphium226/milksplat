@@ -37,6 +37,8 @@ device, so just start your music and run it.
 | **Frost Bloom**: a glowing snowflake growing fern-like branches, then melting away to regrow | **Vortex Street**: glowing smoke wires winding into swirls shed by a pillar in the stream |
 | ![Apollonian Gasket](docs/images/apollonian-gasket.png) | ![Pulsar](docs/images/pulsar.png) |
 | **Apollonian Gasket**: an endless spiralling fall into circles packed inside circles | **Pulsar**: a spinning neutron star in looping field lines, its two beams sweeping slowly round |
+| ![Penrose Quasicrystal](docs/images/penrose-quasicrystal.png) | |
+| **Penrose Quasicrystal**: a never-repeating rhombus tiling in glowing gold, its tiles flipping as it drifts | |
 
 These are single frames; every preset moves and changes with the music.
 

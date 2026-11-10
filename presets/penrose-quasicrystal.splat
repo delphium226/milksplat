@@ -1,0 +1,180 @@
+# Penrose Quasicrystal: a Penrose rhombus tiling, fat and thin diamonds
+# that never repeat, drawn in glowing gold edges over deep teal and
+# magenta, drifting and slowly turning while its tiles flip, three at a
+# time, as the pattern shifts underneath.
+#
+# The tiling is de Bruijn's pentagrid, built per pixel in the composite
+# shader. Five families of parallel lines, at multiples of 72 degrees and
+# shifted by phases gamma_j that sum to zero, cut the plane; every crossing
+# of two lines becomes a rhombus whose corners are sums of the five unit
+# vectors, counted by which strip of each family the crossing lies in.
+# For a pixel, the shader estimates where it came from in the grid (the
+# map squeezes the plane by 5/2), tries the nearby crossings of every
+# pair of families and keeps the rhombus that holds the pixel, with the
+# pixel's distance to its edges. The frame code drifts the phases slowly
+# (keeping their sum zero), so grid lines slide past each other and the
+# tiles flip: the tiling stays Penrose, but rearranges itself locally.
+#
+# Bass carries the view along (big, slow motion). Mids raise a glimmer of
+# the five-wave interference pattern inside the tiles and thicken the
+# edges. Treble sparks the vertices. Each kick sends a ring of light
+# rippling out across the edges, eased.
+version = 1
+
+[meta]
+name = "Penrose Quasicrystal"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+pa = 0; ro = 0; mp = 0; bp = 4;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+sm = sm + (min(mid_att, 2.5) - sm) * 0.04;
+st = st + (min(treb_att, 2.5) - st) * 0.1;
+bt = max(bt * 0.94, beat);
+be = be + (bt - be) * 0.1;
+// The drift: along a slow loop through the tiling (wrapped phase).
+pa = pa + 0.00028 + 0.0005 * min(sb, 2) / 2;
+pa = pa - 6.2831853 * floor(pa / 6.2831853);
+ro = ro + 0.0004 + 0.0003 * min(sb, 2) / 2;
+ro = ro - 6.2831853 * floor(ro / 6.2831853);
+// The phase drift that flips the tiles (wrapped).
+mp = mp + 0.0012;
+mp = mp - 6.2831853 * floor(mp / 6.2831853);
+g0 = 0.11 + 0.32 * sin(mp);
+g1 = 0.37 + 0.32 * sin(mp * 2 + 1.3);
+g2 = -0.21 + 0.32 * sin(mp * 3 + 2.1);
+g3 = 0.29 + 0.32 * sin(mp * 2 + 4.0);
+g4 = -0.43 + 0.32 * sin(mp + 5.2);
+gm = (g0 + g1 + g2 + g3 + g4) / 5;
+// Each kick starts a ring.
+bp = bp + 0.012;
+if(beat > 0.5 && bp > 1.2, bp = 0, 0);
+hu = hu + 0.00006;
+hu = hu - floor(hu);
+q1 = g0 - gm; q2 = g1 - gm; q3 = g2 - gm; q4 = g3 - gm;
+q5 = g4 - gm; q6 = 40 * sin(pa) + 15 * sin(pa * 3); q7 = 40 * cos(pa * 2) - 12 * sin(pa); q8 = ro;
+q9 = sb; q10 = sm; q11 = st; q12 = be;
+q13 = bp; q14 = hu;
+'''
+
+[shader]
+comp = '''
+let tau = 6.2831853;
+let asp = u.texsize.x * u.texsize.w;
+var gam = array<f32, 5>(u.q[0].x, u.q[0].y, u.q[0].z, u.q[0].w, u.q[1].x);
+let pan = vec2f(u.q[1].y, u.q[1].z);
+let ro = u.q[1].w;
+let sb = min(u.q[2].x, 2.0) * 0.5;
+let sm = min(u.q[2].y, 2.0) * 0.5;
+let st = max(0.0, min(u.q[2].z, 2.5) - 0.3);
+let be = min(u.q[2].w, 1.0);
+let bp = u.q[3].x;
+let hu = u.q[3].y;
+let p = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
+// Tile space: an edge is about 1/8.5 of the screen height.
+let ts = 8.5 * (1.0 - 0.05 * sb);
+let cr = cos(ro);
+let sr = sin(ro);
+let y = vec2f(cr * p.x - sr * p.y, sr * p.x + cr * p.y) * ts + pan;
+let pxs = ts * u.texsize.w;
+var ex = array<f32, 5>(1.0, 0.30901699, -0.80901699, -0.80901699, 0.30901699);
+var ey = array<f32, 5>(0.0, 0.95105652, 0.58778525, -0.58778525, -0.95105652);
+// Where the pixel came from in the grid: f(x) ~ 5/2 x + sum gamma_j e_j.
+var gc = vec2f(0.0);
+for (var j = 0; j < 5; j++) {
+    gc += gam[j] * vec2f(ex[j], ey[j]);
+}
+let x0 = (y - gc) / 2.5;
+var found = false;
+var ea = 0.0;
+var eb = 0.0;
+var adet = 1.0;
+var fat = 0.0;
+var pid = 0.0;
+for (var r = 0; r < 4; r++) {
+    for (var s = r + 1; s < 5; s++) {
+        let er = vec2f(ex[r], ey[r]);
+        let es = vec2f(ex[s], ey[s]);
+        let det = er.x * es.y - er.y * es.x;
+        let kr0 = floor(dot(x0, er) + gam[r]);
+        let ks0 = floor(dot(x0, es) + gam[s]);
+        for (var a = -1; a <= 1; a++) {
+            for (var b = -1; b <= 1; b++) {
+                let kr = kr0 + f32(a);
+                let ks = ks0 + f32(b);
+                // The crossing of line kr of family r and line ks of s.
+                let br = kr - gam[r];
+                let bs = ks - gam[s];
+                let xc = vec2f(es.y * br - er.y * bs, -es.x * br + er.x * bs) / det;
+                // Its rhombus: the corner counts every family's strip.
+                var v0 = er * kr + es * ks;
+                for (var j = 0; j < 5; j++) {
+                    if (j != r && j != s) {
+                        let ej = vec2f(ex[j], ey[j]);
+                        v0 += ej * ceil(dot(xc, ej) + gam[j]);
+                    }
+                }
+                let d = y - v0;
+                let ca = (d.x * es.y - d.y * es.x) / det;
+                let cb = (er.x * d.y - er.y * d.x) / det;
+                if (ca >= 0.0 && ca <= 1.0 && cb >= 0.0 && cb <= 1.0) {
+                    found = true;
+                    ea = ca;
+                    eb = cb;
+                    adet = abs(det);
+                    let df = s - r;
+                    fat = select(0.0, 1.0, df == 1 || df == 4);
+                    pid = f32(r * 5 + s);
+                }
+            }
+        }
+    }
+}
+// Distance to the rhombus's edges and corners, in pixels.
+let lw = max(1.0, u.texsize.y / 540.0);
+let de = min(min(ea, 1.0 - ea), min(eb, 1.0 - eb)) * adet / pxs / lw;
+let ca2 = min(ea, 1.0 - ea);
+let cb2 = min(eb, 1.0 - eb);
+let dv = length(vec2f(ca2, cb2)) / pxs / lw;
+// The fills: deep teal for the fat tiles, magenta for the thin, each
+// orientation a little different.
+let hs = 0.5 + 0.5 * cos(tau * (hu + pid * 0.031 + vec3f(0.0, 0.33, 0.67)));
+var fill = mix(vec3f(0.85, 0.08, 1.0), vec3f(0.0, 0.8, 0.85), fat);
+fill = mix(fill, hs, 0.15);
+// The five-wave interference glimmer (mids).
+var qw = 0.0;
+for (var j = 0; j < 5; j++) {
+    qw += cos(dot(y, vec2f(ex[j], ey[j])) * 2.6 + gam[j] * tau);
+}
+let glim = smoothstep(1.5, 4.5, qw);
+let inner = exp(-de / 10.0);
+var col = fill * (0.03 + 0.3 * inner + glim * (0.05 + 0.25 * sm));
+// The ring a kick sends out.
+let ring = exp(-pow((length(p) - bp * 1.3) / 0.06, 2.0)) * step(bp, 1.0) * (1.0 - bp);
+// The glowing edges.
+let ew = 0.9 + 0.7 * sm;
+let gold = vec3f(1.0, 0.72, 0.3);
+col += gold * (exp(-de / ew) * 1.0 + exp(-de / 6.0) * 0.06) * (1.0 + 1.2 * ring * (0.5 + 0.5 * be));
+// The vertices spark with the treble.
+let vh = fract(sin(dot(floor(y * 2.0 + 0.5), vec2f(12.9898, 78.233))) * 43758.5453);
+let tw = pow(max(0.0, sin(u.time * (1.5 + 3.0 * vh) + vh * 40.0)), 12.0);
+col += vec3f(1.0, 0.95, 0.85) * exp(-dv / 2.5) * (0.25 + 1.5 * tw * st);
+if (!found) {
+    col = vec3f(0.0);
+}
+col *= 0.9 + 0.2 * sb;
+let lc = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lc) + (col - vec3f(lc)) * 1.2, vec3f(0.0));
+return col / (1.0 + 0.3 * col);
+'''
