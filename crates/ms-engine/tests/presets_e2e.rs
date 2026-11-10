@@ -48,7 +48,7 @@ const HAT_SEED: u64 = 0x4A75_6E6B_4861_7473;
 const RGBA8: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 
 /// The bundled presets, by file stem. `presets/` must hold exactly these.
-const BUNDLED: [&str; 21] = [
+const BUNDLED: [&str; 22] = [
     "default",
     "ink-bloom",
     "bass-tunnel",
@@ -70,6 +70,7 @@ const BUNDLED: [&str; 21] = [
     "singing-sand",
     "silk-attractor",
     "indras-pearls",
+    "harmonograph",
 ];
 
 // ------------------------------------------------------------ synthetic audio
@@ -469,6 +470,7 @@ preset_tests! {
     preset_singing_sand => "singing-sand",
     preset_silk_attractor => "silk-attractor",
     preset_indras_pearls => "indras-pearls",
+    preset_harmonograph => "harmonograph",
 }
 
 /// `presets/` holds exactly the bundled set (so every file has a test
@@ -501,7 +503,7 @@ fn bundled_set_is_complete() {
 /// runs: a minute for those with long-running state (accumulated phases,
 /// state machines), twenty seconds for the rest (enough for their feedback
 /// to settle; every bundled preset but the gentle default is covered).
-const LONG_RUN: [(&str, usize); 20] = [
+const LONG_RUN: [(&str, usize); 21] = [
     ("ink-bloom", 1200),
     ("bass-tunnel", 1200),
     ("prism-drift", 1200),
@@ -522,6 +524,7 @@ const LONG_RUN: [(&str, usize); 20] = [
     ("singing-sand", 3600),
     ("silk-attractor", 3600),
     ("indras-pearls", 3600),
+    ("harmonograph", 3600),
 ];
 
 /// A cheap guard against flashing that only develops over time (for

@@ -1,0 +1,220 @@
+# Harmonograph: the Victorian drawing machine. Two damped pendulums swing
+# a pen in x and two in y, so it traces Lissajous loops that spiral in as
+# the swings die away:
+#   x = e^(-d s) ((1 - A) sin(fx1 s + px1) + A sin(fx2 s + px2)),
+# and the same for y with its own frequencies and phases. Four custom
+# waves (2048 points) draw the whole spiral every tick, coloured along
+# its length; the phases keep turning, so the figure tumbles like a 3D
+# Lissajous knot, and the feedback buffer leaves glowing ghosts of where
+# the pen has been that swell slowly outward and fade.
+#
+# The frequency ratios (2:3, 3:4, 3:5 ...) are slightly detuned, which
+# makes the loops precess, and on a kick (at most every ten seconds) they
+# glide over several seconds to a new ratio, the figure unknotting and
+# re-forming as they pass through.
+#
+# Bass swings the pendulums (it hastens the phases, an accumulated phase,
+# never time times the bass). Mids weigh the second pendulum against the
+# first and slow the damping, so the figure's structure changes. Treble
+# lets the left and right channels ripple the pen sideways and up and
+# down (an oscilloscope in X-Y mode riding on the curve). Kicks bloom the
+# glow, eased in and out.
+version = 1
+
+[meta]
+name = "Harmonograph"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+feedback_format = "fp16"
+decay = 1.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [16, 12]
+b1n = 0.0
+b1x = 3.0
+b2n = 0.0
+b2x = 3.0
+
+[code]
+init = '''
+rx = 2; ry = 3;
+tx = 2; ty = 3;
+ht = 0;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.04;
+sm = sm + (min(mid_att, 2.5) - sm) * 0.03;
+st = st + (min(treb_att, 2.5) - st) * 0.12;
+bt = max(bt * 0.94, beat);
+be = be + (bt - be) * 0.12;
+// The pendulums' phases (accumulated, wrapped), quicker with the bass.
+sp = 0.0045 + 0.012 * min(sb, 2) / 2 + 0.004 * min(be, 1);
+p1 = p1 + sp * 1.0;
+p2 = p2 + sp * 0.73;
+p3 = p3 + sp * 0.21;
+p4 = p4 + sp * 0.29;
+p1 = p1 - 6.2831853 * floor(p1 / 6.2831853);
+p2 = p2 - 6.2831853 * floor(p2 / 6.2831853);
+p3 = p3 - 6.2831853 * floor(p3 / 6.2831853);
+p4 = p4 - 6.2831853 * floor(p4 / 6.2831853);
+// A new frequency ratio on a kick, at most every ten seconds and at
+// least every thirty.
+ht = ht + 1;
+if(ht > 600 && (be > 0.55 || ht > 1800),
+  k = rand(7);
+  nx = if(k < 1, 2, if(k < 2, 3, if(k < 3, 3, if(k < 4, 1, if(k < 5, 4, if(k < 6, 2, 3))))));
+  ny = if(k < 1, 3, if(k < 2, 4, if(k < 3, 5, if(k < 4, 2, if(k < 5, 5, if(k < 6, 5, 2))))));
+  same = (nx == tx) && (ny == ty);
+  tx = if(same, ty, nx);
+  ty = if(same, nx, ny);
+  ht = 0,
+  0);
+// Glide to it.
+rx = rx + (tx - rx) * 0.012;
+ry = ry + (ty - ry) * 0.012;
+// A slow detune, so the loops precess.
+dt = 0.02 + 0.012 * sin(time * 0.031);
+// Mids: the second pendulum's weight, and slower damping.
+am = 0.25 + 0.17 * min(sm, 2) / 2 + 0.06 * sin(time * 0.047);
+dd = 0.034 - 0.012 * min(sm, 2) / 2;
+hu = hu + 0.0006;
+hu = hu - floor(hu);
+q1 = rx; q2 = ry; q3 = rx + dt; q4 = ry - dt * 0.7;
+// The second pendulums keep within about a radian of the first, so the
+// swings never cancel and the figure never collapses.
+q5 = p1; q6 = p2; q7 = p1 + 1.1 * sin(p3); q8 = p2 + 1.1 * sin(p4 + 1);
+q9 = dd; q10 = am; q11 = hu;
+q12 = 0.004 + 0.05 * max(0, min(st, 2.5) - 0.4) / 2;
+q13 = be; q14 = sb;
+'''
+
+[[wave]]
+enabled = true
+samples = 512
+thick = 1
+additive = 1
+frame = '''
+a = 1;
+'''
+point = '''
+s = (0 + sample) * 16;
+e = exp(-q9 * s);
+vx = e * ((1 - q10) * sin(q1 * s + q5) + q10 * sin(q3 * s + q7));
+vy = e * ((1 - q10) * sin(q2 * s + q6) + q10 * sin(q4 * s + q8));
+x = 0.5 + (0.44 * vx + q12 * value1) * aspecty;
+y = 0.5 + 0.44 * vy + q12 * value2;
+h = q11 + s * 0.022;
+r = 0.5 + 0.5 * cos(6.2831853 * h);
+g = 0.5 + 0.5 * cos(6.2831853 * (h - 0.333));
+b = 0.5 + 0.5 * cos(6.2831853 * (h - 0.667));
+r = r * r; g = g * g; b = b * b;
+a = 0.12 + 0.7 * e * e;
+'''
+
+[[wave]]
+enabled = true
+samples = 512
+thick = 1
+additive = 1
+frame = '''
+a = 1;
+'''
+point = '''
+s = (1 + sample) * 16;
+e = exp(-q9 * s);
+vx = e * ((1 - q10) * sin(q1 * s + q5) + q10 * sin(q3 * s + q7));
+vy = e * ((1 - q10) * sin(q2 * s + q6) + q10 * sin(q4 * s + q8));
+x = 0.5 + (0.44 * vx + q12 * value1) * aspecty;
+y = 0.5 + 0.44 * vy + q12 * value2;
+h = q11 + s * 0.022;
+r = 0.5 + 0.5 * cos(6.2831853 * h);
+g = 0.5 + 0.5 * cos(6.2831853 * (h - 0.333));
+b = 0.5 + 0.5 * cos(6.2831853 * (h - 0.667));
+r = r * r; g = g * g; b = b * b;
+a = 0.12 + 0.7 * e * e;
+'''
+
+[[wave]]
+enabled = true
+samples = 512
+thick = 1
+additive = 1
+frame = '''
+a = 1;
+'''
+point = '''
+s = (2 + sample) * 16;
+e = exp(-q9 * s);
+vx = e * ((1 - q10) * sin(q1 * s + q5) + q10 * sin(q3 * s + q7));
+vy = e * ((1 - q10) * sin(q2 * s + q6) + q10 * sin(q4 * s + q8));
+x = 0.5 + (0.44 * vx + q12 * value1) * aspecty;
+y = 0.5 + 0.44 * vy + q12 * value2;
+h = q11 + s * 0.022;
+r = 0.5 + 0.5 * cos(6.2831853 * h);
+g = 0.5 + 0.5 * cos(6.2831853 * (h - 0.333));
+b = 0.5 + 0.5 * cos(6.2831853 * (h - 0.667));
+r = r * r; g = g * g; b = b * b;
+a = 0.12 + 0.7 * e * e;
+'''
+
+[[wave]]
+enabled = true
+samples = 512
+thick = 1
+additive = 1
+frame = '''
+a = 1;
+'''
+point = '''
+s = (3 + sample) * 16;
+e = exp(-q9 * s);
+vx = e * ((1 - q10) * sin(q1 * s + q5) + q10 * sin(q3 * s + q7));
+vy = e * ((1 - q10) * sin(q2 * s + q6) + q10 * sin(q4 * s + q8));
+x = 0.5 + (0.44 * vx + q12 * value1) * aspecty;
+y = 0.5 + 0.44 * vy + q12 * value2;
+h = q11 + s * 0.022;
+r = 0.5 + 0.5 * cos(6.2831853 * h);
+g = 0.5 + 0.5 * cos(6.2831853 * (h - 0.333));
+b = 0.5 + 0.5 * cos(6.2831853 * (h - 0.667));
+r = r * r; g = g * g; b = b * b;
+a = 0.12 + 0.7 * e * e;
+'''
+
+[shader]
+warp = '''
+// The ghosts of the pen's path swell slowly outward, turn a little and
+// fade.
+let asp = u.texsize.x * u.texsize.w;
+let p = (uv_orig - vec2f(0.5)) * vec2f(asp, 1.0);
+let c = cos(0.0025);
+let s = sin(0.0025);
+let q = vec2f(c * p.x - s * p.y, s * p.x + c * p.y) * 0.996;
+let src = q / vec2f(asp, 1.0) + vec2f(0.5);
+return textureSampleLevel(sampler_main, s_fc, src, 0.0).rgb * 0.85;
+'''
+comp = '''
+let tau = 6.2831853;
+let asp = u.texsize.x * u.texsize.w;
+let be = min(u.q[3].x, 1.0);
+let sb = min(u.q[3].y, 2.0) * 0.5;
+let hu = u.q[2].z;
+let p = (uv - vec2f(0.5)) * vec2f(asp, 1.0);
+let c = textureSampleLevel(sampler_main, s_fc, uv, 0.0).rgb;
+let b1 = GetBlur1(uv);
+let b2 = GetBlur2(uv);
+// A deep, dark backdrop with a faint tint that drifts against the pen's
+// colours.
+let bh = hu + 0.5 + 0.15 * length(p);
+let bg = 0.5 + 0.5 * cos(tau * (vec3f(bh) + vec3f(0.0, 0.33, 0.67)));
+var col = vec3f(0.016, 0.013, 0.038) + bg * bg * 0.05 * (1.0 - 0.5 * smoothstep(0.2, 0.9, length(p)));
+// The ink, with a glow that blooms on the kicks.
+col += (1.0 - exp(-b2 * 1.2)) * (0.14 + 0.22 * be + 0.06 * sb);
+col += (1.0 - exp(-b1 * 1.0)) * (0.12 + 0.1 * be);
+col = col * (1.0 - 0.5 * min(c, vec3f(1.0))) + (vec3f(1.0) - exp(-c * 1.1)) * 1.1;
+let lc = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lc) + (col - vec3f(lc)) * 1.3, vec3f(0.0));
+return col / (1.0 + 0.3 * col);
+'''
