@@ -5,7 +5,7 @@ use ms_engine::{Command, State, DEFAULT_PRESET_ID};
 
 use super::{display_name, RenderThread};
 use crate::config::{AV_OFFSET_MAX_MS, AV_OFFSET_MIN_MS};
-use crate::hotkeys::Action;
+use crate::hotkeys::{reactivity_notice, Action};
 
 impl RenderThread {
     /// The preset on screen (the incoming one during a blend).
@@ -36,6 +36,8 @@ impl RenderThread {
             Action::Favourite => self.favourite(now),
             Action::Ban => self.ban(now),
             Action::AvOffset(d) => self.av_offset(d, now),
+            Action::Reactivity(steps) => self.reactivity(Some(steps), now),
+            Action::ResetReactivity => self.reactivity(None, now),
             Action::CycleQuality => {
                 self.quality = self.quality.next();
                 self.cfg.quality = self.quality;
@@ -72,6 +74,29 @@ impl RenderThread {
             self.persist();
         }
         let text = format!("A/V offset: {} ms", self.av_offset_ms);
+        self.overlay.notice(text, now);
+    }
+
+    /// Up/Down (`Some(steps)`) or Backspace (`None`): moves the shown
+    /// preset's reactivity level, or puts it back to 1x, applies it from
+    /// the next tick and saves it (keyed by the preset's id; 1x removes
+    /// the entry).
+    fn reactivity(&mut self, steps: Option<i32>, now: f64) {
+        let Some(id) = self.library_id() else {
+            self.overlay
+                .notice("The built-in preset's reactivity cannot be changed", now);
+            return;
+        };
+        let level = match steps {
+            Some(steps) => self.cfg.step_preset_reactivity(&id, steps),
+            None => {
+                self.cfg.set_preset_reactivity(&id, 1.0);
+                1.0
+            }
+        };
+        self.apply_reactivity();
+        self.persist();
+        let text = reactivity_notice(level, self.cfg.reactivity);
         self.overlay.notice(text, now);
     }
 

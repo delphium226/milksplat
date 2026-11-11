@@ -15,6 +15,10 @@ pub enum Action {
     /// Adjust the A/V offset by this many milliseconds.
     AvOffset(i32),
     CycleQuality,
+    /// Move the shown preset's reactivity by this many quarter steps.
+    Reactivity(i32),
+    /// Put the shown preset's reactivity back to 1x.
+    ResetReactivity,
     ShowName,
     ToggleFps,
     ToggleHelp,
@@ -31,7 +35,10 @@ impl Action {
     /// Whether holding the key down should repeat the action. Toggles and
     /// one-shot actions ignore key repeats.
     pub fn repeats(self) -> bool {
-        matches!(self, Action::Next | Action::Prev | Action::AvOffset(_))
+        matches!(
+            self,
+            Action::Next | Action::Prev | Action::AvOffset(_) | Action::Reactivity(_)
+        )
     }
 }
 
@@ -43,6 +50,8 @@ pub const HELP: &[(&str, &str)] = &[
     ("* / Del", "favourite / ban the current preset"),
     ("Space", "hard cut to next"),
     ("[ / ]", "A/V offset -/+ 10 ms"),
+    ("Up / Down", "more / less reactive (this preset)"),
+    ("Backspace", "reset this preset's reactivity"),
     ("Q", "cycle quality"),
     ("N", "show preset name"),
     ("`", "fps / debug readout"),
@@ -75,6 +84,9 @@ pub fn map_key(key: &Key, mods: ModifiersState) -> Option<Action> {
         Key::Named(named) => match named {
             NamedKey::ArrowRight => Some(Action::Next),
             NamedKey::ArrowLeft => Some(Action::Prev),
+            NamedKey::ArrowUp => Some(Action::Reactivity(1)),
+            NamedKey::ArrowDown => Some(Action::Reactivity(-1)),
+            NamedKey::Backspace => Some(Action::ResetReactivity),
             NamedKey::Delete => Some(Action::Ban),
             NamedKey::Space => Some(Action::HardCut),
             NamedKey::Escape => Some(Action::EscapeKey),
@@ -101,5 +113,19 @@ pub fn map_key(key: &Key, mods: ModifiersState) -> Option<Action> {
             }
         }
         _ => None,
+    }
+}
+
+/// The notice for a preset's new reactivity `level`, e.g. "Reactivity
+/// 1.5x"; with a `global` multiplier other than 1, also the effective
+/// level the preset runs at.
+pub fn reactivity_notice(level: f64, global: f64) -> String {
+    if global == 1.0 {
+        format!("Reactivity {level}x")
+    } else {
+        let k = f64::from(ms_engine::effective_reactivity(level as f32, global as f32));
+        // Two decimals at most (the product of two f32 levels).
+        let k = (k * 100.0).round() / 100.0;
+        format!("Reactivity {level}x (effective {k}x)")
     }
 }

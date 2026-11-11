@@ -1,8 +1,9 @@
 //! ms-engine: fixed-tick clock, render-quality governor, and preset
 //! instances that run a compiled preset's code each tick and produce plain
 //! render data for `ms-render`, the blending of two presets during a
-//! transition, per-preset reactivity (audio scaling), the loader thread that prepares presets off the render
-//! thread, and the director that decides what is shown.
+//! transition, per-preset reactivity (audio scaling), the loader thread
+//! that prepares presets off the render thread, and the director that
+//! decides what is shown.
 
 mod blend;
 mod clock;

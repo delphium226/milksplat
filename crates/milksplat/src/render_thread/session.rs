@@ -13,7 +13,7 @@ use ms_engine::Director;
 use ms_preset::Prefs;
 
 use super::audio::DeviceStarted;
-use super::{prefs_of, RenderThread};
+use super::{prefs_of, reactivity_of, RenderThread};
 use crate::crash::RunMarker;
 use crate::hotreload::Watch;
 use crate::keepawake::SILENCE_S;
@@ -64,6 +64,12 @@ impl RenderThread {
         prefs_of(&self.cfg, &self.session_skip)
     }
 
+    /// Hands the config's reactivity levels to the director.
+    pub(super) fn apply_reactivity(&mut self) {
+        let (levels, global) = reactivity_of(&self.cfg);
+        self.director.set_reactivity(levels, global);
+    }
+
     /// Copies the render thread's config fields to the store, which saves
     /// them on its own thread (debounced). Called on changes only.
     pub(super) fn persist(&self) {
@@ -71,12 +77,14 @@ impl RenderThread {
         let (favourites, bans, blocklist) =
             (c.favourites.clone(), c.bans.clone(), c.blocklist.clone());
         let (quality, offsets) = (c.quality, c.av_offsets_ms.clone());
+        let reactivity = c.preset_reactivity.clone();
         self.store.update(move |s| {
             s.favourites = favourites;
             s.bans = bans;
             s.blocklist = blocklist;
             s.quality = quality;
             s.av_offsets_ms = offsets;
+            s.preset_reactivity = reactivity;
         });
     }
 }

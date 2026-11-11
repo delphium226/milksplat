@@ -1,7 +1,8 @@
 //! The §9.2 hotkey table (plus `Alt+Enter`) maps to the right `Action`, and
 //! anything else maps to nothing.
 
-use milksplat::hotkeys::{map_key, Action};
+use milksplat::config::Config;
+use milksplat::hotkeys::{map_key, reactivity_notice, Action, HELP};
 use winit::keyboard::{Key, ModifiersState, NamedKey, SmolStr};
 
 fn ch(s: &str) -> Key {
@@ -32,6 +33,9 @@ fn every_table_row_maps() {
         (ch("f"), none(), Action::ToggleFullscreen),
         (ch("m"), none(), Action::NextMonitor),
         (Key::Named(NamedKey::Escape), none(), Action::EscapeKey),
+        (Key::Named(NamedKey::ArrowUp), none(), Action::Reactivity(1)),
+        (Key::Named(NamedKey::ArrowDown), none(), Action::Reactivity(-1)),
+        (Key::Named(NamedKey::Backspace), none(), Action::ResetReactivity),
     ];
     for (key, mods, want) in rows {
         assert_eq!(map_key(&key, mods), Some(want), "{key:?} with {mods:?}");
@@ -78,8 +82,6 @@ fn altgr_characters_map() {
 fn unmapped_keys_give_none() {
     let unmapped: Vec<(Key, ModifiersState)> = vec![
         (Key::Named(NamedKey::Enter), none()),
-        (Key::Named(NamedKey::ArrowUp), none()),
-        (Key::Named(NamedKey::ArrowDown), none()),
         (Key::Named(NamedKey::Tab), none()),
         (Key::Named(NamedKey::F1), none()),
         (ch("a"), none()),
@@ -91,6 +93,8 @@ fn unmapped_keys_give_none() {
         (ch("r"), ModifiersState::CONTROL),
         (ch("f"), ModifiersState::ALT),
         (Key::Named(NamedKey::ArrowRight), ModifiersState::CONTROL),
+        (Key::Named(NamedKey::ArrowUp), ModifiersState::CONTROL),
+        (Key::Named(NamedKey::Backspace), ModifiersState::ALT),
         (Key::Named(NamedKey::Escape), ModifiersState::SUPER),
         (
             Key::Named(NamedKey::Enter),
@@ -121,4 +125,60 @@ fn debug_crash_chord() {
     ] {
         assert_eq!(map_key(&f12, mods), None, "F12 with {mods:?}");
     }
+}
+
+#[test]
+fn reactivity_steps_repeat_and_reset_does_not() {
+    assert!(Action::Reactivity(1).repeats());
+    assert!(Action::Reactivity(-1).repeats());
+    assert!(!Action::ResetReactivity.repeats());
+}
+
+#[test]
+fn reactivity_keys_are_in_the_help() {
+    assert!(HELP.iter().any(|(k, _)| k.contains("Up / Down")));
+    assert!(HELP.iter().any(|(k, _)| k.contains("Backspace")));
+}
+
+/// Up/Down move the shown preset's level in quarter steps within
+/// 0.25..=2.5; Backspace (and stepping back to 1x) removes its entry.
+#[test]
+fn reactivity_hotkeys_change_the_stored_level() {
+    let mut c = Config::default();
+    assert_eq!(c.step_preset_reactivity("a.splat", 1), 1.25);
+    assert_eq!(c.step_preset_reactivity("a.splat", 1), 1.5);
+    assert_eq!(c.preset_reactivity("a.splat"), 1.5);
+    for _ in 0..20 {
+        c.step_preset_reactivity("a.splat", 1);
+    }
+    assert_eq!(c.preset_reactivity("a.splat"), 2.5);
+    for _ in 0..20 {
+        c.step_preset_reactivity("b.splat", -1);
+    }
+    assert_eq!(c.preset_reactivity("b.splat"), 0.25);
+    // Back to 1x: no entry.
+    for _ in 0..3 {
+        c.step_preset_reactivity("b.splat", 1);
+    }
+    assert_eq!(c.preset_reactivity("b.splat"), 1.0);
+    assert!(!c.preset_reactivity.contains_key("b.splat"));
+    // Backspace.
+    c.set_preset_reactivity("a.splat", 1.0);
+    assert!(c.preset_reactivity.is_empty());
+}
+
+#[test]
+fn reactivity_notice_text() {
+    assert_eq!(reactivity_notice(1.5, 1.0), "Reactivity 1.5x");
+    assert_eq!(reactivity_notice(1.0, 1.0), "Reactivity 1x");
+    assert_eq!(reactivity_notice(0.25, 1.0), "Reactivity 0.25x");
+    // A global multiplier other than 1 shows the effective level too.
+    assert_eq!(
+        reactivity_notice(1.5, 0.5),
+        "Reactivity 1.5x (effective 0.75x)"
+    );
+    assert_eq!(
+        reactivity_notice(2.5, 2.0),
+        "Reactivity 2.5x (effective 2.5x)"
+    );
 }

@@ -30,7 +30,7 @@
 //! burst.
 //!
 //! **Files:** config changes (favourites, bans, the blocklist, quality,
-//! A/V offsets) go to the [`ConfigStore`], whose own thread writes them;
+//! A/V offsets, reactivity levels) go to the [`ConfigStore`], whose own thread writes them;
 //! the preset on screen goes to the crash slot and the run marker (also
 //! written by its own thread); preset file changes arrive from the
 //! hot-reload watcher's thread already mapped to ids. No frame waits on
@@ -47,7 +47,7 @@ mod session;
 pub use gpu_state::pick_format;
 pub use overlay::display_name;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -283,6 +283,8 @@ fn run(
     };
     let mut director = Director::new(dcfg, lib, prefs, seed(), &gs.renderer.shared(), gs.format);
     director.set_mesh_cap(cfg.quality.mesh_cap());
+    let (levels, global) = reactivity_of(&cfg);
+    director.set_reactivity(levels, global);
     if let Some(marker) = &opts.marker {
         // Written before each request reaches the loader thread, so a
         // crash while compiling or warming up names the preset.
@@ -362,6 +364,17 @@ fn prefs_of(cfg: &Config, session_skip: &HashSet<String>) -> Prefs {
         bans: cfg.bans.iter().cloned().collect(),
         blocklist: cfg.blocklist.iter().chain(session_skip).cloned().collect(),
     }
+}
+
+/// The director's reactivity settings from the config: the per-preset
+/// levels and the global multiplier.
+fn reactivity_of(cfg: &Config) -> (HashMap<String, f32>, f32) {
+    let levels = cfg
+        .preset_reactivity
+        .iter()
+        .map(|(id, &k)| (id.clone(), k as f32))
+        .collect();
+    (levels, cfg.reactivity as f32)
 }
 
 /// A seed for preset selection, different each run.
