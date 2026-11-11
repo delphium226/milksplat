@@ -1,0 +1,151 @@
+# Kelvin-Helmholtz Clouds: a layer of sunset-lit cloud under a fast wind,
+# its top rolling up into the classic breaking-wave curls of a billow
+# cloud, glowing gold, rose and violet against a dark night sky. New
+# curls keep forming at the left, wind up tighter as they travel and drift
+# off to the right.
+#
+# The feedback buffer (fp16) holds the fluid: red is the cloud's dye, green
+# a streaky texture it carries. Each tick the warp shader advects both
+# backward along the flow (a midpoint step, bilinear), the velocity being
+# a Stuart vortex row, the exact steady solution of a shear layer rolled
+# into a chain of cat's-eye vortices: in the vortices' frame the stream
+# function is ln(cosh ky - eps cos kx) / k, so the wind above runs one way,
+# the cloud below the other, and the fluid trapped in each eye turns over
+# and over. The row drifts right with the mean wind, its phase an
+# accumulated value from the frame code, and eps grows downstream, so the
+# curls are born small at the left and break into full spirals further on.
+# Fluid that came in from beyond the left edge is reset to the unrolled
+# layer (with a slow wobble and fresh streaks), so new curls keep coming.
+#
+# The composite lights the dye: a rim of gold where the cloud's surface
+# faces the low sun, rose and magenta in the body, violet in the folds,
+# streaks from the carried texture; and a deep night sky with a faint
+# afterglow at the horizon and stars.
+#
+# Bass speeds the wind (the advection step and the drift, both
+# accumulated). Mids strengthen the vortices, so the curls roll tighter.
+# Treble twinkles the stars. Each kick brightens the gold rims, eased.
+version = 1
+
+[meta]
+name = "Kelvin-Helmholtz Clouds"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+feedback_format = "fp16"
+decay = 1.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+xv = 0; wb = 0; fr = 0;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+sm = sm + (min(mid_att, 2.5) - sm) * 0.03;
+st = st + (min(treb_att, 2.5) - st) * 0.1;
+bt = max(bt * 0.94, beat);
+be = be + (bt - be) * 0.08;
+// The shear speed, in screen heights per tick.
+uu = 0.0022 * (1 + 0.5 * min(sb, 2) / 2);
+// The vortex row drifts with the mean wind (accumulated, wrapped at one
+// wavelength, 0.6).
+xv = xv + 1.1 * uu;
+xv = xv - 0.6 * floor(xv / 0.6);
+// The inflow wobble (accumulated, wrapped).
+wb = wb + 0.004 + 0.004 * min(sb, 2) / 2;
+wb = wb - 6.2831853 * floor(wb / 6.2831853);
+fr = fr + 1;
+q1 = xv; q2 = uu; q3 = sm; q4 = sb;
+q5 = st; q6 = be; q7 = if(fr < 3, 1, 0); q8 = wb;
+// The cloud body's slow drift, for its texture (wrapped).
+dl = dl + 0.3 * uu;
+dl = dl - 2 * floor(dl / 2);
+q9 = dl;
+'''
+
+[shader]
+warp = '''
+let tau = 6.2831853;
+let asp = u.texsize.x * u.texsize.w;
+let xv = u.q[0].x;
+let uu = u.q[0].y;
+let sm = min(u.q[0].z, 2.0) * 0.5;
+let first = u.q[1].z;
+let wb = u.q[1].w;
+let p = vec2f((uv_orig.x - 0.5) * asp, 0.5 - uv_orig.y);
+let kw = tau / 0.6;
+let y0 = -0.04;
+// The Stuart vortex row, plus the mean wind; eps grows downstream.
+var q = p;
+var vel = vec2f(0.0);
+for (var i = 0; i < 2; i++) {
+    let e = (0.1 + 0.62 * smoothstep(-0.8, 0.35, q.x)) * (0.85 + 0.2 * sm);
+    let xs = kw * (q.x - xv);
+    let ys = kw * (q.y - y0);
+    let dn = cosh(ys) - e * cos(xs);
+    vel = uu * vec2f(sinh(ys) / dn + 1.1, -e * sin(xs) / dn);
+    q = p - vel * 0.5;
+}
+let p0 = p - vel;
+let uvd = vec2f(p0.x / asp + 0.5, 0.5 - p0.y);
+// The unrolled layer, for fluid from beyond the left edge (and the start).
+let wob = 0.004 * sin(wb * 3.0 + p0.y * 9.0) + 0.003 * sin(wb * 7.0 + 1.0);
+let base = 1.0 - smoothstep(-0.018, 0.018, p0.y - y0 - wob);
+let strk = textureSampleLevel(sampler_noise_lq, s_fw, vec2f(p0.y * 7.0, wb * 0.4), 0.0).x;
+var d = textureSampleLevel(sampler_main, s_fc, uvd, 0.0).rg;
+let inflow = smoothstep(-0.5 * asp + 0.01, -0.5 * asp - 0.01, p0.x);
+d = mix(d, vec2f(base, strk), max(inflow, first));
+return vec3f(d, 0.0);
+'''
+comp = '''
+let asp = u.texsize.x * u.texsize.w;
+let sb = min(u.q[0].w, 2.0) * 0.5;
+let st = max(0.0, min(u.q[1].x, 2.5) - 0.3);
+let be = min(u.q[1].y, 1.0);
+let p = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
+let px = u.texsize.zw;
+let lw = max(1.0, u.texsize.y / 540.0);
+// The night sky: deep blue above, a faint ember afterglow low down.
+var col = mix(vec3f(0.03, 0.012, 0.05), vec3f(0.004, 0.006, 0.02), smoothstep(-0.5, 0.3, p.y));
+col += vec3f(0.25, 0.06, 0.08) * exp(-(p.y + 0.5) / 0.12) * 0.5;
+// Stars, twinkling with the treble.
+let cell = floor(uv * u.texsize.xy / lw);
+let hh = fract(sin(dot(cell, vec2f(12.9898, 78.233))) * 43758.5453);
+let tw = 0.5 + 0.5 * sin(u.time * (1.0 + 3.0 * hh) + hh * 40.0);
+col += vec3f(0.75, 0.8, 1.0) * step(0.9965, hh) * (0.25 + 0.6 * tw * st) * smoothstep(-0.2, 0.2, p.y);
+// The cloud: dye, its surface normal (from the dye's gradient) and the
+// streaks it carries.
+let o = 2.0 * lw;
+let c0 = textureSampleLevel(sampler_main, s_fc, uv, 0.0).rg;
+let cx1 = textureSampleLevel(sampler_main, s_fc, uv + vec2f(px.x * o, 0.0), 0.0).r;
+let cx0 = textureSampleLevel(sampler_main, s_fc, uv - vec2f(px.x * o, 0.0), 0.0).r;
+let cy1 = textureSampleLevel(sampler_main, s_fc, uv - vec2f(0.0, px.y * o), 0.0).r;
+let cy0 = textureSampleLevel(sampler_main, s_fc, uv + vec2f(0.0, px.y * o), 0.0).r;
+let gr = vec2f(cx1 - cx0, cy1 - cy0);
+let dye = clamp(c0.x, 0.0, 1.0);
+let gl = length(gr);
+// Light from the low sun, to the lower left: surfaces whose outward
+// normal (down the dye's gradient) faces it glow gold.
+let nrm = -gr / max(gl, 1e-4);
+let sun = max(dot(nrm, normalize(vec2f(-0.6, 0.35))), 0.0);
+let rim = smoothstep(0.02, 0.35, gl) * (0.35 + 0.65 * sun);
+// Puffy texture in the body, drifting with the slow lower layer, and
+// the streaks the dye carries.
+let dl = u.q[2].x;
+let n1 = textureSampleLevel(sampler_noise_lq, s_fw, vec2f((p.x - dl) * 1.3, p.y * 2.2) * 0.5, 0.0).x;
+let n2 = textureSampleLevel(sampler_noise_mq, s_fw, vec2f((p.x - dl) * 3.5, p.y * 6.0) * 0.5, 0.0).x;
+let tex = (0.7 + 0.5 * (c0.y - 0.5)) * (0.65 + 0.45 * n1 + 0.3 * n2);
+let depth = smoothstep(0.1, -0.45, p.y);
+var cloud = mix(vec3f(1.0, 0.32, 0.55), vec3f(0.5, 0.14, 0.62), depth) * tex;
+cloud = mix(cloud, vec3f(1.0, 0.55, 0.3), smoothstep(0.55, 1.0, dye) * (1.0 - depth) * 0.35);
+col = mix(col, cloud * (0.68 + 0.2 * sb), dye);
+col += vec3f(1.0, 0.72, 0.32) * rim * (0.9 + 0.5 * be + 0.3 * sb);
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.15, vec3f(0.0));
+return col / (1.0 + 0.3 * col);
+'''

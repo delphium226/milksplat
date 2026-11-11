@@ -43,6 +43,8 @@ device, so just start your music and run it.
 | **Lorenz Butterfly**: the Lorenz strange attractor traced as a glowing ribbon, its two wings turning slowly in 3D | **Double Pendulum**: three chaotic double pendulums started a hair apart, peeling away from each other in long neon trails |
 | ![Mandelbrot Dive](docs/images/mandelbrot-dive.png) | ![Gravitational Waves](docs/images/gravitational-waves.png) |
 | **Mandelbrot Dive**: an endless zoom onto a branch point of the Mandelbrot set, its feathered filaments glowing in neon | **Gravitational Waves**: two black holes spiral in and merge, the spacetime grid rippling outward in a two-armed spiral |
+| ![Kelvin-Helmholtz Clouds](docs/images/kelvin-helmholtz.png) | |
+| **Kelvin-Helmholtz Clouds**: a sunset cloud layer under a fast wind, its top rolling up into glowing breaking-wave curls | |
 
 These are single frames; every preset moves and changes with the music.
 
