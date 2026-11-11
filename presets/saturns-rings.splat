@@ -1,0 +1,249 @@
+# Saturn's Rings: a view across the rings from just above their plane,
+# with the planet a dim crescent at the edge of the frame. Hundreds of
+# ringlets glow against black space: the faint violet C ring, the dense
+# golden B ring with faint radial spokes drifting across it, the dark
+# gap of the Cassini Division, the rose A ring with the Encke gap and the
+# tight spiral density waves that moons raise in it, and outside them the
+# narrow, braided F ring between its two shepherd moons. Small bright
+# moons ride in the gaps, the planet's shadow falls across the rings
+# behind it, and the rings' shadow bands the planet.
+#
+# Everything is in the composite. Each pixel's ray is intersected with
+# the ring plane and with the planet (an oblate spheroid of radius 1).
+# The ring brightness is a function of radius: the main rings and gaps
+# at their real radii (in Saturn radii), plus a sum of twelve sinusoids
+# for the ringlets, each faded by how much radius the pixel covers (from
+# the neighbouring pixels' rays), so they never shimmer however thin
+# they get toward the horizon. The A ring's density waves are spirals,
+# cos(m (phi - pattern angle) + k (r - r0)^2), wound tighter with
+# distance from their resonance. The spokes are slow noise in angle,
+# turning with the ring at 1.86 radii, and the F ring wanders and clumps
+# along its length. A ray from the ring point to the sun tests the
+# planet's shadow; one from the planet to the sun tests the rings'.
+#
+# The frame code accumulates every angle: the camera's slow drift round
+# the planet, its gentle rise and fall above the ring plane, the spokes,
+# the density waves' pattern speeds and each moon at its own Kepler
+# rate (inner faster), each wrapped on its own, a little faster with the
+# bass.
+#
+# Bass brightens the rings (smoothed). Mids sharpen the spokes. Treble
+# twinkles the stars and sparkles in the A ring. Each kick makes the
+# moons flare, eased.
+version = 1
+
+[meta]
+name = "Saturn's Rings"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+az = 0.6; el = 0; sp = 0; w1 = 0; w2 = 0; m1 = 0.5; m2 = 2.2; m3 = 4.0; m4 = 5.5; sn = 0;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+sm = sm + (min(mid_att, 2.5) - sm) * 0.03;
+st = st + (min(treb_att, 2.5) - st) * 0.1;
+bt = max(bt * 0.94, beat);
+be = be + (bt - be) * 0.08;
+k = (1 + 0.25 * min(sb, 2) / 2) / 60;
+// The camera: once round in 8 minutes, rising and falling over 70 s.
+az = az + k * 6.2831853 / 480;
+az = az - 6.2831853 * floor(az / 6.2831853);
+el = el + k * 6.2831853 / 70;
+el = el - 6.2831853 * floor(el / 6.2831853);
+// Kepler rates: once round in 90 s at 2.21 radii, as r^-1.5.
+o = k * 6.2831853 / 90;
+sp = sp + o * pow(2.21 / 1.86, 1.5); sp = sp - 6.2831853 * floor(sp / 6.2831853);
+w1 = w1 + o * pow(2.21 / 2.08, 1.5); w1 = w1 - 6.2831853 * floor(w1 / 6.2831853);
+w2 = w2 + o * pow(2.21 / 2.16, 1.5); w2 = w2 - 6.2831853 * floor(w2 / 6.2831853);
+m1 = m1 + o; m1 = m1 - 6.2831853 * floor(m1 / 6.2831853);
+m2 = m2 + o * pow(2.21 / 2.265, 1.5); m2 = m2 - 6.2831853 * floor(m2 / 6.2831853);
+m3 = m3 + o * pow(2.21 / 2.31, 1.5); m3 = m3 - 6.2831853 * floor(m3 / 6.2831853);
+m4 = m4 + o * pow(2.21 / 2.35, 1.5); m4 = m4 - 6.2831853 * floor(m4 / 6.2831853);
+// The spokes' slow coming and going.
+sn = sn + k * 0.02; sn = sn - 64 * floor(sn / 64);
+q1 = az; q2 = 0.1 + 0.035 * sin(el); q3 = sp; q4 = sn;
+q5 = m1; q6 = m2; q7 = m3; q8 = m4;
+q9 = w1; q10 = w2;
+q13 = sb; q14 = sm; q15 = st; q16 = be;
+'''
+
+[shader]
+comp = '''
+let asp = u.texsize.x * u.texsize.w;
+let sb = min(u.q[3].x, 2.0) * 0.5;
+let sm = min(u.q[3].y, 2.0) * 0.5;
+let st = max(0.0, min(u.q[3].z, 2.5) - 0.3);
+let be = min(u.q[3].w, 1.0);
+let az = u.q[0].x;
+let elv = u.q[0].y;
+let lw = max(1.0, u.texsize.y / 540.0);
+// The camera, 2.65 radii out and a little above the ring plane, looking
+// in across the rings with the planet off to the left.
+let ce = cos(elv);
+let fwd0 = vec3f(cos(az), 0.0, sin(az));
+let ro = vec3f(-fwd0.x * ce, sin(elv), -fwd0.z * ce) * 2.65;
+let fp = normalize(-ro);
+let hr = normalize(cross(fp, vec3f(0.0, 1.0, 0.0)));
+let fw = normalize(fp * 0.9 + hr * 0.44 - vec3f(0.0, 0.06, 0.0));
+let rt = normalize(cross(fw, vec3f(0.0, 1.0, 0.0)));
+let up = cross(rt, fw);
+let tf = 0.5;
+let sx = (uv.x - 0.5) * asp * 2.0 * tf;
+let sy = (0.5 - uv.y) * 2.0 * tf;
+let pa = 2.0 * tf * u.texsize.w;
+let rd = normalize(fw + rt * sx + up * sy);
+// The sun: beyond the planet and off to the right, above the rings, so
+// the planet is a crescent and its shadow falls away to the left.
+let sun = normalize(fp * 0.75 + hr * 0.6 + vec3f(0.0, 0.42, 0.0));
+// The planet: an oblate spheroid (polar radius 0.9).
+let sq = vec3f(1.0, 1.0 / 0.9, 1.0);
+let po = ro * sq;
+let pd = rd * sq;
+let qa = dot(pd, pd);
+let qb = dot(po, pd);
+let qc = dot(po, po) - 1.0;
+let disc = qb * qb - qa * qc;
+var tp = 1e9;
+if (disc > 0.0) {
+    tp = (-qb - sqrt(disc)) / qa;
+    if (tp < 0.0) {
+        tp = 1e9;
+    }
+}
+// Space: a few faint stars.
+var col = vec3f(0.003, 0.003, 0.009);
+let cell = floor(uv * u.texsize.xy / lw);
+let h0 = (u32(cell.x) * 1973u + u32(cell.y) * 9277u) * 747796405u + 2891336453u;
+let h1 = ((h0 >> ((h0 >> 28u) + 4u)) ^ h0) * 277803737u;
+let hh = f32((h1 >> 22u) ^ h1) / 4294967296.0;
+let tw = 0.6 + 0.4 * sin(u.time * (1.0 + 3.0 * hh) + hh * 40.0) * min(st, 1.0);
+col += vec3f(0.8, 0.85, 1.0) * step(0.9975, hh) * (0.25 + 0.5 * fract(hh * 911.0)) * tw;
+if (tp < 1e8) {
+    // The planet: a dim crescent where the sun catches it, banded, with
+    // the rings' shadow across it and a faint glow on the night side.
+    let p = ro + rd * tp;
+    let nrm = normalize(p * vec3f(1.0, 1.0 / 0.81, 1.0));
+    let lam = max(dot(nrm, sun), 0.0);
+    let lat = p.y / 0.9;
+    let bn = textureSampleLevel(sampler_noise_lq, s_fw, vec2f(lat * 1.7, 0.31), 0.0).r;
+    var pc = mix(vec3f(0.95, 0.72, 0.4), vec3f(0.75, 0.5, 0.35), bn) * (0.85 + 0.3 * sin(lat * 23.0 + bn * 3.0));
+    var shade = 1.0;
+    if (abs(sun.y) > 1e-4) {
+        let ts = -p.y / sun.y;
+        if (ts > 0.0) {
+            let rs = length((p + sun * ts).xz);
+            shade = 1.0 - 0.75 * smoothstep(1.22, 1.3, rs) * (1.0 - smoothstep(2.25, 2.3, rs)) * (1.0 - 0.8 * smoothstep(1.94, 1.96, rs) * (1.0 - smoothstep(2.02, 2.04, rs)));
+        }
+    }
+    let rim = pow(1.0 - max(dot(nrm, -rd), 0.0), 3.0);
+    col = pc * pow(lam, 1.3) * 0.75 * shade + vec3f(0.08, 0.05, 0.12) * 0.25 + vec3f(1.0, 0.75, 0.45) * rim * pow(lam, 0.5) * 0.3;
+}
+if (abs(rd.y) > 1e-5) {
+    let tr = -ro.y / rd.y;
+    if (tr > 0.0 && tr < tp) {
+        let p = ro + rd * tr;
+        let r = length(p.xz);
+        // How much radius this pixel covers (from its neighbours' rays).
+        let rd2 = normalize(rd + up * pa);
+        let rd3 = normalize(rd + rt * pa);
+        let r2 = length((ro + rd2 * (-ro.y / rd2.y)).xz);
+        let r3 = length((ro + rd3 * (-ro.y / rd3.y)).xz);
+        let dr = clamp(max(abs(r2 - r), abs(r3 - r)), 1e-5, 1.0);
+        if (r > 1.05 && r < 2.45) {
+            let phi = atan2(p.z, p.x);
+            // The main rings: optical depth and colour by radius.
+            let fa = 0.5 * dr;
+            let cR = smoothstep(1.24 - fa, 1.24 + fa, r) * (1.0 - smoothstep(1.53 - fa, 1.53 + fa, r));
+            let bR = smoothstep(1.53 - fa, 1.53 + fa, r) * (1.0 - smoothstep(1.95 - fa, 1.95 + fa, r));
+            let cD = smoothstep(1.95 - fa, 1.95 + fa, r) * (1.0 - smoothstep(2.03 - fa, 2.03 + fa, r));
+            let aR = smoothstep(2.03 - fa, 2.03 + fa, r) * (1.0 - smoothstep(2.27 - fa, 2.27 + fa, r));
+            let dR = smoothstep(1.11, 1.13, r) * (1.0 - smoothstep(1.22, 1.24, r));
+            // Ringlets: twelve sinusoids in r, each faded by the footprint.
+            var rl = 0.0;
+            var fq = 37.0;
+            for (var i = 0; i < 12; i++) {
+                let fi = f32(i);
+                let g = exp(-0.5 * fq * fq * dr * dr);
+                rl += g * sin(fq * r + fi * 2.39 + sin(fq * r * 0.37 + fi) * 0.8) / (1.0 + 0.12 * fi);
+                fq *= 1.52;
+            }
+            // Encke gap (with Pan) and Keeler gap.
+            let eg = 1.0 - (1.0 - smoothstep(0.0, 0.0035 + dr, abs(r - 2.214))) * min(0.0035 / max(dr, 0.0035), 1.0) * 0.95;
+            let kg = 1.0 - (1.0 - smoothstep(0.0, 0.0012 + dr, abs(r - 2.262))) * min(0.0012 / max(dr, 0.0012), 1.0) * 0.8;
+            // Density waves in the A ring: tight spirals from two resonances.
+            var dw = 0.0;
+            for (var j = 0; j < 2; j++) {
+                let r0 = select(2.16, 2.08, j == 0);
+                let pat = select(u.q[2].y, u.q[2].x, j == 0);
+                let m = select(5.0, 3.0, j == 0);
+                let x = r - r0;
+                let kk = 9000.0 * x;
+                let env = smoothstep(0.0, 0.004, x) * exp(-x / 0.03);
+                dw += cos(m * (phi - pat) + 0.5 * 9000.0 * x * x) * env * exp(-0.5 * kk * kk * dr * dr);
+            }
+            // Spokes: slow noise in angle, turning with the B ring.
+            let spa = phi - u.q[0].z;
+            let sn = textureSampleLevel(sampler_noise_lq, s_fw, vec2f(spa * 0.477 + (r - 1.8) * 0.15, u.q[0].w), 0.0).r;
+            let spoke = smoothstep(0.62 - 0.08 * sm, 0.82, sn) * smoothstep(1.62, 1.72, r) * (1.0 - smoothstep(1.85, 1.93, r));
+            // The F ring: narrow, wandering, clumpy.
+            let fr0 = 2.326 + 0.0025 * sin(7.0 * phi + u.q[1].z) + 0.0015 * sin(19.0 * phi - u.q[1].w);
+            let fw0 = 0.0018 + dr;
+            let clump = 0.6 + 0.8 * textureSampleLevel(sampler_noise_lq, s_fw, vec2f(phi * 0.637, 0.71), 0.0).r;
+            let fR = exp(-pow((r - fr0) / fw0, 2.0)) * min(0.0018 / fw0, 1.0) * 3.0 * clump;
+            // Brightness.
+            let rlv = 1.0 + 0.45 * rl;
+            var c = vec3f(0.0);
+            c += vec3f(0.35, 0.3, 1.0) * cR * 0.35 * (1.0 + 0.6 * rl);
+            c += mix(vec3f(1.0, 0.68, 0.25), vec3f(1.0, 0.85, 0.55), smoothstep(1.6, 1.85, r)) * bR * 0.95 * rlv;
+            c += vec3f(0.2, 0.75, 0.8) * cD * 0.12 * (1.0 + 0.8 * rl);
+            c += mix(vec3f(1.0, 0.4, 0.55), vec3f(0.8, 0.55, 1.0), smoothstep(2.05, 2.25, r)) * aR * 0.7 * rlv * eg * kg * (1.0 + 0.6 * dw);
+            c += vec3f(0.45, 0.4, 0.95) * dR * 0.08;
+            c += vec3f(0.5, 0.95, 1.0) * fR;
+            c += vec3f(0.55, 0.75, 1.0) * spoke * 0.45 * bR;
+            // Treble: sparkles in the A ring.
+            let gl = fract(sin(dot(cell, vec2f(41.3, 289.1))) * 43758.5);
+            c += vec3f(1.0, 0.9, 1.0) * step(0.997, gl) * aR * st * 0.6;
+            // The planet's shadow on the rings.
+            let sq2 = p * sq;
+            let sd2 = sun * sq;
+            let ba = dot(sd2, sd2);
+            let bb = dot(sq2, sd2);
+            let bc = dot(sq2, sq2) - 1.0;
+            let sdisc = bb * bb - ba * bc;
+            if (sdisc > 0.0 && -bb - sqrt(sdisc) > 0.0) {
+                c *= 0.08;
+            }
+            // Thin toward the horizon: rings are partly see-through.
+            let al = clamp(length(c) * 1.2, 0.0, 1.0);
+            col = col * (1.0 - al * 0.95) + c * (0.85 + 0.4 * sb);
+        }
+    }
+}
+// The moons: small bright points, flaring with the kicks.
+for (var i = 0; i < 4; i++) {
+    let mr = select(select(select(2.35, 2.31, i == 2), 2.265, i == 1), 2.214, i == 0);
+    let ma = select(select(select(u.q[1].w, u.q[1].z, i == 2), u.q[1].y, i == 1), u.q[1].x, i == 0);
+    let mp = vec3f(cos(ma) * mr, 0.0, sin(ma) * mr);
+    let v = mp - ro;
+    let dist = length(v);
+    let vd = v / dist;
+    let cs = dot(vd, rd);
+    if (cs > 0.99 && dist < tp) {
+        let ang = sqrt(max(2.0 * (1.0 - cs), 0.0)) / (pa * lw);
+        col += vec3f(1.0, 0.97, 0.9) * (exp(-ang * ang / 1.5) * 1.6 + exp(-ang / 4.0) * 0.25 * (1.0 + 1.5 * be));
+    }
+}
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.25, vec3f(0.0));
+return col / (1.0 + 0.45 * col);
+'''
