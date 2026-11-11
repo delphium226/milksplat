@@ -11,8 +11,9 @@
 //! 4. Drain the audio ring into the history and pad silence up to now.
 //! 5. Advance the fixed clock (the shown preset's `sim_rate`, 60 Hz by
 //!    default; see `FramePlan::sim_rate`) by the frame's wall-clock delta. For
-//!    each due tick: analysis, spectrum upload, `director.update`, then
-//!    `director.tick_and_render` (preset code, warp, overlays, blur).
+//!    each due tick: analysis, `director.update`, then
+//!    `director.tick_and_render` (the audio scaled by each preset's
+//!    reactivity, the spectrum upload, preset code, warp, overlays, blur).
 //! 6. Composite into the surface texture at the exact (not tick) time.
 //! 7. Draw the text overlay (with the no-audio hint after 10 s of
 //!    silence).
@@ -753,7 +754,6 @@ impl RenderThread {
             let audio = self
                 .analyzer
                 .tick(&self.hist, audio_time, av_offset, period);
-            gs.renderer.set_spectrum(&gs.gpu, &audio.spectrum);
             self.director.update(self.tick_time, audio, &gs.loader);
             // A switch just started: record it before its first tick runs.
             if self.marked.as_deref() != Some(self.director.shown()) {

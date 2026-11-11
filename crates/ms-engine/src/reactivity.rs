@@ -122,6 +122,16 @@ impl Reactivity {
         }
         o
     }
+
+    /// The frame the last [`apply`](Self::apply) of `a` gave, without
+    /// computing it again: `a` itself at level 1.
+    pub fn applied<'a>(&'a self, a: &'a AudioFrame) -> &'a AudioFrame {
+        if self.k == 1.0 {
+            a
+        } else {
+            &self.out
+        }
+    }
 }
 
 /// `scaled` held to `floor..=max(ceiling, unscaled)`; non-finite gives the

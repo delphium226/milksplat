@@ -1507,3 +1507,50 @@ fn sim_rate_follows_the_current_preset() {
     assert_eq!(ticks, 30);
     assert_eq!(clock.rate(), 30.0);
 }
+
+/// Each preset ticks at its own reactivity level (times the global one),
+/// also during a blend; a preset with no level gets 1.
+#[test]
+fn each_preset_ticks_at_its_own_reactivity() {
+    let (_fx, lib) = fixture(&[
+        ("a.splat", &good("a")),
+        ("b.splat", &good("b")),
+        ("c.splat", &good("c")),
+    ]);
+    let mut rig = make_rig(manual_cfg(), lib, Prefs::default());
+    let levels = [("a.splat".to_string(), 2.0), ("b.splat".to_string(), 0.5)]
+        .into_iter()
+        .collect();
+    rig.director.set_reactivity(levels, 1.0);
+    assert_eq!(rig.director.reactivity_of("a.splat"), 2.0);
+    assert_eq!(rig.director.reactivity_of("c.splat"), 1.0);
+    let mut g = Globals::default();
+    let audio = AudioFrame::default();
+    let base = TickInputBase {
+        fps: 60.0,
+        audio: &audio,
+        aspect: [1.0, 1.0],
+        pixels: [64, 64],
+    };
+    let mut tick = |rig: &mut Rig, now: f64| {
+        rig.update(now);
+        rig.director
+            .tick_and_render(now, &base, &mut g, &mut rig.renderer, &rig.gpu);
+        rig.director.reactivity_in_use()
+    };
+    assert_eq!(tick(&mut rig, 0.0), (1.0, None));
+    rig.director.command(Command::Load("a.splat".into()));
+    rig.wait_showing(1.0, "a.splat");
+    // Blending from the default (1x) to `a` (2x).
+    assert_eq!(tick(&mut rig, 1.0), (1.0, Some(2.0)));
+    assert_eq!(tick(&mut rig, 4.0), (2.0, None));
+    rig.director.command(Command::Load("b.splat".into()));
+    rig.wait_showing(5.0, "b.splat");
+    assert_eq!(tick(&mut rig, 5.0), (2.0, Some(0.5)));
+    // A new level applies from the next tick; the global one multiplies
+    // and the product is clamped.
+    let levels = [("a.splat".to_string(), 2.5)].into_iter().collect();
+    rig.director.set_reactivity(levels, 2.0);
+    assert_eq!(tick(&mut rig, 5.1), (2.5, Some(2.0)));
+    assert!(rig.gpu.poll_wait().is_ok());
+}

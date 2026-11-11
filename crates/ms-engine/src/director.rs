@@ -60,7 +60,7 @@
 mod active;
 mod switching;
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
 use ms_analysis::AudioFrame;
@@ -73,6 +73,7 @@ use ms_render::{
 use crate::blend::{composite_layers, render_blend, BlendPattern, BlendScratch};
 use crate::env::Globals;
 use crate::loader::Loader;
+use crate::reactivity::effective_reactivity;
 use active::{compile_default, Active, Blend, Loaded, Shaders};
 use switching::{Goal, Hist, Pending, Queued};
 
@@ -223,6 +224,10 @@ pub struct Director {
     load_hook: Option<LoadHook>,
     /// The hook was last told `Some(id)`.
     load_notified: bool,
+    /// Per-preset reactivity levels by id (absent: 1), and the global
+    /// multiplier; see [`set_reactivity`](Self::set_reactivity).
+    reactivity: HashMap<String, f32>,
+    global_reactivity: f32,
 }
 
 type LoadHook = Box<dyn FnMut(Option<&str>) + Send>;
@@ -290,6 +295,8 @@ impl Director {
             ones: Vec::new(),
             load_hook: None,
             load_notified: false,
+            reactivity: HashMap::new(),
+            global_reactivity: 1.0,
         };
         d.cur.duration = d.display_time();
         d
@@ -492,8 +499,11 @@ impl Director {
     /// both presets and runs `render_blend` and the larger blur level. Each
     /// preset's `time` counts from when it became current. Does not block.
     ///
-    /// The app still sends the spectrum (`Renderer::set_spectrum`) and
-    /// handles resizes itself.
+    /// Each preset sees the tick's audio scaled by its own reactivity
+    /// ([`set_reactivity`](Self::set_reactivity)). The spectrum texture
+    /// (`Renderer::set_spectrum`) is uploaded here, scaled for the preset
+    /// on screen (during a blend, the incoming one: both presets' shaders
+    /// share the one texture). The app handles resizes itself.
     pub fn tick_and_render(
         &mut self,
         now: f64,
@@ -510,8 +520,12 @@ impl Director {
         if renderer.format() != plan.feedback_format {
             renderer.set_format(gpu, plan.feedback_format);
         }
+        let cur_k = self.reactivity_of(&self.cur.id);
+        let to_k = self.blend.as_ref().map(|b| self.reactivity_of(&b.to.id));
         match &mut self.blend {
             None => {
+                let audio = self.cur.prepare_audio(base.audio, cur_k);
+                renderer.set_spectrum(gpu, &audio.spectrum);
                 let (out, shaders) = self.cur.tick(now, base, globals);
                 let Some(shaders) = shaders.compiled() else {
                     return;
@@ -534,6 +548,11 @@ impl Director {
             }
             Some(b) => {
                 let p = b.progress(now);
+                self.cur.prepare_audio(base.audio, cur_k);
+                // One spectrum texture serves both presets' shaders: the
+                // incoming (shown) preset's.
+                let audio = b.to.prepare_audio(base.audio, to_k.unwrap_or(1.0));
+                renderer.set_spectrum(gpu, &audio.spectrum);
                 let from = self.cur.tick(now, base, globals);
                 let to = b.to.tick(now, base, globals);
                 let (Some(from_set), Some(to_set)) = (from.1.compiled(), to.1.compiled()) else {
@@ -738,6 +757,31 @@ impl Director {
             p.req = None;
             p.parked = false;
         }
+    }
+
+    /// Sets the per-preset reactivity levels (by id; a preset without one
+    /// gets 1) and the global multiplier. Each tick, a preset's audio is
+    /// scaled by [`reactivity_of`](Self::reactivity_of) its id, so a
+    /// change applies from the next tick, also to the presets on screen.
+    pub fn set_reactivity(&mut self, levels: HashMap<String, f32>, global: f32) {
+        self.reactivity = levels;
+        self.global_reactivity = global;
+    }
+
+    /// The effective reactivity of preset `id`: its level times the
+    /// global one, clamped (see `effective_reactivity`).
+    pub fn reactivity_of(&self, id: &str) -> f32 {
+        let level = self.reactivity.get(id).copied().unwrap_or(1.0);
+        effective_reactivity(level, self.global_reactivity)
+    }
+
+    /// The reactivity the last tick used: the current preset's and, during
+    /// a blend, the incoming one's.
+    pub fn reactivity_in_use(&self) -> (f32, Option<f32>) {
+        (
+            self.cur.reactivity.level(),
+            self.blend.as_ref().map(|b| b.to.reactivity.level()),
+        )
     }
 
     /// Caps the mesh of presets that become current from now on (the

@@ -3,6 +3,8 @@
 
 use std::sync::Arc;
 
+use ms_analysis::AudioFrame;
+
 use ms_preset::CompiledPreset;
 use ms_render::{
     FeedbackFormat, PresetPicks, RendererShared, ShaderSet, ShaderSources, TextureResolver,
@@ -13,6 +15,7 @@ use super::TickInputBase;
 use crate::blend::BlendPattern;
 use crate::env::{Globals, TickInput};
 use crate::loader::{feedback_format, PICKS_SALT};
+use crate::reactivity::Reactivity;
 use crate::tick::{PresetInstance, TickOutput};
 
 /// A preset's shaders: compiled on the current device, or, after
@@ -102,6 +105,9 @@ pub(super) struct Active {
     pub(super) frames: u64,
     /// The uniforms of its latest tick, for the display-rate composite.
     pub(super) uniforms: Uniforms,
+    /// Its reactivity, and the audio scaled by it (see
+    /// [`prepare_audio`](Self::prepare_audio)).
+    pub(super) reactivity: Reactivity,
 }
 
 impl Active {
@@ -116,6 +122,7 @@ impl Active {
             duration,
             frames: 0,
             uniforms: Uniforms::default(),
+            reactivity: Reactivity::new(1.0),
         }
     }
 
@@ -123,7 +130,19 @@ impl Active {
         (now - self.since).max(0.0)
     }
 
-    /// Ticks the instance; returns its output and shaders.
+    /// Scales the tick's audio by reactivity `level` for the next
+    /// [`tick`](Self::tick); returns the scaled frame.
+    pub(super) fn prepare_audio<'a>(
+        &'a mut self,
+        audio: &'a AudioFrame,
+        level: f32,
+    ) -> &'a AudioFrame {
+        self.reactivity.set(level);
+        self.reactivity.apply(audio)
+    }
+
+    /// Ticks the instance on the audio [`prepare_audio`](Self::prepare_audio)
+    /// scaled; returns its output and shaders.
     pub(super) fn tick(
         &mut self,
         now: f64,
@@ -141,7 +160,7 @@ impl Active {
             fps: base.fps,
             frame: self.frames,
             progress,
-            audio: base.audio,
+            audio: self.reactivity.applied(base.audio),
             aspect: base.aspect,
             pixels: base.pixels,
         };
