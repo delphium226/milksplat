@@ -57,8 +57,8 @@ device, so just start your music and run it.
 | **Saturn's Rings**: a view across hundreds of glowing ringlets, the Cassini Division, density waves, drifting spokes and shepherd moons, beside the planet's dim crescent | **Fourier Epicycles**: a chain of ten spinning circles draws a glowing heart, star, rose or knot, the coefficients gliding from one figure to the next |
 | ![Double Helix](docs/images/double-helix.png) | ![Quantum Tunnel](docs/images/quantum-tunnel.png) |
 | **Double Helix**: a ray-marched strand of DNA turning and receding into blue fog, its cyan and violet backbones bridged by base pairs in four colours, among drifting motes and bokeh | **Quantum Tunnel**: exact Gaussian wave packets in four lanes hit potential barriers, part reflecting in rippling interference and part tunnelling through, phase as rainbow hue and probability as glow |
-| ![Kuramoto Fireflies](docs/images/kuramoto-fireflies.png) | |
-| **Kuramoto Fireflies**: hundreds of fireflies in a moonlit clearing, each nudging its rhythm toward its neighbours', so patches fall into step, drift apart and sync again, the total light held steady | |
+| ![Kuramoto Fireflies](docs/images/kuramoto-fireflies.png) | ![Voronoi Crystals](docs/images/voronoi-crystals.png) |
+| **Kuramoto Fireflies**: hundreds of fireflies in a moonlit clearing, each nudging its rhythm toward its neighbours', so patches fall into step, drift apart and sync again, the total light held steady | **Voronoi Crystals**: a polycrystal recrystallising under a polarising microscope, new grains nucleating and growing into a Johnson-Mehl tessellation of glowing boundaries and iridescent striations, then coarsening |
 
 These are single frames; every preset moves and changes with the music.
 

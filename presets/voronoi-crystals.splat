@@ -1,0 +1,188 @@
+# Voronoi Crystals: a polycrystal recrystallising, seen as through a
+# polarising microscope. Seeds of new crystal nucleate one after another
+# in the old structure and grow outward at the same speed, each a grain
+# in its own vivid interference colour, crossed by fine iridescent
+# striations along its crystal axis. Where two growing grains meet they
+# stop, and the boundary between them glows: the result is a Johnson-Mehl
+# tessellation, a Voronoi diagram bent into hyperbolas by the different
+# starting times. The growth fronts shine as they sweep across the old
+# grains. Once the new crystal fills the field it coarsens: the grains
+# with more stored advantage push their boundaries out and small grains
+# shrink away and vanish. Then the next generation nucleates inside it.
+#
+# Everything is in the composite. Each generation has one seed per cell
+# of a grid (7.5 cells down the screen), hashed from the cell and the
+# generation: its place, its nucleation time, its weight, its axis and
+# its colour. A point belongs to the grain whose front reaches it first
+# (arrival time t_i + |x - s_i| / v, less the grain's weight once it is
+# coarsening), searched over the 5 x 5 cells round it, for the growing
+# generation and the one it is consuming. The gap between the best and
+# second best arrival gives the distance to the boundary, and the arrival
+# time against the clock the distance to the front, so every line has
+# the same width at any size. Striations fade out before they are too
+# fine for the pixels.
+#
+# The clock is accumulated: a generation lasts about 30 s, less with
+# heavy bass. Mids turn the interference colours (accumulated). Bass
+# brightens the boundaries (smoothed). Each kick flares the growth fronts,
+# eased.
+version = 1
+
+[meta]
+name = "Voronoi Crystals"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+gn = 7; tau = 0.3; hu = 0;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+sm = sm + (min(mid_att, 2.5) - sm) * 0.03;
+bt = max(bt * 0.94, beat);
+be = be + (bt - be) * 0.05;
+// The generation's clock: 0 to 1 in about 30 s, quicker with the bass.
+tau = tau + (1 + 0.4 * min(sb, 2) / 2) / 1800;
+if(tau >= 1, tau = tau - 1; gn = gn + 1; gn = gn - 1024 * floor(gn / 1024), 0);
+hu = hu + (0.004 + 0.012 * min(sm, 2) / 2) / 60;
+hu = hu - floor(hu);
+q1 = gn; q2 = tau; q3 = hu; q4 = be;
+q5 = sb;
+'''
+
+[shader]
+comp = '''
+let sz = u.texsize.xy;
+let asp = sz.x / sz.y;
+let lw = max(1.0, sz.y / 540.0);
+// Glows scale with the picture, lines keep at least a pixel.
+let gs = sz.y / 540.0;
+let gn = u.q[0].x;
+let tau = u.q[0].y;
+let hu = u.q[0].z;
+let be = min(u.q[0].w, 1.0);
+let sb = min(u.q[1].x, 2.0) * 0.5;
+// The plane in cells, 7.5 down the screen.
+let nc = 7.5;
+let p = vec2f(uv.x * asp, uv.y) * nc + vec2f(37.0, 11.0);
+let cpx = sz.y / nc;
+let ip = floor(p);
+let vv = 3.2;
+// Per generation (new, then old): the best and second arrival and the
+// seeds they come from, the best grain's hash, and the earliest raw
+// arrival. The old generation only where the new has not yet reached.
+var nb1 = 1e9;
+var nb2 = 1e9;
+var ns1 = vec2f(0.0);
+var ns2 = vec2f(0.0);
+var nid = 0u;
+var nraw = 1e9;
+var ob1 = 1e9;
+var ob2 = 1e9;
+var os1 = vec2f(0.0);
+var os2 = vec2f(0.0);
+var oid = 0u;
+for (var g = 0; g < 2; g++) {
+    if (g == 1 && nraw <= tau) {
+        break;
+    }
+    let gg = u32(gn - f32(g) + 1024.0) & 1023u;
+    let age = tau + f32(g);
+    let wc = clamp(age - 0.6, 0.0, 0.6);
+    var b1 = 1e9;
+    var b2 = 1e9;
+    var s1 = vec2f(0.0);
+    var s2 = vec2f(0.0);
+    var id = 0u;
+    var raw = 1e9;
+    for (var k = 0; k < 25; k++) {
+        let c = ip + vec2f(f32(k % 5) - 2.0, f32(k / 5) - 2.0);
+        let h0 = (u32(c.x) * 1973u + u32(c.y) * 9277u + gg * 26699u) * 747796405u + 2891336453u;
+        let h = ((h0 >> ((h0 >> 28u) + 4u)) ^ h0) * 277803737u;
+        let hx = f32(h & 1023u) / 1023.0;
+        let hy = f32((h >> 10u) & 1023u) / 1023.0;
+        let ht = f32((h >> 20u) & 255u) / 255.0;
+        let hw = f32((h >> 28u) & 15u) / 15.0;
+        let s = c + vec2f(0.1) + vec2f(hx, hy) * 0.8;
+        let a = 0.3 * ht * sqrt(ht) + length(p - s) / vv;
+        let ap = a - wc * (2.0 * hw - 1.0) / vv;
+        raw = min(raw, a);
+        if (ap < b1) {
+            b2 = b1;
+            s2 = s1;
+            b1 = ap;
+            s1 = s;
+            id = h;
+        } else if (ap < b2) {
+            b2 = ap;
+            s2 = s;
+        }
+    }
+    if (g == 0) {
+        nb1 = b1;
+        nb2 = b2;
+        ns1 = s1;
+        ns2 = s2;
+        nid = id;
+        nraw = raw;
+    } else {
+        ob1 = b1;
+        ob2 = b2;
+        os1 = s1;
+        os2 = s2;
+        oid = id;
+    }
+}
+// The new generation where its fronts have reached, else the old one.
+let isnew = nraw <= tau;
+let b1 = select(ob1, nb1, isnew);
+let b2 = select(ob2, nb2, isnew);
+let s1 = select(os1, ns1, isnew);
+let s2 = select(os2, ns2, isnew);
+let id = select(oid, nid, isnew);
+let age = select(tau + 1.0, tau, isnew);
+// The grain: its axis and its birefringence (its interference colour).
+let h2 = id * 2654435761u + 12345u;
+let ho = f32((h2 >> 8u) & 1023u) / 1023.0 * 3.14159265;
+let hc = f32((h2 >> 20u) & 1023u) / 1023.0;
+// Distance to the boundary, in cells: the arrival gap over its gradient
+// (so a vanished grain's near-tie along a ray leaves no ghost line).
+let gu = normalize(p - s2 + vec2f(1e-5)) - normalize(p - s1 + vec2f(1e-5));
+let bc = (b2 - b1) * vv / max(length(gu), 0.05);
+let bd = bc * cpx / lw;
+// Striations along the axis, faded out before they get too fine.
+let dir = vec2f(cos(ho), sin(ho));
+let sp = dot(p, dir) * 7.0;
+let sa = smoothstep(3.0, 6.0, cpx / 7.0);
+let stri = sin(6.2831853 * sp) * sa;
+let band = sin(6.2831853 * sp * 0.31 + hc * 19.0);
+// Interference colours (a Michel-Levy series): the retardation runs
+// through the first and second orders with the grain, its striations and
+// a slow drift.
+let rd = 0.28 + 1.0 * hc + 0.01 * stri + 0.05 * band + 0.12 * sin(6.2831853 * hu + hc * 9.0) + 0.06 * smoothstep(0.6, 0.0, bc);
+let ph = 3.14159265 * rd / vec3f(0.62, 0.53, 0.45);
+let pal = sin(ph) * sin(ph);
+// The old structure is a little dimmer.
+let sty = select(mix(1.0, 0.6, smoothstep(1.0, 1.4, age)), 1.0, isnew);
+var col = vec3f(0.01, 0.01, 0.022) + pal * (0.17 + 0.06 * stri + 0.08 * smoothstep(0.5, 0.0, bc)) * sty;
+// The glowing boundaries.
+let line = exp(-bd * bd / 1.3);
+let halo = exp(-bd * lw / (7.0 * gs)) * 0.3;
+col += mix(vec3f(0.8, 0.92, 1.0), pal, 0.4) * (line * 1.2 + halo) * (0.75 + 0.4 * sb) * sty;
+// The growth fronts.
+let fd = (nraw - tau) * vv * cpx / lw;
+let fl = exp(-fd * fd / 2.0);
+let fg = exp(-abs(fd) * lw / (7.0 * gs)) * 0.3;
+col += vec3f(1.0, 0.85, 0.55) * (fl * 1.2 + fg) * (1.0 + 0.4 * be);
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.2, vec3f(0.0));
+return col / (1.0 + 0.4 * col);
+'''
