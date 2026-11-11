@@ -1,0 +1,260 @@
+# Fourier Epicycles: a closed curve drawn by a chain of turning circles.
+# Any closed curve is a sum of circular motions, z(t) = sum c_f e^(i f t),
+# so ten arms of lengths |c_f|, each spinning f times a turn on the tip of
+# the one before, carry a pen round a heart, a five-cusped star, a
+# four-petal rose, a trefoil, a pentagram knot, five interlaced loops, an
+# epitrochoid or a figure eight. The circles and arms are faint, the pen
+# a bright point, and the curve it leaves glows in colours that run along
+# its length and fades behind it. Every so often the coefficients glide
+# to those of the next figure, and the pen draws the shape morphing.
+#
+# The frame code holds the coefficient table (in megabuf, frequencies 1,
+# -1, 2, -2, ... 5, -5) and blends the current figure into the next with
+# a smoothstep; q1-q20 carry the ten blended coefficients, q21-q22 the
+# figure's centre offset, q23 the pen's angle (accumulated) and q24 this
+# tick's step. The warp shader keeps the trail in the fp16 feedback
+# buffer: each tick it fades it a little and draws the pen's path since
+# the last tick as four short segments, keeping the brighter of the two
+# (so a slow pen does not pile up light). On the first tick it draws one
+# whole turn, already faded along its length. The composite adds the
+# trail's glow, the faint circles, arms and joints, and the pen.
+#
+# Bass speeds the pen (an accumulated phase) and brightens the ink. Mids
+# drift the colours. Treble twinkles the joints. Each kick flares the pen
+# and the circles, eased.
+version = 1
+
+[meta]
+name = "Fourier Epicycles"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+feedback_format = "fp16"
+decay = 1.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+b1n = 0.0
+b1x = 3.0
+b2n = 0.0
+b2x = 3.0
+b3n = 0.0
+b3x = 3.0
+
+[code]
+init = '''
+// The figures: ten complex coefficients (re, im) for the frequencies
+// 1, -1, 2, -2, 3, -3, 4, -4, 5, -5, then the centre offset; 22 per figure.
+// 0: heart
+megabuf(1) = 0.0225; megabuf(3) = 0.5624; megabuf(5) = -0.1125; megabuf(7) = -0.1125; megabuf(9) = 0.0450; megabuf(11) = -0.1350; megabuf(13) = -0.0225; megabuf(15) = -0.0225; megabuf(21) = 0.1142;
+// 1: five-cusped star
+megabuf(23) = 0.6081; megabuf(37) = 0.1520; megabuf(43) = -0.0726;
+// 2: four-petal rose
+megabuf(46) = 0.4100; megabuf(52) = 0.4100;
+// 3: trefoil
+megabuf(69) = 0.2507; megabuf(71) = -0.5014; megabuf(87) = 0.1175;
+// 4: pentagram knot
+megabuf(93) = 0.4752; megabuf(99) = 0.2851; megabuf(109) = -0.0724;
+// 5: five loops
+megabuf(116) = 0.2910; megabuf(118) = 0.5290;
+// 6: epitrochoid
+megabuf(132) = 0.6308; megabuf(148) = 0.1892;
+// 7: figure eight
+megabuf(155) = -0.4100; megabuf(157) = 0.4100; megabuf(158) = 0.2050; megabuf(160) = -0.2050;
+cur = 0; nx = 0; mo = 0; mp = 0; ht = 6;
+th = 0; hu = 0; fc = 0;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.04;
+sm = sm + (min(mid_att, 2.5) - sm) * 0.03;
+st = st + (min(treb_att, 2.5) - st) * 0.12;
+bt = max(bt * 0.94, beat);
+be = be + (bt - be) * 0.1;
+// The pen's angle (accumulated, wrapped), quicker with the bass: a turn
+// in about 7 s, or 5 s with heavy bass.
+dth = 6.2831853 * (0.14 + 0.06 * min(sb, 2) / 2) / 60;
+th = th + dth;
+th = th - 6.2831853 * floor(th / 6.2831853);
+// Every 12 s or so, glide over 5 s to another figure.
+ht = ht + 1 / 60;
+if(mo < 0.5 && ht > 12,
+  nx = cur + 1 + floor(rand(7));
+  nx = nx - 8 * floor(nx / 8);
+  mo = 1; mp = 0,
+  0);
+if(mo > 0.5,
+  mp = mp + 1 / 300;
+  if(mp >= 1, cur = nx; mo = 0; mp = 0; ht = 0, 0),
+  0);
+w = mp * mp * (3 - 2 * mp);
+j = 0;
+loop(22,
+  megabuf(200 + j) = megabuf(cur * 22 + j) * (1 - w) + megabuf(nx * 22 + j) * w;
+  j = j + 1
+);
+q1 = megabuf(200); q2 = megabuf(201); q3 = megabuf(202); q4 = megabuf(203);
+q5 = megabuf(204); q6 = megabuf(205); q7 = megabuf(206); q8 = megabuf(207);
+q9 = megabuf(208); q10 = megabuf(209); q11 = megabuf(210); q12 = megabuf(211);
+q13 = megabuf(212); q14 = megabuf(213); q15 = megabuf(214); q16 = megabuf(215);
+q17 = megabuf(216); q18 = megabuf(217); q19 = megabuf(218); q20 = megabuf(219);
+q21 = megabuf(220); q22 = megabuf(221);
+q23 = th; q24 = dth;
+// The colours drift (accumulated, quicker with the mids).
+hu = hu + (0.008 + 0.02 * min(sm, 2) / 2) / 60;
+hu = hu - floor(hu);
+q25 = hu; q26 = sb; q27 = be;
+fc = min(fc + 1, 10);
+q28 = fc < 2;
+q29 = st;
+'''
+
+[shader]
+warp = '''
+let sz = u.texsize.xy;
+let asp = sz.x / sz.y;
+// The plane: 1.8 units down the screen, y up.
+let sc = 1.8;
+let p = vec2f((uv_orig.x - 0.5) * asp, 0.5 - uv_orig.y) * sc;
+let px = sc / sz.y;
+let lw = max(1.0, sz.y / 540.0);
+let mx = vec2i(sz) - vec2i(1);
+let prev = textureLoad(sampler_main, clamp(vec2i(uv_orig * sz), vec2i(0), mx), 0).rgb;
+var cf: array<vec2f, 10>;
+cf[0] = u.q[0].xy;
+cf[1] = u.q[0].zw;
+cf[2] = u.q[1].xy;
+cf[3] = u.q[1].zw;
+cf[4] = u.q[2].xy;
+cf[5] = u.q[2].zw;
+cf[6] = u.q[3].xy;
+cf[7] = u.q[3].zw;
+cf[8] = u.q[4].xy;
+cf[9] = u.q[4].zw;
+let off = u.q[5].xy;
+let th = u.q[5].z;
+let dth = u.q[5].w;
+let hu = u.q[6].x;
+let sb = min(u.q[6].y, 2.0) * 0.5;
+let first = u.q[6].w > 0.5;
+// One whole turn on the first tick, else the path since the last tick.
+let n = select(4, 160, first);
+let span = select(dth, 6.2831853, first);
+var best = 0.0;
+var bh = 0.0;
+var a = vec2f(0.0);
+for (var k = 0; k <= n; k++) {
+    let t = th - span * (1.0 - f32(k) / f32(n));
+    // e^(i f t) for f = 1..5 by repeated multiplication.
+    let e1 = vec2f(cos(t), sin(t));
+    var e = e1;
+    var z = off;
+    for (var f = 0; f < 5; f++) {
+        let cp = cf[2 * f];
+        let cm = cf[2 * f + 1];
+        // c+ e + c- conj(e)
+        z += vec2f(cp.x * e.x - cp.y * e.y, cp.x * e.y + cp.y * e.x);
+        z += vec2f(cm.x * e.x + cm.y * e.y, cm.y * e.x - cm.x * e.y);
+        e = vec2f(e.x * e1.x - e.y * e1.y, e.x * e1.y + e.y * e1.x);
+    }
+    if (k > 0) {
+        let ab = z - a;
+        let h = clamp(dot(p - a, ab) / max(dot(ab, ab), 1e-12), 0.0, 1.0);
+        let d = length(p - a - ab * h) / px;
+        // Older parts of the first turn are already faded.
+        let age = (1.0 - (f32(k) - 1.0 + h) / f32(n)) * span / max(dth, 1e-6);
+        let v = exp(-d * d / (3.0 * lw * lw)) * select(1.0, pow(0.997, age), first);
+        if (v > best) {
+            best = v;
+            bh = t - span / f32(n) * (1.0 - h);
+        }
+    }
+    a = z;
+}
+// The ink's colour runs round the curve.
+let hh = 6.2831853 * hu + bh;
+let ink = 0.5 + 0.5 * vec3f(cos(hh), cos(hh - 2.094), cos(hh + 2.094));
+let nw = (ink * ink * 1.4 + vec3f(0.25)) * best * (1.5 + 0.6 * sb);
+return max(prev * 0.997, nw);
+'''
+comp = '''
+let sz = u.texsize.xy;
+let asp = sz.x / sz.y;
+let sc = 1.8;
+let p = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y) * sc;
+let px = sc / sz.y;
+let lw = max(1.0, sz.y / 540.0);
+let th = u.q[5].z;
+let hu = u.q[6].x;
+let sb = min(u.q[6].y, 2.0) * 0.5;
+let be = min(u.q[6].z, 1.0);
+let st = max(0.0, min(u.q[7].x, 2.5) - 0.3);
+var cf: array<vec2f, 10>;
+cf[0] = u.q[0].xy;
+cf[1] = u.q[0].zw;
+cf[2] = u.q[1].xy;
+cf[3] = u.q[1].zw;
+cf[4] = u.q[2].xy;
+cf[5] = u.q[2].zw;
+cf[6] = u.q[3].xy;
+cf[7] = u.q[3].zw;
+cf[8] = u.q[4].xy;
+cf[9] = u.q[4].zw;
+let tr = textureSampleLevel(sampler_main, s_fc, uv, 0.0).rgb;
+let b1 = GetBlur1(uv);
+let b2 = GetBlur2(uv);
+let b3 = GetBlur3(uv);
+// The backdrop: deep indigo with faint polar graph paper, washed with
+// the ink's colours from afar.
+let r = length(p);
+var col = vec3f(0.018, 0.026, 0.062) + vec3f(0.035, 0.06, 0.12) * (1.0 - smoothstep(0.0, 1.8, r));
+col += (vec3f(1.0) - exp(-b3 * 3.0)) * 0.5;
+let rg = abs(fract(r * 5.0 + 0.5) - 0.5) / 5.0 / px;
+let an = atan2(p.y, p.x) * 12.0 / 6.2831853;
+let ag = abs(fract(an + 0.5) - 0.5) * 6.2831853 / 12.0 * r / px;
+col += vec3f(0.05, 0.07, 0.16) * (exp(-rg * rg / (0.8 * lw * lw)) + exp(-ag * ag / (0.8 * lw * lw)) * smoothstep(0.05, 0.3, r)) * 0.35;
+// The glow of the ink.
+col += (vec3f(1.0) - exp(-b2 * 1.5)) * (0.45 + 0.15 * be);
+col += (vec3f(1.0) - exp(-b1 * 1.2)) * 0.35;
+// The circles and arms.
+var c = u.q[5].xy;
+let e1 = vec2f(cos(th), sin(th));
+var e = e1;
+var circ = 0.0;
+var arm = 0.0;
+var jt = 0.0;
+for (var k = 0; k < 10; k++) {
+    let cc = cf[k];
+    let rr = length(cc);
+    let fe = select(vec2f(e.x, -e.y), e, (k & 1) == 0);
+    let v = vec2f(cc.x * fe.x - cc.y * fe.y, cc.x * fe.y + cc.y * fe.x);
+    let vis = smoothstep(0.004, 0.03, rr);
+    let dr = abs(length(p - c) - rr) / px;
+    circ += exp(-dr * dr / (0.7 * lw * lw)) * vis;
+    let h = clamp(dot(p - c, v) / max(dot(v, v), 1e-12), 0.0, 1.0);
+    let da = length(p - c - v * h) / px;
+    arm += exp(-da * da / (0.9 * lw * lw)) * vis;
+    let dj = length(p - c) / px;
+    jt += exp(-dj * dj / (3.0 * lw * lw)) * vis;
+    c += v;
+    if ((k & 1) == 1) {
+        e = vec2f(e.x * e1.x - e.y * e1.y, e.x * e1.y + e.y * e1.x);
+    }
+}
+let hc = 6.2831853 * hu + 3.6;
+let ccol = 0.5 + 0.5 * vec3f(cos(hc), cos(hc - 2.094), cos(hc + 2.094));
+col += mix(vec3f(0.35, 0.45, 1.0), ccol, 0.4) * min(circ, 1.5) * (0.45 + 0.25 * be);
+col += vec3f(0.75, 0.8, 1.0) * min(arm, 1.5) * (0.4 + 0.2 * be);
+col += vec3f(1.0, 0.9, 0.75) * min(jt, 2.0) * (0.6 + 0.4 * min(st, 1.0) * (0.5 + 0.5 * sin(u.time * 9.0)));
+// The pen.
+let dp = length(p - c) / px;
+let hp = 6.2831853 * hu + th;
+let pc = 0.5 + 0.5 * vec3f(cos(hp), cos(hp - 2.094), cos(hp + 2.094));
+col += (vec3f(1.0) * exp(-dp * dp / (6.0 * lw * lw)) * 2.0 + mix(pc, vec3f(1.0), 0.3) * exp(-dp / (10.0 * lw)) * 0.6) * (1.0 + 0.8 * be);
+// The ink itself.
+col = col * (1.0 - 0.5 * min(tr, vec3f(1.0))) + (vec3f(1.0) - exp(-tr * 1.2)) * 1.1;
+let lc = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lc) + (col - vec3f(lc)) * 1.2, vec3f(0.0));
+return col / (1.0 + 0.3 * col);
+'''

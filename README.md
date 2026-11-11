@@ -53,8 +53,8 @@ device, so just start your music and run it.
 | **Newton Fractal**: the basins of Newton's method as dark jewels, their fractal borders glowing in beaded lace around five wandering star-roots | **Wormhole**: a ray-traced Ellis wormhole lensing two universes' stars and nebulae, the camera drifting through its throat and back |
 | ![Ising Model](docs/images/ising-model.png) | ![Abelian Sandpile](docs/images/sandpile.png) |
 | **Ising Model**: a magnet at its critical point, dark spin domains of every size merging and melting behind glowing neon walls | **Abelian Sandpile**: grains poured on the centre topple outward into the sandpile fractal's octagon of nested triangles and patches, in four neon colours |
-| ![Saturn's Rings](docs/images/saturns-rings.png) | |
-| **Saturn's Rings**: a view across hundreds of glowing ringlets, the Cassini Division, density waves, drifting spokes and shepherd moons, beside the planet's dim crescent | |
+| ![Saturn's Rings](docs/images/saturns-rings.png) | ![Fourier Epicycles](docs/images/fourier-epicycles.png) |
+| **Saturn's Rings**: a view across hundreds of glowing ringlets, the Cassini Division, density waves, drifting spokes and shepherd moons, beside the planet's dim crescent | **Fourier Epicycles**: a chain of ten spinning circles draws a glowing heart, star, rose or knot, the coefficients gliding from one figure to the next |
 
 These are single frames; every preset moves and changes with the music.
 
