@@ -1,0 +1,162 @@
+# Ising Model: a magnet at its critical point. A lattice of tiny
+# magnetic spins, each pointing up or down, each wanting to agree with its
+# four neighbours while the heat keeps knocking them over. Near the
+# critical temperature, 2.269 in units of the coupling, the two pulls
+# balance: domains of every size form, merge, break up and dissolve, and
+# the picture is a fractal of islands within lakes within islands. The
+# domains are dark, deep sapphire for up and wine for down, and the walls
+# between them glow neon.
+#
+# The lattice lives in the fp16 feedback buffer, about 135 cells high
+# whatever the size of the buffer (each cell a square block of whole
+# texels; every texel of a block computes the same update from the
+# block's first texel, so the cells stay exact, and the lattice wraps
+# round at the edges). Each tick the warp shader runs one half sweep of
+# checkerboard Metropolis: the cells of one colour of the checkerboard
+# each propose to flip, and flip if that lowers the energy, or else with
+# probability exp(-dE / T). The other channels keep a smoothed copy of
+# each spin and of how many of its neighbours disagree with it. It starts
+# from smooth noise, so there are domains from the first tick.
+#
+# The composite draws the walls from the smoothed spins: within each
+# cell it interpolates the four nearest cells' values and draws the
+# level 0.5 as a line of the same width at any size, with a softer glow
+# around it, coloured by a slow drifting hue field. A spin only moves a
+# wall after it has held for a few ticks, so the thermal flicker is
+# filtered, and the walls move at most a fraction of a cell a tick: the
+# total amount of wall, and so the brightness, can only change slowly.
+#
+# The temperature drifts slowly about the critical point (accumulated),
+# and the bass raises it a little (smoothed): hotter, the domains melt
+# into fine froth; cooler, they coarsen into big lakes. Mids drift the
+# wall colours faster. Each kick brightens the walls, eased.
+version = 1
+
+[meta]
+name = "Ising Model"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+feedback_format = "fp16"
+decay = 1.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+tp = 0; hu = 0; fc = 0;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.02;
+sm = sm + (min(mid_att, 2.5) - sm) * 0.03;
+bt = max(bt * 0.94, beat);
+be = be + (bt - be) * 0.06;
+// The temperature: a slow drift about the critical point (period 70 s),
+// and a little hotter with the bass.
+tp = tp + 6.2831853 / 70 / 60;
+tp = tp - 6.2831853 * floor(tp / 6.2831853);
+q1 = 2.269 * (0.97 + 0.045 * sin(tp) + 0.05 * min(sb, 2) / 2);
+// The wall hue drift (accumulated, quicker with the mids).
+hu = hu + (0.004 + 0.012 * min(sm, 2) / 2) / 60;
+hu = hu - floor(hu);
+q2 = hu; q3 = be; q4 = sb;
+// The first ticks seed the lattice.
+fc = min(fc + 1, 10);
+q5 = fc < 3;
+'''
+
+[shader]
+warp = '''
+let sz = u.texsize.xy;
+// Cells of whole texels, about 135 down the buffer.
+let cs = max(1.0, floor(sz.y / 135.0 + 0.5));
+let nc = floor(sz / cs);
+let tx = floor(uv_orig * sz);
+let c = floor(tx / cs) - nc * floor(floor(tx / cs) / nc);
+let mx = vec2i(sz) - vec2i(1);
+// A cell's state is its first texel.
+let here = textureLoad(sampler_main, min(vec2i(c * cs), mx), 0).rgb;
+if (u.q[1].x > 0.5) {
+    // Start from smooth noise: domains from the first tick.
+    let nz = textureSampleLevel(sampler_noise_lq, s_fw, c / nc.y * 0.35 + vec2f(0.31, 0.17), 0.0).r;
+    let s0 = select(0.0, 1.0, nz > 0.5);
+    return vec3f(s0, s0, 0.0);
+}
+let cl = c - vec2f(1.0, 0.0) + select(vec2f(0.0), vec2f(nc.x, 0.0), c.x < 0.5);
+let cr = c + vec2f(1.0, 0.0) - select(vec2f(0.0), vec2f(nc.x, 0.0), c.x > nc.x - 1.5);
+let cu = c - vec2f(0.0, 1.0) + select(vec2f(0.0), vec2f(0.0, nc.y), c.y < 0.5);
+let cd = c + vec2f(0.0, 1.0) - select(vec2f(0.0), vec2f(0.0, nc.y), c.y > nc.y - 1.5);
+let sl = step(0.5, textureLoad(sampler_main, min(vec2i(cl * cs), mx), 0).r);
+let sr = step(0.5, textureLoad(sampler_main, min(vec2i(cr * cs), mx), 0).r);
+let su = step(0.5, textureLoad(sampler_main, min(vec2i(cu * cs), mx), 0).r);
+let sd = step(0.5, textureLoad(sampler_main, min(vec2i(cd * cs), mx), 0).r);
+var sp = step(0.5, here.r);
+// Checkerboard Metropolis: this tick, the cells of one colour.
+let par = (u32(c.x) + u32(c.y) + u32(u.frame)) & 1u;
+if (par == 0u) {
+    let s = 2.0 * sp - 1.0;
+    let nsum = 2.0 * (sl + sr + su + sd) - 4.0;
+    let de = 2.0 * s * nsum;
+    let st0 = (u32(c.x) * 1973u + u32(c.y) * 9277u + u32(u.frame) * 26699u + u32(u.rand_frame.x * 65536.0)) * 747796405u + 2891336453u;
+    let wd = ((st0 >> ((st0 >> 28u) + 4u)) ^ st0) * 277803737u;
+    let hh = f32((wd >> 22u) ^ wd) / 4294967296.0;
+    if (de <= 0.0 || hh < exp(-de / u.q[0].x)) {
+        sp = 1.0 - sp;
+    }
+}
+// Smoothed spin, and smoothed share of disagreeing neighbours.
+let wall = (abs(sp - sl) + abs(sp - sr) + abs(sp - su) + abs(sp - sd)) * 0.25;
+return vec3f(sp, mix(here.g, sp, 0.22), mix(here.b, wall, 0.08));
+'''
+comp = '''
+let sz = u.texsize.xy;
+let asp = sz.x / sz.y;
+let hu = u.q[0].y;
+let be = min(u.q[0].z, 1.0);
+let sb = min(u.q[0].w, 2.0) * 0.5;
+let cs = max(1.0, floor(sz.y / 135.0 + 0.5));
+let nc = floor(sz / cs);
+let mx = vec2i(sz) - vec2i(1);
+// The pixel in cell units, measured from cell centres.
+let pc = uv * sz / cs - vec2f(0.5);
+let c0 = floor(pc);
+let fr = pc - c0;
+let ca = c0 - nc * floor(c0 / nc);
+let cb = ca + vec2f(1.0) - nc * floor((ca + vec2f(1.0)) / nc);
+let v00 = textureLoad(sampler_main, min(vec2i(vec2f(ca.x, ca.y) * cs), mx), 0).g;
+let v10 = textureLoad(sampler_main, min(vec2i(vec2f(cb.x, ca.y) * cs), mx), 0).g;
+let v01 = textureLoad(sampler_main, min(vec2i(vec2f(ca.x, cb.y) * cs), mx), 0).g;
+let v11 = textureLoad(sampler_main, min(vec2i(vec2f(cb.x, cb.y) * cs), mx), 0).g;
+let w00 = textureLoad(sampler_main, min(vec2i(vec2f(ca.x, ca.y) * cs), mx), 0).b;
+let w11 = textureLoad(sampler_main, min(vec2i(vec2f(cb.x, cb.y) * cs), mx), 0).b;
+// Bilinear spin field and its gradient (per cell).
+let f = mix(mix(v00, v10, fr.x), mix(v01, v11, fr.x), fr.y);
+let gx = mix(v10 - v00, v11 - v01, fr.y);
+let gy = mix(v01 - v00, v11 - v10, fr.x);
+let gl = max(length(vec2f(gx, gy)), 0.05);
+// Distance to the wall (level 0.5) in pixels of the buffer.
+let dpx = abs(f - 0.5) / gl * cs;
+let lw = max(1.0, sz.y / 540.0);
+let line = exp(-dpx * dpx / (0.9 * lw * lw));
+let glow = exp(-dpx / (3.5 * lw)) * 0.35 + exp(-dpx / (14.0 * lw)) * 0.1;
+// The domains: dark sapphire (up) and wine (down), a little lighter
+// where the spins are restless.
+let p = vec2f((uv.x - 0.5) * asp, uv.y - 0.5);
+let up = vec3f(0.02, 0.05, 0.16);
+let dn = vec3f(0.13, 0.02, 0.08);
+let rest = (w00 + w11) * 0.5;
+var col = mix(dn, up, f) * (1.0 + 1.2 * rest);
+// The wall colour: a slowly drifting hue field.
+let hn = textureSampleLevel(sampler_noise_lq, s_fw, p * 0.25 + vec2f(0.13, 0.71), 0.0).r;
+let hh = 6.2831853 * (hu + hn * 0.8);
+let wc = 0.55 + 0.45 * vec3f(cos(hh), cos(hh - 2.094), cos(hh + 2.094));
+let wcol = mix(wc, vec3f(0.3, 0.95, 1.0), 0.3);
+col += wcol * (line * 1.3 + glow) * (0.9 + 0.35 * be + 0.2 * sb);
+col += vec3f(1.0) * line * line * 0.25;
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.15, vec3f(0.0));
+return col / (1.0 + 0.45 * col);
+'''
