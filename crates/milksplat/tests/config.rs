@@ -1,6 +1,6 @@
 //! The config file (spec §9.3): defaults on first run, a bad file renamed
 //! aside, one bad field keeping the rest, unknown keys, atomic saves, the
-//! debounced saver and the per-device A/V offset.
+//! debounced saver, the per-device A/V offset and the reactivity levels.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 use milksplat::config::{
     load_config, load_config_checked, save_config, Config, ConfigStore, Quality, WindowState,
-    AV_OFFSET_MAX_MS, AV_OFFSET_MIN_MS,
+    AV_OFFSET_MAX_MS, AV_OFFSET_MIN_MS, REACTIVITY_MAX, REACTIVITY_MIN,
 };
 
 /// A fresh temp directory, removed on drop.
@@ -171,6 +171,12 @@ fn everything_set() -> Config {
             monitor: Some(r"\\.\DISPLAY2".into()),
         },
         fullscreen_monitor: Some(r"\\.\DISPLAY1".into()),
+        reactivity: 0.75,
+        preset_reactivity: [
+            ("a.splat".to_string(), 1.5),
+            ("dir/b c.splat".to_string(), 0.25),
+        ]
+        .into(),
     }
 }
 
@@ -284,4 +290,63 @@ fn unreadable_unmovable_config_is_not_overwritten() {
     let ok = dir.0.join("ok.toml");
     std::fs::write(&ok, "blend_s = 1.0\n").unwrap();
     assert!(load_config_checked(&ok).persist);
+}
+
+/// The reactivity settings: the global multiplier is clamped to
+/// 0..=2.5, per-preset levels to 0.25..=2.5; 1x entries are dropped and a
+/// bad entry is ignored with a warning.
+#[test]
+fn reactivity_values_checked() {
+    let dir = tempdir();
+    let path = dir.0.join("config.toml");
+    std::fs::write(
+        &path,
+        "reactivity = 9.0\n[preset_reactivity]\n\"a.splat\" = 1.5\n\"b.splat\" = 9\n\
+         \"c.splat\" = 0.1\n\"d.splat\" = 1.0\n\"e.splat\" = \"x\"\n\"f.splat\" = 2\n",
+    )
+    .unwrap();
+    let (c, warnings) = load_config(&path);
+    assert_eq!(c.reactivity, REACTIVITY_MAX);
+    let want: BTreeMap<String, f64> = [
+        ("a.splat".to_string(), 1.5),
+        ("b.splat".to_string(), REACTIVITY_MAX),
+        ("c.splat".to_string(), REACTIVITY_MIN),
+        ("f.splat".to_string(), 2.0),
+    ]
+    .into();
+    assert_eq!(c.preset_reactivity, want);
+    // reactivity, b, c and e.
+    assert_eq!(warnings.len(), 4, "{warnings:?}");
+
+    for bad in ["-1.0", "nan", "\"loud\""] {
+        std::fs::write(&path, format!("reactivity = {bad}\n")).unwrap();
+        let (c, warnings) = load_config(&path);
+        assert_eq!(c.reactivity, 1.0, "{bad}");
+        assert_eq!(warnings.len(), 1, "{bad}: {warnings:?}");
+    }
+}
+
+/// Setting a preset's level stores it; setting 1x removes the entry, so
+/// the saved config never holds 1.0 levels.
+#[test]
+fn preset_reactivity_set_and_reset() {
+    let mut c = Config::default();
+    assert_eq!(c.preset_reactivity("a.splat"), 1.0);
+    c.set_preset_reactivity("a.splat", 1.75);
+    assert_eq!(c.preset_reactivity("a.splat"), 1.75);
+    c.set_preset_reactivity("a.splat", 1.0);
+    assert!(c.preset_reactivity.is_empty());
+    assert_eq!(c.preset_reactivity("a.splat"), 1.0);
+
+    let dir = tempdir();
+    let path = dir.0.join("config.toml");
+    c.set_preset_reactivity("b.splat", 0.5);
+    save_config(&path, &c).unwrap();
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert!(text.contains("\"b.splat\" = 0.5"), "{text}");
+    c.set_preset_reactivity("b.splat", 1.0);
+    save_config(&path, &c).unwrap();
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert!(!text.contains("b.splat"), "{text}");
+    assert_eq!(load_config(&path).0, c);
 }

@@ -34,6 +34,10 @@ pub const BLUETOOTH_AV_OFFSET_MS: i32 = 200;
 /// The smallest and largest window side restored from the config.
 const WINDOW_MIN: [u32; 2] = [160, 120];
 const WINDOW_MAX: u32 = 16_384;
+/// The per-preset reactivity range (Up/Down arrows), and the most the
+/// global multiplier (`reactivity`) may be.
+pub const REACTIVITY_MIN: f64 = ms_engine::REACTIVITY_MIN as f64;
+pub const REACTIVITY_MAX: f64 = ms_engine::REACTIVITY_MAX as f64;
 /// The saver writes at most this often.
 pub const SAVE_INTERVAL: Duration = Duration::from_secs(1);
 /// How long finishing the saver waits for its last write.
@@ -135,8 +139,15 @@ pub struct Config {
     /// The monitor to go fullscreen on, by name; `None` is the window's.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fullscreen_monitor: Option<String>,
+    /// The global reactivity multiplier (config only, no hotkey): every
+    /// preset's level is multiplied by it.
+    pub reactivity: f64,
     /// A/V offset per device name, in milliseconds.
     pub av_offsets_ms: BTreeMap<String, i32>,
+    /// Reactivity level per preset id (Up/Down arrows); a preset without
+    /// an entry is at 1x, and 1x levels are never stored.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub preset_reactivity: BTreeMap<String, f64>,
     pub window: WindowState,
 }
 
@@ -155,6 +166,8 @@ impl Default for Config {
             blocklist: BTreeSet::new(),
             window: WindowState::default(),
             fullscreen_monitor: None,
+            reactivity: 1.0,
+            preset_reactivity: BTreeMap::new(),
         }
     }
 }
@@ -167,6 +180,32 @@ impl Config {
             Some(&ms) => ms.clamp(AV_OFFSET_MIN_MS, AV_OFFSET_MAX_MS),
             None if bluetooth => BLUETOOTH_AV_OFFSET_MS,
             None => 0,
+        }
+    }
+
+    /// Preset `id`'s reactivity level: 1 unless one is stored.
+    pub fn preset_reactivity(&self, id: &str) -> f64 {
+        self.preset_reactivity.get(id).copied().unwrap_or(1.0)
+    }
+
+    /// Moves preset `id`'s reactivity level by `steps` quarter steps
+    /// (clamped to `REACTIVITY_MIN..=REACTIVITY_MAX`) and stores it;
+    /// returns the new level.
+    pub fn step_preset_reactivity(&mut self, id: &str, steps: i32) -> f64 {
+        let level = f64::from(ms_engine::step_reactivity(
+            self.preset_reactivity(id) as f32,
+            steps,
+        ));
+        self.set_preset_reactivity(id, level);
+        level
+    }
+
+    /// Stores preset `id`'s reactivity level; 1x removes its entry.
+    pub fn set_preset_reactivity(&mut self, id: &str, level: f64) {
+        if level == 1.0 {
+            self.preset_reactivity.remove(id);
+        } else {
+            self.preset_reactivity.insert(id.to_string(), level);
         }
     }
 }
@@ -285,7 +324,18 @@ fn from_table(t: &Table, warnings: &mut Vec<String>) -> Config {
             "fullscreen_monitor" => r.set(key, value, &mut c.fullscreen_monitor, |s: String| {
                 Ok(Some(s).filter(|s| !s.is_empty()))
             }),
+            "reactivity" => {
+                r.set(key, value, &mut c.reactivity, non_negative);
+                if c.reactivity > REACTIVITY_MAX {
+                    r.warn(format!(
+                        "config: reactivity: {} is above {REACTIVITY_MAX}; using {REACTIVITY_MAX}",
+                        c.reactivity
+                    ));
+                    c.reactivity = REACTIVITY_MAX;
+                }
+            }
             "av_offsets_ms" => c.av_offsets_ms = r.av_offsets(value),
+            "preset_reactivity" => c.preset_reactivity = r.preset_reactivity(value),
             "window" => c.window = r.window(value),
             _ => r.warn(format!("config: unknown key {key:?} ignored")),
         }
@@ -358,6 +408,39 @@ impl Reader<'_> {
                 None => self.warn(format!(
                     "config: av_offsets_ms.{device:?}: not a whole number of milliseconds; ignored"
                 )),
+            }
+        }
+        out
+    }
+
+    /// Levels clamped to `REACTIVITY_MIN..=REACTIVITY_MAX` (with a
+    /// warning); 1x entries dropped; a non-number ignored with a warning.
+    fn preset_reactivity(&mut self, value: &Value) -> BTreeMap<String, f64> {
+        let mut out = BTreeMap::new();
+        let Some(t) = value.as_table() else {
+            self.warn("config: preset_reactivity is not a table; ignored".into());
+            return out;
+        };
+        for (id, v) in t {
+            let level = match v {
+                Value::Float(f) if f.is_finite() => *f,
+                Value::Integer(i) => *i as f64,
+                _ => {
+                    self.warn(format!(
+                        "config: preset_reactivity.{id:?}: not a finite number; ignored"
+                    ));
+                    continue;
+                }
+            };
+            let clamped = level.clamp(REACTIVITY_MIN, REACTIVITY_MAX);
+            if clamped != level {
+                self.warn(format!(
+                    "config: preset_reactivity.{id:?}: {level} is outside \
+                     {REACTIVITY_MIN}..={REACTIVITY_MAX}; using {clamped}"
+                ));
+            }
+            if clamped != 1.0 {
+                out.insert(id.clone(), clamped);
             }
         }
         out
