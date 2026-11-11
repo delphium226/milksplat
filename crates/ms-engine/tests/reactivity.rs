@@ -129,8 +129,10 @@ fn turning_up_keeps_the_order_of_values() {
     let mut r = Reactivity::new(REACTIVITY_MAX);
     let mut last = -1.0f32;
     for i in 0..2000 {
-        let mut a = AudioFrame::default();
-        a.bass = i as f32 * 0.01;
+        let a = AudioFrame {
+            bass: i as f32 * 0.01,
+            ..AudioFrame::default()
+        };
         let v = r.apply(&a).bass;
         assert!(v >= last, "bass {} -> {v} after {last}", a.bass);
         last = v;

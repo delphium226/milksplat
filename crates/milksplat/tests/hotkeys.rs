@@ -34,8 +34,16 @@ fn every_table_row_maps() {
         (ch("m"), none(), Action::NextMonitor),
         (Key::Named(NamedKey::Escape), none(), Action::EscapeKey),
         (Key::Named(NamedKey::ArrowUp), none(), Action::Reactivity(1)),
-        (Key::Named(NamedKey::ArrowDown), none(), Action::Reactivity(-1)),
-        (Key::Named(NamedKey::Backspace), none(), Action::ResetReactivity),
+        (
+            Key::Named(NamedKey::ArrowDown),
+            none(),
+            Action::Reactivity(-1),
+        ),
+        (
+            Key::Named(NamedKey::Backspace),
+            none(),
+            Action::ResetReactivity,
+        ),
     ];
     for (key, mods, want) in rows {
         assert_eq!(map_key(&key, mods), Some(want), "{key:?} with {mods:?}");
