@@ -1,0 +1,273 @@
+# Kuramoto Fireflies: a forest clearing on a summer night, full of
+# fireflies. Each blinks on its own rhythm, a little faster or slower than
+# its neighbours, but each also nudges its own clock toward the flashes it
+# sees around it. That is the Kuramoto model, and with enough coupling it
+# synchronises: patches of the meadow start blinking together, the
+# patches merge, and slow waves of light sweep across them; then the
+# coupling slackens, the noise of the night pulls them apart into a
+# random twinkle, and later they fall into step again.
+#
+# The clearing is about 580 cells (32 x 18), most holding a firefly that
+# wanders slowly about its cell. Their clocks live in the fp16 feedback
+# buffer, one texel each, stored as a point on the unit circle (so the
+# coupling sin(theta_j - theta_i) is a cross product). Each tick the warp
+# shader turns each clock by its own natural frequency plus the coupling
+# from its living neighbours within two cells, plus a little noise. One
+# more column of texels sums the flashes row by row, one texel the mean
+# flash brightness of the whole swarm, and the
+# composite scales every flash down when that mean rises past a cap, so
+# the screen as a whole never pulses when the swarm syncs: the total light
+# stays nearly constant and only where it is changes. Each flash is a
+# soft raised-cosine swell over about a second, with a small halo.
+#
+# The composite draws the clearing (moonlit sky with a few faint stars,
+# two rows of dark firs, a misty meadow) and adds each firefly from the
+# 3 x 3 cells round the pixel.
+#
+# The coupling drifts slowly over a 50 s cycle (accumulated). Bass makes
+# the fireflies blink a little faster (a rate, so it accumulates in their
+# clocks), and the beat strengthens the coupling a little. Mids drift the
+# mist, and the bass (slowly smoothed) brightens it a little and quickens
+# the fireflies' wandering. Treble
+# brightens the stars a touch.
+version = 1
+
+[meta]
+name = "Kuramoto Fireflies"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+feedback_format = "fp16"
+decay = 1.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+kc = 0; wd = 0; ms = 0;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.02;
+sm = sm + (min(mid_att, 2.5) - sm) * 0.03;
+st = st + (min(treb_att, 2.5) - st) * 0.05;
+bt = max(bt * 0.95, beat);
+be = be + (bt - be) * 0.05;
+// The coupling cycle (50 s): strong enough to sync for part of it.
+kc = kc + 6.2831853 / 50 / 60;
+kc = kc - 6.2831853 * floor(kc / 6.2831853);
+q1 = 0.42 * (0.2 + 0.8 * (0.5 + 0.5 * sin(kc))) * (1 + 0.15 * min(be, 1));
+// The natural frequency (rad/s): a blink every 2.4 s, a little quicker
+// with the bass.
+q2 = 6.2831853 / 2.4 * (1 + 0.08 * min(sb, 2) / 2);
+// The fireflies' wandering (accumulated, livelier with the bass).
+wd = wd + (1 + 0.8 * min(sb, 2) / 2) / 60;
+wd = wd - 628.31853 * floor(wd / 628.31853);
+q3 = wd;
+// The mist drift (accumulated, quicker with the mids).
+ms = ms + (0.006 + 0.01 * min(sm, 2) / 2) / 60;
+ms = ms - 64 * floor(ms / 64);
+q4 = ms;
+q5 = st; q6 = sb;
+'''
+
+[shader]
+warp = '''
+let sz = u.texsize.xy;
+let tx = vec2i(uv_orig * sz);
+let nx = 32;
+let ny = 18;
+let sent = textureLoad(sampler_main, vec2i(nx, 0), 0).rgb;
+let ok = sent.r > 0.5;
+if (tx.x < nx && tx.y < ny) {
+    let h0 = (u32(tx.x) * 1973u + u32(tx.y) * 9277u + 101u) * 747796405u + 2891336453u;
+    let h1 = ((h0 >> ((h0 >> 28u) + 4u)) ^ h0) * 277803737u;
+    let hf = f32((h1 >> 22u) ^ h1) / 4294967296.0;
+    if (!ok) {
+        // A random clock to start.
+        let a0 = 6.2831853 * fract(hf * 7.13 + u.rand_preset.x);
+        return vec3f(0.5 + 0.5 * cos(a0), 0.5 + 0.5 * sin(a0), 0.0);
+    }
+    let me0 = textureLoad(sampler_main, tx, 0).rg * 2.0 - vec2f(1.0);
+    let me = me0 / max(length(me0), 1e-4);
+    // Coupling to the living neighbours within two cells.
+    var cp = 0.0;
+    var cn = 0.0;
+    for (var dj = -2; dj <= 2; dj++) {
+        for (var di = -2; di <= 2; di++) {
+            let c = tx + vec2i(di, dj);
+            if ((di != 0 || dj != 0) && c.x >= 0 && c.y >= 0 && c.x < nx && c.y < ny) {
+                let g0 = (u32(c.x) * 1973u + u32(c.y) * 9277u + 101u) * 747796405u + 2891336453u;
+                let g1 = ((g0 >> ((g0 >> 28u) + 4u)) ^ g0) * 277803737u;
+                let gf = f32((g1 >> 22u) ^ g1) / 4294967296.0;
+                let dens = mix(0.25, 0.85, smoothstep(0.15, 0.6, (f32(c.y) + 0.5) / f32(ny)));
+                if (fract(gf * 3.71) < dens) {
+                    let v = textureLoad(sampler_main, c, 0).rg * 2.0 - vec2f(1.0);
+                    let w = 1.0 / (1.0 + 0.5 * f32(di * di + dj * dj));
+                    cp += (v.y * me.x - v.x * me.y) * w;
+                    cn += w;
+                }
+            }
+        }
+    }
+    // Own natural frequency: patches of the meadow run up to 7% fast or
+    // slow (so the swarm syncs in clusters, never as one), each firefly
+    // within 3% of its patch. Then the coupling, and noise.
+    let fi = f32(tx.x);
+    let fj = f32(tx.y);
+    let pt = sin(0.45 * fi + 2.0 * sin(0.3 * fj)) * cos(0.35 * fj + 0.7 + 0.8 * sin(0.2 * fi));
+    let om = u.q[0].y * (1.0 + 0.07 * pt + 0.06 * (fract(hf * 13.7) - 0.5));
+    let n0 = (u32(tx.x) * 1013u + u32(tx.y) * 7919u + u32(u.frame) * 26699u + u32(u.rand_frame.x * 65536.0)) * 747796405u + 2891336453u;
+    let n1 = ((n0 >> ((n0 >> 28u) + 4u)) ^ n0) * 277803737u;
+    let nz = f32((n1 >> 22u) ^ n1) / 4294967296.0 - 0.5;
+    let da = (om + u.q[0].x * cp / max(cn, 1.0)) / 60.0 + nz * 0.07;
+    let cr = cos(da);
+    let sr = sin(da);
+    let nw = vec2f(me.x * cr - me.y * sr, me.x * sr + me.y * cr);
+    return vec3f(0.5 + 0.5 * nw.x, 0.5 + 0.5 * nw.y, 0.0);
+}
+if (tx.x == nx + 1 && tx.y < ny) {
+    // Each row's total flash brightness and its number of fireflies.
+    var sum = 0.0;
+    var cnt = 0.0;
+    let j = tx.y;
+    for (var i = 0; i < nx; i++) {
+        let g0 = (u32(i) * 1973u + u32(j) * 9277u + 101u) * 747796405u + 2891336453u;
+        let g1 = ((g0 >> ((g0 >> 28u) + 4u)) ^ g0) * 277803737u;
+        let gf = f32((g1 >> 22u) ^ g1) / 4294967296.0;
+        let dens = mix(0.25, 0.85, smoothstep(0.15, 0.6, (f32(j) + 0.5) / f32(ny)));
+        if (fract(gf * 3.71) < dens) {
+            let v = textureLoad(sampler_main, vec2i(i, j), 0).rg * 2.0 - vec2f(1.0);
+            let ph = atan2(v.y, v.x);
+            let bw = clamp(abs(ph) / 1.3, 0.0, 1.0);
+            sum += 0.5 + 0.5 * cos(3.14159265 * bw);
+            cnt += 1.0;
+        }
+    }
+    return vec3f(sum / 64.0, cnt / 64.0, 0.0);
+}
+if (tx.x == nx && tx.y == 0) {
+    // The swarm's mean flash brightness (from the row totals), and a slow
+    // copy of it.
+    var sum = 0.0;
+    var cnt = 0.0;
+    for (var j = 0; j < ny; j++) {
+        let rs = textureLoad(sampler_main, vec2i(nx + 1, j), 0).rg;
+        sum += rs.x;
+        cnt += rs.y;
+    }
+    let m = select(0.21, sum / max(cnt, 0.01), ok && cnt > 0.5);
+    return vec3f(1.0, m, select(0.21, mix(sent.b, m, 0.01), ok));
+}
+return vec3f(0.0);
+'''
+comp = '''
+let sz = u.texsize.xy;
+let asp = sz.x / sz.y;
+let lw = max(1.0, sz.y / 540.0);
+let wd = u.q[0].z;
+let ms = u.q[0].w;
+let st = max(0.0, min(u.q[1].x, 2.5) - 0.3);
+let sb = min(u.q[1].y, 2.0) * 0.5;
+let nx = 32;
+let ny = 18;
+let sent = textureLoad(sampler_main, vec2i(nx, 0), 0).rgb;
+let mm = select(0.21, sent.g, sent.r > 0.5);
+let mslow = select(0.21, sent.b, sent.r > 0.5);
+// Hold the swarm's total light steady: when more of them flash at once
+// every flash dims, when fewer, every flash brightens (within limits).
+let gain = clamp(0.21 / max(mm, 0.001), 0.45, 1.6);
+let x = uv.x * asp;
+let y = uv.y;
+let ppx = 1.0 / sz.y;
+// The sky: indigo above, teal toward the treetops.
+var col = mix(vec3f(0.035, 0.058, 0.15), vec3f(0.09, 0.2, 0.26), smoothstep(0.0, 0.5, y));
+// The moon, with a wide halo.
+let dm = length(vec2f(x - asp * 0.8, y - 0.15));
+col += vec3f(0.75, 0.85, 0.9) * smoothstep(0.034 + ppx * lw, 0.034 - ppx * lw, dm) * 0.9;
+col += vec3f(0.25, 0.4, 0.5) * exp(-dm / 0.12) * 0.55 + vec3f(0.1, 0.2, 0.25) * exp(-dm / 0.4) * 0.4;
+// A few faint stars (wide enough not to shimmer).
+let sq = vec2f(x, y) * 34.0;
+let sc = floor(sq);
+let sh = fract(sin(vec2f(dot(sc, vec2f(127.1, 311.7)), dot(sc, vec2f(269.5, 183.3)))) * 43758.5453);
+let sd = length(sq - sc - vec2f(0.2) - sh * 0.6) / 34.0 / ppx / lw;
+col += vec3f(0.7, 0.8, 1.0) * exp(-sd * sd / 1.6) * step(0.88, sh.x) * (0.3 + 0.1 * min(st, 1.0)) * smoothstep(0.5, 0.15, y);
+// Two rows of firs: a far row in the haze, a near row, taller toward
+// the edges of the clearing.
+for (var row = 0; row < 2; row++) {
+    let fr = f32(row);
+    let cw = 0.05 + 0.03 * fr;
+    let base = 0.47 + 0.08 * fr;
+    let cx0 = floor(x / cw);
+    var inside = 0.0;
+    for (var k = -2; k <= 2; k++) {
+        let c = cx0 + f32(k);
+        let th = fract(sin(c * 91.7 + fr * 13.1) * 43758.5453);
+        let tx = (c + 0.3 + 0.4 * fract(th * 7.7)) * cw;
+        let ed = smoothstep(0.35, 0.0, min(tx / asp, 1.0 - tx / asp));
+        let ht = (0.1 + 0.12 * th) * (1.0 + fr * (0.3 + 2.6 * ed));
+        let top = base - ht;
+        // A fir: a narrow triangle with ragged tiers of branches.
+        let dyt = y - top;
+        let tier = 0.75 + 0.25 * fract(dyt / (0.025 + 0.01 * fr) + th);
+        let hw = dyt * (0.26 + 0.05 * fr) * tier;
+        let e = (hw - abs(x - tx)) / ppx / lw;
+        inside = max(inside, smoothstep(-0.8, 0.8, e) * step(0.0, dyt));
+    }
+    // The trunks reach down into the meadow.
+    inside = max(inside, smoothstep(base - 0.01, base + 0.01, y) * step(y, 0.62 + 0.05 * fr) * (1.0 - fr));
+    let tc = select(vec3f(0.006, 0.012, 0.018), vec3f(0.035, 0.07, 0.09), row == 0);
+    col = mix(col, tc, inside);
+}
+// The meadow, with a band of mist drifting over it.
+let gy = smoothstep(0.6, 0.66, y);
+let gn = textureSampleLevel(sampler_noise_lq, s_fw, vec2f(x * 2.0, y * 0.5) * 1.3, 0.0).r;
+col = mix(col, vec3f(0.012, 0.03, 0.02) * (0.7 + 0.6 * gn), gy);
+let mn = textureSampleLevel(sampler_noise_lq, s_fw, vec2f(x * 0.35 + ms, y * 1.4 - ms * 0.3), 0.0).r;
+let mband = exp(-(y - 0.6) * (y - 0.6) / 0.006) * (0.55 + 0.6 * mn);
+col += vec3f(0.09, 0.19, 0.19) * mband * (1.0 + 0.6 * mslow + 0.5 * sb) + vec3f(0.04, 0.075, 0.055) * gy * (0.6 + 0.4 * mn);
+// The fireflies, from the 3 x 3 cells round the pixel.
+let cpos = uv * vec2f(f32(nx), f32(ny));
+let cpx = sz / vec2f(f32(nx), f32(ny));
+let c0 = vec2i(floor(cpos));
+let rh = min(cpx.x, cpx.y) * 0.95;
+var ff = vec3f(0.0);
+for (var j = -1; j <= 1; j++) {
+    for (var i = -1; i <= 1; i++) {
+        let c = c0 + vec2i(i, j);
+        if (c.x >= 0 && c.y >= 0 && c.x < nx && c.y < ny) {
+            let g0 = (u32(c.x) * 1973u + u32(c.y) * 9277u + 101u) * 747796405u + 2891336453u;
+            let g1 = ((g0 >> ((g0 >> 28u) + 4u)) ^ g0) * 277803737u;
+            let gf = f32((g1 >> 22u) ^ g1) / 4294967296.0;
+            let dens = mix(0.25, 0.85, smoothstep(0.15, 0.6, (f32(c.y) + 0.5) / f32(ny)));
+            if (fract(gf * 3.71) < dens) {
+                let v = textureLoad(sampler_main, c, 0).rg * 2.0 - vec2f(1.0);
+                let ph = atan2(v.y, v.x);
+                let bw = clamp(abs(ph) / 1.3, 0.0, 1.0);
+                let b = (0.5 + 0.5 * cos(3.14159265 * bw)) * gain;
+                // Its place: jittered in the cell, wandering slowly.
+                let j1 = fract(gf * 17.3);
+                let j2 = fract(gf * 29.1);
+                let j3 = fract(gf * 41.9);
+                let wp = vec2f(sin(wd * (0.21 + 0.2 * j1) + j2 * 6.28), cos(wd * (0.17 + 0.2 * j2) + j3 * 6.28)) * 0.17;
+                let fp = vec2f(c) + vec2f(0.5) + (vec2f(j1, j2) - vec2f(0.5)) * 0.56 + wp;
+                let d = (cpos - fp) * cpx;
+                let r2 = dot(d, d);
+                let dep = 0.55 + 0.45 * j3;
+                let rc = 2.4 * lw * dep;
+                let core = exp(-r2 / (rc * rc));
+                let hr = 1.0 - min(r2 / (rh * rh), 1.0);
+                let halo = hr * hr * hr;
+                let hue = vec3f(0.7 + 0.25 * j1, 1.0, 0.25 + 0.15 * j2);
+                ff += hue * (b * (core * 2.2 + halo * 0.16) * dep + core * 0.04);
+            }
+        }
+    }
+}
+col += ff;
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.1, vec3f(0.0));
+return col / (1.0 + 0.35 * col);
+'''
