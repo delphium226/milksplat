@@ -1,0 +1,198 @@
+# Quantum Tunnel: an electron's wave packet meeting a wall it cannot
+# climb, four times over in four stacked lanes. Each packet is a glowing
+# ribbon, its width the wavefunction's magnitude |psi| and its brightness
+# the probability |psi|^2, its colour the phase of psi, so rainbow bands
+# race through it as it travels; a thin line traces the real part
+# rippling inside. It runs into a potential barrier (the glass slab in the
+# middle of the lane), and quantum mechanics splits it: part bounces back,
+# its returning waves interfering with the incoming ones in fine ripples,
+# and part tunnels through the slab, fading exponentially inside it, and
+# carries on beyond, even when its energy is below the barrier's top.
+# Each lane then fades and starts again with a new energy and a new
+# barrier height and width.
+#
+# The solution is exact (with hbar = m = 1): the packet is a Gaussian
+# superposition of 28 plane waves, and each one's stationary state for a
+# square barrier is known in closed form (reflection r and transmission t
+# from matching psi and psi' at both walls, sines and cosines inside the
+# barrier above its top, hyperbolic ones below), each turning at its own
+# frequency E = k^2 / 2. The composite sums them per pixel, along with
+# psi' for even line widths. The frame code runs each lane's clock and
+# picks the next lane's energy and barrier on a restart.
+#
+# Bass hastens the clocks (accumulated). Mids drift the colours. Kicks
+# brighten the ribbons' edges, eased. Treble glints on the barriers.
+version = 1
+
+[meta]
+name = "Quantum Tunnel"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+// Each lane: clock, wavenumber, barrier height, barrier width.
+// Staggered starts, so the screen is never empty.
+t0 = 6.5; t1 = 2.5; t2 = 9.0; t3 = 4.5;
+k0 = 2.7; k1 = 2.4; k2 = 2.9; k3 = 2.5;
+v0 = 4.0; v1 = 2.6; v2 = 4.6; v3 = 3.6;
+a0 = 0.7; a1 = 0.5; a2 = 0.9; a3 = 0.6;
+hu = 0;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+sm = sm + (min(mid_att, 2.5) - sm) * 0.03;
+st = st + (min(treb_att, 2.5) - st) * 0.1;
+bt = max(bt * 0.94, beat);
+be = be + (bt - be) * 0.08;
+// The clocks: 14 units of time in about 11 s, a little quicker with
+// the bass.
+dt = (1.25 + 0.35 * min(sb, 2) / 2) / 60;
+t0 = t0 + dt; t1 = t1 + dt * 0.93; t2 = t2 + dt * 1.07; t3 = t3 + dt * 0.97;
+// A restart: a new wavenumber (2.2 to 3.0), a barrier from 0.8 to 1.3
+// times the packet's mean energy, 0.4 to 1.0 wide.
+if(t0 > 14, t0 = t0 - 14; k0 = 2.2 + 0.8 * rand(1000) / 1000; v0 = k0 * k0 * 0.5 * (0.8 + 0.5 * rand(1000) / 1000); a0 = 0.4 + 0.6 * rand(1000) / 1000, 0);
+if(t1 > 14, t1 = t1 - 14; k1 = 2.2 + 0.8 * rand(1000) / 1000; v1 = k1 * k1 * 0.5 * (0.8 + 0.5 * rand(1000) / 1000); a1 = 0.4 + 0.6 * rand(1000) / 1000, 0);
+if(t2 > 14, t2 = t2 - 14; k2 = 2.2 + 0.8 * rand(1000) / 1000; v2 = k2 * k2 * 0.5 * (0.8 + 0.5 * rand(1000) / 1000); a2 = 0.4 + 0.6 * rand(1000) / 1000, 0);
+if(t3 > 14, t3 = t3 - 14; k3 = 2.2 + 0.8 * rand(1000) / 1000; v3 = k3 * k3 * 0.5 * (0.8 + 0.5 * rand(1000) / 1000); a3 = 0.4 + 0.6 * rand(1000) / 1000, 0);
+q1 = t0; q2 = k0; q3 = v0; q4 = a0;
+q5 = t1; q6 = k1; q7 = v1; q8 = a1;
+q9 = t2; q10 = k2; q11 = v2; q12 = a2;
+q13 = t3; q14 = k3; q15 = v3; q16 = a3;
+hu = hu + (0.006 + 0.02 * min(sm, 2) / 2) / 60;
+hu = hu - floor(hu);
+q17 = hu; q18 = sb; q19 = be; q20 = st;
+'''
+
+[shader]
+comp = '''
+let sz = u.texsize.xy;
+let hu = u.q[4].x;
+let sb = min(u.q[4].y, 2.0) * 0.5;
+let be = min(u.q[4].z, 1.0);
+let st = max(0.0, min(u.q[4].w, 2.5) - 0.3);
+let lw = max(1.0, sz.y / 540.0);
+// Four lanes, each 40 units wide; y up within the lane, in lane heights.
+let nl = 4.0;
+let li = min(floor(uv.y * nl), nl - 1.0);
+let yy = 0.5 - fract(uv.y * nl);
+let lp = u.q[i32(li)];
+let tt = lp.x;
+let k0 = lp.y;
+let v0 = lp.z;
+let a = lp.w;
+let wd = 40.0;
+let x = (uv.x - 0.5) * wd + a * 0.5;
+let hp = sz.y / nl;
+let xs = sz.x / wd;
+// The packet: 28 plane waves about k0, starting at x0.
+let sx = 2.6;
+let sk = 0.5 / sx;
+let x0 = -14.0;
+var psi = vec2f(0.0);
+var dps = vec2f(0.0);
+var wsum = 0.0;
+for (var j = 0; j < 28; j++) {
+    let kj = k0 + sk * (-3.0 + 6.0 * (f32(j) + 0.5) / 28.0);
+    let dk = kj - k0;
+    let w = exp(-dk * dk / (4.0 * sk * sk));
+    wsum += w;
+    let en = 0.5 * kj * kj;
+    let q2 = kj * kj - 2.0 * v0;
+    // cos(qa) and sin(qa) / q, or cosh and sinh / kappa below the top.
+    var ca = 1.0;
+    var sa = a;
+    var cx = 1.0;
+    var sxq = x;
+    if (q2 > 1e-8) {
+        let qq = sqrt(q2);
+        ca = cos(qq * a);
+        sa = sin(qq * a) / qq;
+        cx = cos(qq * x);
+        sxq = sin(qq * x) / qq;
+    } else if (q2 < -1e-8) {
+        let kp = sqrt(-q2);
+        ca = cosh(kp * a);
+        sa = sinh(kp * a) / kp;
+        cx = cosh(kp * x);
+        sxq = sinh(kp * x) / kp;
+    }
+    // D = ca - i g, r = i n / D, t = e^(-i k a) / D.
+    let g = (kj * kj - v0) * sa / kj;
+    let nr = -v0 * sa / kj;
+    let id = vec2f(ca, g) / (ca * ca + g * g);
+    let r = vec2f(-nr * id.y, nr * id.x);
+    var p = vec2f(0.0);
+    var dp = vec2f(0.0);
+    if (x < 0.0) {
+        let e = vec2f(cos(kj * x), sin(kj * x));
+        let re = vec2f(r.x * e.x + r.y * e.y, r.y * e.x - r.x * e.y);
+        p = e + re;
+        let df = e - re;
+        dp = vec2f(-kj * df.y, kj * df.x);
+    } else if (x > a) {
+        let e = vec2f(cos(kj * (x - a)), sin(kj * (x - a)));
+        p = vec2f(e.x * id.x - e.y * id.y, e.x * id.y + e.y * id.x);
+        dp = vec2f(-kj * p.y, kj * p.x);
+    } else {
+        // (1 + r) cos(qx) + i k (1 - r) sin(qx) / q
+        let ap = vec2f(1.0 + r.x, r.y);
+        let am = vec2f(1.0 - r.x, -r.y);
+        p = ap * cx + vec2f(-am.y, am.x) * kj * sxq;
+        dp = ap * (-q2 * sxq) + vec2f(-am.y, am.x) * kj * cx;
+    }
+    let ph = -(kj * x0 + en * tt);
+    let wp = vec2f(cos(ph), sin(ph)) * w;
+    psi += vec2f(p.x * wp.x - p.y * wp.y, p.x * wp.y + p.y * wp.x);
+    dps += vec2f(dp.x * wp.x - dp.y * wp.y, dp.x * wp.y + dp.y * wp.x);
+}
+psi /= wsum;
+dps /= wsum;
+// Fade in at the start of the run and out at its end.
+let fd = smoothstep(0.0, 1.2, tt) * smoothstep(14.0, 11.0, tt);
+psi *= fd;
+dps *= fd;
+let amp = length(psi);
+let damp = dot(psi, dps) / max(amp, 1e-5);
+let hs = 0.36;
+// The backdrop: deep violet-blue, a faint axis and lane borders.
+var col = vec3f(0.016, 0.016, 0.045) + vec3f(0.035, 0.03, 0.085) * (1.0 - abs(yy) * 2.0);
+let dax = abs(yy) * hp / lw;
+col += vec3f(0.1, 0.12, 0.3) * exp(-dax * dax / 0.8) * 0.35;
+let dlb = (0.5 - abs(yy)) * hp / lw;
+col += vec3f(0.15, 0.12, 0.35) * exp(-dlb * dlb / 0.8) * 0.4;
+// The barrier: a glass slab, taller for a higher wall, glowing walls.
+let bh = clamp(v0 / (0.5 * k0 * k0), 0.0, 1.5) * 0.3;
+let inb = step(0.0, x) * step(x, a);
+let vb = smoothstep(bh + 0.02, bh - 0.02, abs(yy));
+col += vec3f(0.25, 0.3, 0.6) * inb * vb * 0.3;
+let dwl = min(abs(x), abs(x - a)) * xs / lw;
+col += vec3f(0.5, 0.6, 1.0) * exp(-dwl * dwl / 1.2) * vb * (0.55 + 0.3 * min(st, 1.0) * (0.5 + 0.5 * sin(u.time * 7.0 + li * 2.0)));
+col += vec3f(0.3, 0.35, 0.8) * exp(-dwl / (8.0 * lw)) * vb * 0.15;
+// The ribbon: |psi| wide, |psi|^2 bright, coloured by the phase.
+let pa = atan2(psi.y, psi.x);
+let hh = pa + 6.2831853 * hu;
+let pc = 0.5 + 0.5 * vec3f(cos(hh), cos(hh - 2.094), cos(hh + 2.094));
+let pcs = pc * pc * 1.3 + vec3f(0.06);
+let sl = hs * damp * hp / xs;
+let de = (abs(yy) - hs * amp) * hp / sqrt(1.0 + sl * sl) / lw;
+let inside = smoothstep(0.7, -0.7, de);
+col += pcs * inside * (0.16 + 1.3 * amp * amp);
+let edge = exp(-de * de / 1.4) * smoothstep(0.0, 0.06, amp);
+col += mix(pcs, vec3f(1.0), 0.45) * edge * (0.5 + 1.0 * amp * amp) * (1.0 + 0.6 * be);
+col += pcs * exp(-max(de, 0.0) / 12.0) * amp * amp * 0.6;
+// The real part, a thin line rippling inside.
+let srl = hs * dps.x * hp / xs;
+let dr = (yy - hs * psi.x) * hp / sqrt(1.0 + srl * srl) / lw;
+col += vec3f(0.85, 0.9, 1.0) * exp(-dr * dr / 0.7) * smoothstep(0.0, 0.1, amp) * 0.5;
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.15, vec3f(0.0));
+return col / (1.0 + 0.4 * col);
+'''

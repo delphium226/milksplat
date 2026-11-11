@@ -55,8 +55,8 @@ device, so just start your music and run it.
 | **Ising Model**: a magnet at its critical point, dark spin domains of every size merging and melting behind glowing neon walls | **Abelian Sandpile**: grains poured on the centre topple outward into the sandpile fractal's octagon of nested triangles and patches, in four neon colours |
 | ![Saturn's Rings](docs/images/saturns-rings.png) | ![Fourier Epicycles](docs/images/fourier-epicycles.png) |
 | **Saturn's Rings**: a view across hundreds of glowing ringlets, the Cassini Division, density waves, drifting spokes and shepherd moons, beside the planet's dim crescent | **Fourier Epicycles**: a chain of ten spinning circles draws a glowing heart, star, rose or knot, the coefficients gliding from one figure to the next |
-| ![Double Helix](docs/images/double-helix.png) | |
-| **Double Helix**: a ray-marched strand of DNA turning and receding into blue fog, its cyan and violet backbones bridged by base pairs in four colours, among drifting motes and bokeh | |
+| ![Double Helix](docs/images/double-helix.png) | ![Quantum Tunnel](docs/images/quantum-tunnel.png) |
+| **Double Helix**: a ray-marched strand of DNA turning and receding into blue fog, its cyan and violet backbones bridged by base pairs in four colours, among drifting motes and bokeh | **Quantum Tunnel**: exact Gaussian wave packets in four lanes hit potential barriers, part reflecting in rippling interference and part tunnelling through, phase as rainbow hue and probability as glow |
 
 These are single frames; every preset moves and changes with the music.
 
