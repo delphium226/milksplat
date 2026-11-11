@@ -343,7 +343,11 @@ fn auto_advance_starts_blend() {
         ("b.splat", &good("b")),
         ("c.splat", &good("c")),
     ]);
-    let mut rig = make_rig(cfg(), lib, Prefs::default());
+    let config = DirectorConfig {
+        auto_advance_s: 20.0,
+        ..DirectorConfig::default()
+    };
+    let mut rig = make_rig(config, lib, Prefs::default());
     rig.wait_ready(0.0);
     // 20 s +/- 25% puts the switch in [15, 25); simulate 30 s so the blend
     // that starts last (just before 25 s) also ends.
