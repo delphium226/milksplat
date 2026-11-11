@@ -1,0 +1,250 @@
+# Double Pendulum: three double pendulums hung from one pivot, started a
+# hair apart, swinging in step at first and then visibly peeling away
+# from one another into chaos, their tips drawing long fading neon trails
+# in gold, cyan and magenta.
+#
+# The frame code integrates the real equations of motion of an ideal
+# double pendulum (equal unit masses and arms, g = 9.81) with classical
+# Runge-Kutta, eight fixed steps of 1/600 s per tick (a little slower than
+# life, so the swings read), so the run is deterministic. A gentle
+# thermostat keeps each pendulum's energy within a band of its target,
+# so it never drifts or blows up. The three start from the same angles but
+# for three thousandths of a radian; every 45 seconds the cyan and magenta
+# ones are eased back onto the gold one over two seconds (still that hair
+# apart) and the divergence plays out again.
+#
+# The warp shader fades the feedback slowly and adds each tip's path this
+# tick (two segments, through its half-step position), so the trails are
+# smooth and long. The composite glows the trails, draws the arms as fine
+# lines with bright bobs, and a faint dial behind.
+#
+# Bass raises the target energy a little (smoothed), so the swings grow
+# wilder and flip over the top more often, and brightens the trails. Mids
+# lengthen the trails. Treble twinkles sparks in the trails. Each kick
+# makes the bobs flare, eased.
+version = 1
+
+[meta]
+name = "Double Pendulum"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+feedback_format = "fp16"
+decay = 1.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+b1n = 0.0
+b1x = 1.0
+b2n = 0.0
+b2x = 1.0
+
+[code]
+init = '''
+g = 9.81;
+// Angles from straight down; each pendulum 0.003 radians on.
+k = 0;
+loop(3,
+  megabuf(k * 8) = 2.1 + 0.003 * k; megabuf(k * 8 + 1) = 2.6;
+  megabuf(k * 8 + 2) = 0; megabuf(k * 8 + 3) = 0;
+  k = k + 1
+);
+e0 = -g * (2 * cos(2.1) + cos(2.6));
+cyc = 0; steer = 0;
+// Screen scale per arm length and the pivot.
+sc = 0.215; py0 = 0.04;
+k = 0;
+loop(3,
+  a1 = megabuf(k * 8); a2 = megabuf(k * 8 + 1);
+  megabuf(100 + k * 8) = sc * (sin(a1) + sin(a2));
+  megabuf(101 + k * 8) = py0 - sc * (cos(a1) + cos(a2));
+  k = k + 1
+);
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+sm = sm + (min(mid_att, 2.5) - sm) * 0.03;
+st = st + (min(treb_att, 2.5) - st) * 0.1;
+bt = max(bt * 0.94, beat);
+be = be + (bt - be) * 0.08;
+// Bass raises the target energy (the top of the swing sits at 3g).
+et = e0 + 5 * min(sb, 2) / 2;
+h = 1 / 600;
+k = 0;
+loop(3,
+  a1 = megabuf(k * 8); a2 = megabuf(k * 8 + 1);
+  w1 = megabuf(k * 8 + 2); w2 = megabuf(k * 8 + 3);
+  // The tip before this tick.
+  megabuf(104 + k * 8) = megabuf(100 + k * 8);
+  megabuf(105 + k * 8) = megabuf(101 + k * 8);
+  j = 0;
+  loop(8,
+    // RK4 on (a1, a2, w1, w2), arms and masses 1.
+    d = a1 - a2; cd = cos(d); sd = sin(d); dn = 3 - cos(2 * d);
+    f1a = (-3 * g * sin(a1) - g * sin(a1 - 2 * a2) - 2 * sd * (w2 * w2 + w1 * w1 * cd)) / dn;
+    f2a = 2 * sd * (2 * w1 * w1 + 2 * g * cos(a1) + w2 * w2 * cd) / dn;
+    b1 = a1 + 0.5 * h * w1; b2 = a2 + 0.5 * h * w2; v1 = w1 + 0.5 * h * f1a; v2 = w2 + 0.5 * h * f2a;
+    d = b1 - b2; cd = cos(d); sd = sin(d); dn = 3 - cos(2 * d);
+    f1b = (-3 * g * sin(b1) - g * sin(b1 - 2 * b2) - 2 * sd * (v2 * v2 + v1 * v1 * cd)) / dn;
+    f2b = 2 * sd * (2 * v1 * v1 + 2 * g * cos(b1) + v2 * v2 * cd) / dn;
+    u1 = v1; u2 = v2;
+    b1 = a1 + 0.5 * h * u1; b2 = a2 + 0.5 * h * u2; v1 = w1 + 0.5 * h * f1b; v2 = w2 + 0.5 * h * f2b;
+    d = b1 - b2; cd = cos(d); sd = sin(d); dn = 3 - cos(2 * d);
+    f1c = (-3 * g * sin(b1) - g * sin(b1 - 2 * b2) - 2 * sd * (v2 * v2 + v1 * v1 * cd)) / dn;
+    f2c = 2 * sd * (2 * v1 * v1 + 2 * g * cos(b1) + v2 * v2 * cd) / dn;
+    s1 = v1; s2 = v2;
+    b1 = a1 + h * s1; b2 = a2 + h * s2; v1 = w1 + h * f1c; v2 = w2 + h * f2c;
+    d = b1 - b2; cd = cos(d); sd = sin(d); dn = 3 - cos(2 * d);
+    f1d = (-3 * g * sin(b1) - g * sin(b1 - 2 * b2) - 2 * sd * (v2 * v2 + v1 * v1 * cd)) / dn;
+    f2d = 2 * sd * (2 * v1 * v1 + 2 * g * cos(b1) + v2 * v2 * cd) / dn;
+    a1 = a1 + h / 6 * (w1 + 2 * u1 + 2 * s1 + v1);
+    a2 = a2 + h / 6 * (w2 + 2 * u2 + 2 * s2 + v2);
+    w1 = w1 + h / 6 * (f1a + 2 * f1b + 2 * f1c + f1d);
+    w2 = w2 + h / 6 * (f2a + 2 * f2b + 2 * f2c + f2d);
+    j = j + 1;
+    // The half-step tip, for a smooth trail.
+    if(j == 4,
+      megabuf(106 + k * 8) = sc * (sin(a1) + sin(a2));
+      megabuf(107 + k * 8) = py0 - sc * (cos(a1) + cos(a2)),
+      0)
+  );
+  // The thermostat: outside a band of 0.3 around the target, ease the
+  // kinetic energy back toward it.
+  cd = cos(a1 - a2);
+  ke = w1 * w1 + 0.5 * w2 * w2 + w1 * w2 * cd;
+  er = ke - g * (2 * cos(a1) + cos(a2)) - et;
+  er = sign(er) * max(0, abs(er) - 0.3);
+  s = sqrt(max(ke - er * 0.03, 0.02) / max(ke, 0.0001));
+  w1 = w1 * s; w2 = w2 * s;
+  // Keep the angles small numbers.
+  a1 = a1 - 6.2831853 * floor((a1 + 3.14159265) / 6.2831853);
+  a2 = a2 - 6.2831853 * floor((a2 + 3.14159265) / 6.2831853);
+  megabuf(k * 8) = a1; megabuf(k * 8 + 1) = a2;
+  megabuf(k * 8 + 2) = w1; megabuf(k * 8 + 3) = w2;
+  megabuf(100 + k * 8) = sc * (sin(a1) + sin(a2));
+  megabuf(101 + k * 8) = py0 - sc * (cos(a1) + cos(a2));
+  megabuf(102 + k * 8) = sc * sin(a1);
+  megabuf(103 + k * 8) = py0 - sc * cos(a1);
+  k = k + 1
+);
+// Every 45 s, ease the cyan and magenta pendulums back onto the gold one
+// (three thousandths of a radian apart), so they diverge again.
+cyc = cyc + 1;
+if(cyc > 2700, cyc = 0; steer = 120, 0);
+if(steer > 0,
+  steer = steer - 1;
+  k = 1;
+  loop(2,
+    da = megabuf(0) + 0.003 * k - megabuf(k * 8);
+    da = da - 6.2831853 * floor((da + 3.14159265) / 6.2831853);
+    megabuf(k * 8) = megabuf(k * 8) + da * 0.06;
+    da = megabuf(1) - megabuf(k * 8 + 1);
+    da = da - 6.2831853 * floor((da + 3.14159265) / 6.2831853);
+    megabuf(k * 8 + 1) = megabuf(k * 8 + 1) + da * 0.06;
+    megabuf(k * 8 + 2) = megabuf(k * 8 + 2) + (megabuf(2) - megabuf(k * 8 + 2)) * 0.06;
+    megabuf(k * 8 + 3) = megabuf(k * 8 + 3) + (megabuf(3) - megabuf(k * 8 + 3)) * 0.06;
+    k = k + 1
+  ),
+  0);
+hu = hu + 0.0001;
+hu = hu - floor(hu);
+q1 = megabuf(100); q2 = megabuf(101); q3 = megabuf(106); q4 = megabuf(107);
+q5 = megabuf(104); q6 = megabuf(105); q7 = megabuf(102); q8 = megabuf(103);
+q9 = megabuf(108); q10 = megabuf(109); q11 = megabuf(114); q12 = megabuf(115);
+q13 = megabuf(112); q14 = megabuf(113); q15 = megabuf(110); q16 = megabuf(111);
+q17 = megabuf(116); q18 = megabuf(117); q19 = megabuf(122); q20 = megabuf(123);
+q21 = megabuf(120); q22 = megabuf(121); q23 = megabuf(118); q24 = megabuf(119);
+q25 = sb; q26 = sm; q27 = st; q28 = be;
+q29 = hu; q30 = py0;
+'''
+
+[shader]
+warp = '''
+// The trails: the old image fades (slower with the mids) and each tip
+// adds its path this tick, old position to half step to new.
+let asp = u.texsize.x * u.texsize.w;
+let p = vec2f((uv_orig.x - 0.5) * asp, 0.5 - uv_orig.y);
+let sm = min(u.q[6].y, 2.0) * 0.5;
+let sb = min(u.q[6].x, 2.0) * 0.5;
+var col = textureSampleLevel(sampler_main, s_pc, uv_orig, 0.0).rgb * (0.9935 + 0.0035 * sm);
+let sg = max(1.3 * u.texsize.w, 0.0026);
+var pc: array<vec3f, 3>;
+pc[0] = vec3f(1.0, 0.62, 0.12);
+pc[1] = vec3f(0.1, 0.8, 1.0);
+pc[2] = vec3f(1.0, 0.2, 0.75);
+for (var i = 0; i < 3; i++) {
+    let qa = u.q[i * 2];
+    let qb = u.q[i * 2 + 1];
+    let n = qa.xy;
+    let m = qa.zw;
+    let o = qb.xy;
+    // Each segment is a line with flat, soft ends, so that consecutive
+    // segments meet without beads where they overlap.
+    var w = 0.0;
+    for (var k = 0; k < 2; k++) {
+        let a = select(o, m, k == 1);
+        let b = select(m, n, k == 1);
+        let e = b - a;
+        let l = length(e);
+        if (l > 1e-6) {
+            let dir = e / l;
+            let t = dot(p - a, dir);
+            let dq = p.x - a.x;
+            let dr = p.y - a.y;
+            let pp = dq * dir.y - dr * dir.x;
+            let along = clamp(t / sg + 0.5, 0.0, 1.0) - clamp((t - l) / sg + 0.5, 0.0, 1.0);
+            w += exp(-pp * pp / (sg * sg)) * along;
+        }
+    }
+    col += pc[i] * w * (0.55 + 0.22 * sb);
+}
+return col;
+'''
+comp = '''
+let asp = u.texsize.x * u.texsize.w;
+let p = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
+let sb = min(u.q[6].x, 2.0) * 0.5;
+let st = max(0.0, min(u.q[6].z, 2.5) - 0.3);
+let be = min(u.q[6].w, 1.0);
+let pv = vec2f(0.0, u.q[7].y);
+let px = u.texsize.w;
+let lw = max(1.0, u.texsize.y / 540.0) * px;
+// The night, with a faint dial round the pivot.
+let rp = length(p - pv);
+var col = vec3f(0.005, 0.006, 0.02) + vec3f(0.05, 0.03, 0.11) * exp(-rp * rp / 0.22);
+let dial = abs(rp - 0.43);
+col += vec3f(0.12, 0.1, 0.3) * exp(-dial * dial / (lw * lw * 1.5)) * 0.35;
+// The trails and their glow.
+let tr = textureSampleLevel(sampler_main, s_fc, uv, 0.0).rgb;
+col += tr * (1.4 + 0.4 * sb) + GetBlur1(uv) * (2.4 + 1.0 * sb) + GetBlur2(uv) * (3.6 + 1.2 * sb);
+// Treble: sparks in the trails.
+let cell = floor(uv * u.texsize.xy / max(1.0, u.texsize.y / 540.0));
+let hh = fract(sin(dot(cell, vec2f(12.9898, 78.233))) * 43758.5453);
+let tw = pow(max(0.0, sin(u.time * (2.0 + 5.0 * hh) + hh * 60.0)), 20.0) * step(0.7, hh);
+col += vec3f(1.0, 0.95, 0.9) * tw * st * min(dot(tr, vec3f(0.33)) * 2.0, 1.0);
+// The arms and the bobs.
+var pc: array<vec3f, 3>;
+pc[0] = vec3f(1.0, 0.62, 0.12);
+pc[1] = vec3f(0.1, 0.8, 1.0);
+pc[2] = vec3f(1.0, 0.2, 0.75);
+for (var i = 0; i < 3; i++) {
+    let tip = u.q[i * 2].xy;
+    let elb = u.q[i * 2 + 1].zw;
+    let e1 = elb - pv;
+    let d1 = length(p - pv - e1 * clamp(dot(p - pv, e1) / max(dot(e1, e1), 1e-9), 0.0, 1.0));
+    let e2 = tip - elb;
+    let d2 = length(p - elb - e2 * clamp(dot(p - elb, e2) / max(dot(e2, e2), 1e-9), 0.0, 1.0));
+    let arm = exp(-min(d1, d2) * min(d1, d2) / (lw * lw * 0.8));
+    col += mix(pc[i], vec3f(1.0), 0.4) * arm * 0.55;
+    let rb = length(p - tip);
+    let re = length(p - elb);
+    col += mix(pc[i], vec3f(1.0), 0.5) * (exp(-rb * rb / 0.00004) * 1.2 + exp(-re * re / 0.00002) * 0.6);
+    col += pc[i] * exp(-rb / 0.02) * (0.25 + 0.3 * be);
+}
+col += vec3f(0.8, 0.8, 1.0) * exp(-rp * rp / 0.00002) * 0.8;
+let lc = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lc) + (col - vec3f(lc)) * 1.15, vec3f(0.0));
+return col / (1.0 + 0.35 * col);
+'''

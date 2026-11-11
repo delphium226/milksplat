@@ -39,8 +39,8 @@ device, so just start your music and run it.
 | **Apollonian Gasket**: an endless spiralling fall into circles packed inside circles | **Pulsar**: a spinning neutron star in looping field lines, its two beams sweeping slowly round |
 | ![Penrose Quasicrystal](docs/images/penrose-quasicrystal.png) | ![Solar Surface](docs/images/solar-surface.png) |
 | **Penrose Quasicrystal**: a never-repeating rhombus tiling in glowing gold, its tiles flipping as it drifts | **Solar Surface**: the sun's boiling granulation and sunspots, with plasma loops arching off the limb |
-| ![Lorenz Butterfly](docs/images/lorenz-butterfly.png) | |
-| **Lorenz Butterfly**: the Lorenz strange attractor traced as a glowing ribbon, its two wings turning slowly in 3D | |
+| ![Lorenz Butterfly](docs/images/lorenz-butterfly.png) | ![Double Pendulum](docs/images/double-pendulum.png) |
+| **Lorenz Butterfly**: the Lorenz strange attractor traced as a glowing ribbon, its two wings turning slowly in 3D | **Double Pendulum**: three chaotic double pendulums started a hair apart, peeling away from each other in long neon trails |
 
 These are single frames; every preset moves and changes with the music.
 
