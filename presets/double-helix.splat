@@ -1,0 +1,232 @@
+# Double Helix: a strand of DNA turning slowly in a dark, deep space,
+# stretching from close beside the camera away into the fog. Two glowing
+# sugar-phosphate backbones, cyan and violet, wind round each other, a minor and a major
+# groove between them, and every 0.34 units a base pair bridges them, a
+# rung of two halves in the four colours of the bases: adenine green with
+# thymine rose, guanine amber with cytosine violet. Motes of dust drift
+# past, with large soft bokeh discs out of focus in front.
+#
+# Everything is in the composite. Each ray is clipped to the cylinder
+# round the helix and marched through a distance field: two backbones (the
+# distance to a helix, measured on the unrolled cylinder) and the two
+# nearest rungs (segments across the cylinder at base-pair heights). A hit
+# is lit from a normal taken from the centre line, with a rim glow.
+# Every step adds a little glow by how close the ray passes, so the tubes
+# shine and bloom; fog fades the far part into the blue. The motes and
+# bokeh are hashed cells in a few screen layers.
+#
+# The helix turns and slides away along its axis (both accumulated). Bass
+# makes the rungs glow (smoothed) and slowly uncoils the helix a little,
+# and it recoils as the bass falls. Mids drift the fog's hue. Treble
+# twinkles the motes. Each kick brightens the backbones, eased.
+version = 1
+
+[meta]
+name = "Double Helix"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+ph = 0; sl = 0; ca = 0; dr = 0; hu = 0;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+sc = sc + (min(bass_att, 2.5) - sc) * 0.008;
+sm = sm + (min(mid_att, 2.5) - sm) * 0.03;
+st = st + (min(treb_att, 2.5) - st) * 0.1;
+bt = max(bt * 0.94, beat);
+be = be + (bt - be) * 0.08;
+// The helix turns (a turn in 40 s) and slides away along its axis.
+ph = ph + 6.2831853 / 40 / 60;
+ph = ph - 6.2831853 * floor(ph / 6.2831853);
+sl = sl + 0.12 / 60;
+sl = sl - 3.4 * floor(sl / 3.4);
+// The camera sways slowly round the helix.
+ca = ca + 6.2831853 / 75 / 60;
+ca = ca - 6.2831853 * floor(ca / 6.2831853);
+// The motes drift (accumulated).
+dr = dr + 0.01 / 60;
+dr = dr - 64 * floor(dr / 64);
+hu = hu + (0.004 + 0.01 * min(sm, 2) / 2) / 60;
+hu = hu - floor(hu);
+q1 = ph; q2 = sl; q3 = ca; q4 = dr;
+// The twist: a turn every 3.4 units, uncoiling by up to 9% with the bass
+// (very slowly smoothed).
+q5 = 6.2831853 / 3.4 * (1 - 0.09 * min(sc, 2) / 2);
+q6 = sb; q7 = be; q8 = st;
+q9 = hu;
+'''
+
+[shader]
+comp = '''
+let sz = u.texsize.xy;
+let asp = sz.x / sz.y;
+let ph = u.q[0].x;
+let sl = u.q[0].y;
+let ca = u.q[0].z;
+let dr = u.q[0].w;
+let kk = u.q[1].x;
+let sb = min(u.q[1].y, 2.0) * 0.5;
+let be = min(u.q[1].z, 1.0);
+let st = max(0.0, min(u.q[1].w, 2.5) - 0.3);
+let hu = u.q[2].x;
+let lw = max(1.0, sz.y / 540.0);
+let sp = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
+// The camera: beside the helix near its start, looking along it.
+let cam = vec3f(2.7 + 0.35 * sin(ca), 1.5 + 0.5 * sin(ca * 2.0 + 1.0), -4.5);
+let tgt = vec3f(-0.4, -0.3, 8.0);
+let fw = normalize(tgt - cam);
+let rt = normalize(cross(vec3f(0.0, 1.0, 0.0), fw));
+let up = cross(fw, rt);
+let rd = normalize(fw * 1.7 + rt * sp.x + up * sp.y);
+// The fog, drifting in hue, deepening upward, with a soft glow where the
+// helix vanishes.
+let fh = 6.2831853 * (hu + 0.6);
+let fogc = vec3f(0.014, 0.028, 0.07) + 0.02 * vec3f(cos(fh), cos(fh - 2.094), cos(fh + 2.094));
+var col = fogc * (0.8 + 0.6 * uv.y);
+let vp = normalize(vec3f(0.0, 0.0, 60.0) - cam);
+let vd = max(dot(rd, vp), 0.0);
+col += vec3f(0.08, 0.15, 0.32) * pow(vd, 40.0) + vec3f(0.03, 0.05, 0.11) * pow(vd, 6.0);
+let bgc = col;
+// Clip the ray to the cylinder round the helix.
+let rb = 1.2;
+let aa = dot(rd.xy, rd.xy);
+let bb = dot(cam.xy, rd.xy);
+let cc = dot(cam.xy, cam.xy) - rb * rb;
+let disc = bb * bb - aa * cc;
+let R = 1.0;
+let tube = 0.075;
+let cs = 1.0 / sqrt(1.0 + R * R * kk * kk);
+let ka = vec3f(0.3, 0.8, 1.0);
+let kb = vec3f(0.85, 0.4, 1.0);
+var glowA = 0.0;
+var glowB = 0.0;
+var glowR = vec3f(0.0);
+var hitc = vec3f(0.0);
+var hit = false;
+var th = 0.0;
+if (disc > 0.0) {
+    let sq = sqrt(disc);
+    var t = max((-bb - sq) / aa, 0.05);
+    let t1 = min((-bb + sq) / aa, 70.0);
+    for (var i = 0; i < 80; i++) {
+        if (t > t1) {
+            break;
+        }
+        let P = cam + rd * t;
+        let zz = P.z + sl;
+        let a = atan2(P.y, P.x);
+        let r = length(P.xy);
+        let ta = kk * zz + ph;
+        let da = a - ta - 6.2831853 * floor((a - ta) / 6.2831853 + 0.5);
+        let db0 = a - ta - 2.4;
+        let db = db0 - 6.2831853 * floor(db0 / 6.2831853 + 0.5);
+        let dA = sqrt((r - R) * (r - R) + (R * da * cs) * (R * da * cs)) - tube;
+        let dB = sqrt((r - R) * (r - R) + (R * db * cs) * (R * db * cs)) - tube;
+        // The two nearest rungs (a neighbour, turned, can be the closer).
+        let n0 = floor(zz / 0.34);
+        var drr = 1e9;
+        var rc = vec3f(0.0);
+        var vxy = vec2f(0.0);
+        var dz = 0.0;
+        for (var m = 0; m < 2; m++) {
+            let n = n0 + f32(m);
+            let zn = n * 0.34;
+            let tn = kk * zn + ph;
+            let ea = vec2f(cos(tn), sin(tn)) * 0.95;
+            let eb = vec2f(cos(tn + 2.4), sin(tn + 2.4)) * 0.95;
+            let ab = eb - ea;
+            let h = clamp(dot(P.xy - ea, ab) / dot(ab, ab), 0.0, 1.0);
+            let vv = P.xy - ea - ab * h;
+            let dzz = zz - zn;
+            let dm = sqrt(dot(vv, vv) + dzz * dzz) - 0.04;
+            if (dm < drr) {
+                drr = dm;
+                vxy = vv;
+                dz = dzz;
+                // The base pair: A-T, T-A, G-C or C-G, by a hash of its index.
+                let hn = fract(sin(n * 12.9898 + 4.1) * 43758.5453);
+                let ty = floor(hn * 4.0);
+                let pr = select(select(vec3f(1.0, 0.65, 0.1), vec3f(0.5, 0.25, 1.0), ty > 2.5), select(vec3f(0.1, 1.0, 0.35), vec3f(1.0, 0.18, 0.4), ty > 0.5), ty < 1.5);
+                let pq = select(select(vec3f(0.5, 0.25, 1.0), vec3f(1.0, 0.65, 0.1), ty > 2.5), select(vec3f(1.0, 0.18, 0.4), vec3f(0.1, 1.0, 0.35), ty > 0.5), ty < 1.5);
+                rc = select(pq, pr, h < 0.5);
+            }
+        }
+        let d = min(min(dA, dB), drr);
+        let fade = exp(-t * 0.07);
+        let stp = max(d * 0.85, 0.003 * t + 0.008);
+        glowA += exp(-max(dA, 0.0) * 12.0) * stp * fade;
+        glowB += exp(-max(dB, 0.0) * 12.0) * stp * fade;
+        glowR += rc * exp(-max(drr, 0.0) * 16.0) * stp * fade;
+        if (d < 0.0012 * t) {
+            hit = true;
+            th = t;
+            // A normal: from the centre line, the tangent taken out.
+            var nv = vec3f(0.0);
+            var base = vec3f(0.0);
+            if (drr < min(dA, dB)) {
+                nv = vec3f(vxy, dz);
+                base = rc * (0.75 + 1.4 * sb);
+            } else {
+                let tc = select(ta + 2.4, ta, dA < dB);
+                let v = P - vec3f(R * cos(tc), R * sin(tc), P.z);
+                let tg = normalize(vec3f(-R * kk * sin(tc), R * kk * cos(tc), 1.0));
+                nv = v - tg * dot(v, tg);
+                base = select(kb, ka, dA < dB) * (0.85 + 0.5 * be);
+            }
+            let nn = normalize(nv + vec3f(1e-6));
+            let lt = normalize(vec3f(0.5, 0.8, -0.4));
+            let df = max(dot(nn, lt), 0.0);
+            let rim = pow(1.0 - abs(dot(nn, rd)), 2.0);
+            let spec = pow(max(dot(reflect(rd, nn), lt), 0.0), 24.0);
+            hitc = base * (0.3 + 0.6 * df) + base * rim * 1.2 + vec3f(spec * 0.6);
+            break;
+        }
+        t += stp;
+    }
+}
+if (hit) {
+    col = mix(bgc, hitc, exp(-th * 0.07));
+}
+col += ka * glowA * (0.7 + 0.4 * be) + kb * glowB * (0.7 + 0.4 * be);
+col += glowR * (0.5 + 1.0 * sb);
+// Drifting motes, in three layers.
+for (var l = 0; l < 3; l++) {
+    let fl = f32(l);
+    let ls = 9.0 + fl * 7.0;
+    let q = sp * ls + vec2f(dr * (3.0 + fl * 2.0) + fl * 17.3, dr * (1.0 + fl) * 0.7 + fl * 5.1);
+    let cell = floor(q);
+    let hp = fract(sin(vec2f(dot(cell, vec2f(127.1, 311.7)), dot(cell, vec2f(269.5, 183.3)))) * 43758.5453);
+    let pp = cell + vec2f(0.2) + hp * 0.6;
+    let dd = length(q - pp) / ls * sz.y / lw;
+    let on = step(0.7, fract(hp.x * 7.31 + hp.y * 3.17));
+    let tw = 0.75 + 0.25 * sin(u.time * (2.0 + hp.y * 3.0) + hp.x * 40.0) * min(st, 1.0);
+    let w = 1.5 + 2.5 * (2.0 - fl);
+    col += vec3f(0.55, 0.8, 1.0) * on * exp(-dd * dd / w) * (0.25 + 0.1 * fl) * tw;
+}
+// Bokeh: big soft discs out of focus in front.
+let bq = sp * 3.0 + vec2f(dr * 1.4, -dr * 0.6);
+let bcell = floor(bq);
+for (var j = 0; j < 9; j++) {
+    let c = bcell + vec2f(f32(j % 3) - 1.0, f32(j / 3) - 1.0);
+    let hb = fract(sin(vec2f(dot(c, vec2f(41.3, 289.1)), dot(c, vec2f(157.7, 71.9)))) * 43758.5453);
+    let bp = c + vec2f(0.5) + (hb - vec2f(0.5)) * 0.3;
+    let br = 0.25 + 0.2 * hb.y;
+    let dd = length(bq - bp) / br;
+    let disc2 = smoothstep(1.0, 0.88, dd) * (0.35 + 0.65 * smoothstep(0.55, 0.95, dd));
+    let bh = 6.2831853 * (hu + hb.x * 0.35 + 0.45);
+    let bc = 0.5 + 0.5 * vec3f(cos(bh), cos(bh - 2.094), cos(bh + 2.094));
+    col += mix(bc, vec3f(0.6, 0.9, 1.0), 0.4) * disc2 * step(0.6, hb.x) * 0.09;
+}
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.2, vec3f(0.0));
+return col / (1.0 + 0.4 * col);
+'''
