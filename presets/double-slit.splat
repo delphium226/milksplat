@@ -1,0 +1,164 @@
+# Double Slit: Young's experiment. Circular waves spread from a source on
+# the left, strike a wall with two narrow slits, and pass through as two
+# new sets of circular waves that interfere: bright fringes fan out
+# where crests meet crests, dark lanes where crests meet troughs. On the
+# right a detector screen catches the light one dot at a time, and the
+# dots build up the fringe pattern.
+#
+# The composite computes the field at each pixel. Left of the wall it is
+# the source's wave, cos(k r - phi). Right of it each slit radiates
+# A_i cos(k (D + r_i) - phi), A_i falling as 1/sqrt(r_i) and shaped by the
+# slit's own diffraction envelope, sinc(k a sin(theta_i) / 2) for slit
+# width a. The crests glow cyan to white; under them the time-averaged
+# intensity, A1^2 + A2^2 + 2 A1 A2 cos(k (r1 - r2)), glows violet and
+# rose: the steady fringes.
+#
+# The detector is kept in the fp16 feedback buffer. Each tick the warp
+# shader decays it a little and, cell by cell, lights a dot with a
+# probability proportional to that same intensity at the screen, so the
+# hits are random but the pattern they pile up is the fringes. The slit
+# spacing drifts slowly between 0.18 and 0.30 of the screen height, so
+# the fringes breathe wider and narrower, and the dots follow. The wave
+# phase phi and the drift are accumulated in the frame code.
+#
+# Bass quickens the waves a little and brightens the crests. Treble makes
+# the detector click faster. Each kick swells the dots' glow, eased.
+version = 1
+
+[meta]
+name = "Double Slit"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+feedback_format = "fp16"
+b1n = 0.0
+b1x = 1.0
+
+[code]
+init = '''
+ph = 0; dd = 1.2; fc = 0;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+st = st + (min(treb_att, 2.5) - st) * 0.05;
+bt = max(bt * 0.94, beat);
+be = be + (bt - be) * 0.08;
+// The wave's phase: about 0.8 crests a second, a little more with bass.
+ph = ph + 6.2831853 * 0.8 / 60 * (1 + 0.3 * min(sb, 2) / 2);
+ph = ph - 6.2831853 * floor(ph / 6.2831853);
+// The slit spacing drifts over about 50 s.
+dd = dd + 6.2831853 / 50 / 60;
+dd = dd - 6.2831853 * floor(dd / 6.2831853);
+// The detector's hit rate: a burst at the start so the screen is not
+// bare, then steady, quicker with the treble.
+fc = min(fc + 1, 10000);
+q1 = 6.2831853 / 0.03; q2 = ph; q3 = 0.24 + 0.06 * sin(dd); q4 = 0.034;
+q5 = sb; q6 = st; q7 = be;
+q8 = 0.002 * (1 + 0.5 * max(0, min(st, 2.5) - 0.4)) + 0.008 * exp(-fc / 90);
+'''
+
+[shader]
+warp = '''
+let asp = u.texsize.x * u.texsize.w;
+let prev = textureSampleLevel(sampler_main, s_pc, uv_orig, 0.0).rgb;
+if (uv_orig.x < 0.92) {
+    return vec3f(0.0);
+}
+let k = u.q[0].x;
+let d = u.q[0].z;
+let aw = u.q[0].w;
+let rate = u.q[1].w;
+let xb = -0.25 * asp;
+// Cells of a few pixels, the same size on screen at any resolution.
+let cs = max(2.0, floor(3.0 * u.texsize.y / 540.0));
+let cell = floor(uv_orig * u.texsize.xy / cs);
+let py = 0.5 - (cell.y + 0.5) * cs * u.texsize.w;
+let xd = 0.42 * asp;
+// The intensity at the screen, against its value on the axis.
+let v1 = vec2f(xd - xb, py - 0.5 * d);
+let v2 = vec2f(xd - xb, py + 0.5 * d);
+let r1 = length(v1);
+let r2 = length(v2);
+let s1 = 0.5 * k * aw * v1.y / r1 + 1e-4;
+let s2 = 0.5 * k * aw * v2.y / r2 + 1e-4;
+let a1 = sin(s1) / s1 / sqrt(r1);
+let a2 = sin(s2) / s2 / sqrt(r2);
+let ii = a1 * a1 + a2 * a2 + 2.0 * a1 * a2 * cos(k * (r1 - r2));
+let r0 = length(vec2f(xd - xb, 0.5 * d));
+let i0 = 4.0 / r0;
+// A fine random number per cell per tick (an integer PCG hash; the usual
+// sine hash is too coarse for small probabilities).
+let st0 = (u32(cell.x) * 1973u + u32(cell.y) * 9277u + u32(u.frame) * 26699u + u32(u.rand_frame.x * 65536.0)) * 747796405u + 2891336453u;
+let wd = ((st0 >> ((st0 >> 28u) + 4u)) ^ st0) * 277803737u;
+let hh = f32((wd >> 22u) ^ wd) / 4294967296.0;
+let hit = select(0.0, 1.0, hh < rate * ii / i0);
+// A dot: warm white, each a slightly different tint.
+let tint = fract(sin(dot(cell, vec2f(39.3468, 11.135))) * 24634.6345);
+let dotc = mix(vec3f(1.0, 0.8, 0.45), vec3f(0.7, 0.9, 1.0), tint);
+return prev * 0.996 + dotc * hit;
+'''
+comp = '''
+let asp = u.texsize.x * u.texsize.w;
+let k = u.q[0].x;
+let ph = u.q[0].y;
+let d = u.q[0].z;
+let aw = u.q[0].w;
+let sb = min(u.q[1].x, 2.0) * 0.5;
+let be = min(u.q[1].z, 1.0);
+let p = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
+let px = u.texsize.w;
+let lw = max(1.0, u.texsize.y / 540.0);
+let xs = -0.47 * asp;
+let xb = -0.25 * asp;
+let xd = 0.42 * asp;
+let ht = 0.007;
+var col = vec3f(0.004, 0.005, 0.016);
+if (p.x < xb - ht) {
+    // The source's wave.
+    let r0 = length(p - vec2f(xs, 0.0));
+    let f = cos(k * r0 - ph);
+    let amp = 1.0 / sqrt(1.0 + r0 / 0.15);
+    let cr = pow(0.5 + 0.5 * f, 3.0) * amp;
+    col += vec3f(0.1, 0.55, 1.0) * cr * (0.9 + 0.5 * sb) + vec3f(0.12, 0.06, 0.3) * amp * 0.5;
+    col += vec3f(0.8, 0.95, 1.0) * exp(-r0 * r0 / 0.0004) * 1.5;
+} else if (p.x > xb + ht && p.x < xd) {
+    // Two slits, two waves.
+    let d0 = length(vec2f(xb - xs, 0.5 * d));
+    let v1 = p - vec2f(xb, 0.5 * d);
+    let v2 = p - vec2f(xb, -0.5 * d);
+    let r1 = length(v1);
+    let r2 = length(v2);
+    let s1 = 0.5 * k * aw * v1.y / r1 + 1e-4;
+    let s2 = 0.5 * k * aw * v2.y / r2 + 1e-4;
+    let a1 = sin(s1) / s1 / sqrt(1.0 + r1 / 0.25);
+    let a2 = sin(s2) / s2 / sqrt(1.0 + r2 / 0.25);
+    let f = a1 * cos(k * (d0 + r1) - ph) + a2 * cos(k * (d0 + r2) - ph);
+    let ii = a1 * a1 + a2 * a2 + 2.0 * a1 * a2 * cos(k * (r1 - r2));
+    let cr = max(f, 0.0);
+    col += mix(vec3f(0.45, 0.08, 0.7), vec3f(1.0, 0.25, 0.55), clamp(ii * 0.5, 0.0, 1.0)) * ii * 0.55;
+    col += mix(vec3f(0.1, 0.6, 1.0), vec3f(0.9, 1.0, 1.0), clamp(cr * cr * 0.5, 0.0, 1.0)) * pow(cr, 1.6) * (0.8 + 0.4 * sb);
+}
+// The wall, with two openings that glow faintly.
+let wd = abs(p.x - xb);
+let open = min(abs(p.y - 0.5 * d), abs(p.y + 0.5 * d)) < 0.5 * aw;
+if (wd < ht && !open) {
+    let edge = exp(-pow((ht - wd) / (1.2 * px * lw), 2.0));
+    col = vec3f(0.05, 0.055, 0.08) + vec3f(0.35, 0.45, 0.6) * edge;
+}
+// The detector: a dark panel holding the dots in the feedback buffer.
+if (p.x >= xd) {
+    let dots = textureSampleLevel(sampler_main, s_pc, uv, 0.0).rgb;
+    let glow = GetBlur1(uv);
+    col = vec3f(0.012, 0.012, 0.022) + dots * 0.7 + glow * (0.9 + 0.6 * be);
+}
+col += vec3f(0.5, 0.6, 0.8) * exp(-pow((p.x - xd) / (1.2 * px * lw), 2.0)) * 0.6;
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.15, vec3f(0.0));
+return col / (1.0 + 0.4 * col);
+'''
