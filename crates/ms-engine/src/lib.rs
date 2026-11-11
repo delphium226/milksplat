@@ -1,7 +1,7 @@
 //! ms-engine: fixed-tick clock, render-quality governor, and preset
 //! instances that run a compiled preset's code each tick and produce plain
 //! render data for `ms-render`, the blending of two presets during a
-//! transition, the loader thread that prepares presets off the render
+//! transition, per-preset reactivity (audio scaling), the loader thread that prepares presets off the render
 //! thread, and the director that decides what is shown.
 
 mod blend;
@@ -11,6 +11,7 @@ mod env;
 mod governor;
 mod loader;
 mod objects;
+mod reactivity;
 mod tick;
 
 pub use blend::{
@@ -25,5 +26,9 @@ pub use env::{Globals, TickInput};
 pub use governor::Governor;
 pub use loader::{
     feedback_format, LoadResult, Loader, LOADER_STACK_BYTES, MAX_PRESET_BYTES, PICKS_SALT,
+};
+pub use reactivity::{
+    effective_reactivity, step_reactivity, Reactivity, BAND_CEILING, REACTIVITY_MAX,
+    REACTIVITY_MIN, REACTIVITY_STEP, SPECTRUM_CEILING, WAVE_CEILING,
 };
 pub use tick::{PresetInstance, TickOutput, VertexPath};
