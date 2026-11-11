@@ -1,0 +1,508 @@
+# Hopf Fibration: the 3-sphere unwound into circles. Every point of the
+# 2-sphere owns one great circle of S^3, its fibre, and no two fibres
+# meet, yet every pair is linked once. Stereographically projected into
+# space, the fibres over each circle of latitude fill a torus, and the
+# tori nest one inside the next round a single straight axis.
+#
+# Four custom waves draw four of those tori: twelve fibres of 30 points on
+# the inner two, ten of 40 on the larger outer two (the first and last
+# point of each circle hidden, so the circles stay apart). A fibre is a
+# circle in S^3 and stereographic projection keeps circles circles, so
+# each wave's frame code projects three points of every fibre, finds
+# their circle in space and turns it to the view; the point code then
+# only traces ellipses.
+# A fibre is
+#   z1 = cos(eta) e^(i (psi + phi)),  z2 = sin(eta) e^(i (psi + a))
+# for psi round the circle, with (2 eta, phi) the polar and azimuthal
+# angles of its base point on S^2. Its colour is that base point: the hue
+# runs round with phi and each torus (each latitude) is its own band of
+# the sphere, the inner ones a little paler.
+#
+# The structure turns in 4D: a (accumulated) slides z2's phase, so the
+# fibres glide round their tori while the tori themselves stay put, and a
+# slow rocking rotation in the x2-x4 plane swells and squeezes the tori
+# as the projection pole swings. The projected figure then turns slowly
+# about its axis and rocks gently toward the viewer, with a little
+# perspective. Bright beads run along every fibre. A short feedback trail
+# and three blur levels make the glow.
+#
+# Bass thickens the glow (smoothed). Mids quicken the fibres' glide and
+# the beads. Treble twinkles sparks along the circles. Each kick swells
+# the wide glow, eased.
+version = 1
+
+[meta]
+name = "Hopf Fibration"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.5
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+b1n = 0.0
+b1x = 1.0
+b2n = 0.0
+b2x = 1.0
+b3n = 0.0
+b3x = 1.0
+
+[code]
+init = '''
+ya = 0.4; rk = 0; al = 0; fl = 0; pp = 0;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+sm = sm + (min(mid_att, 2.5) - sm) * 0.03;
+st = st + (min(treb_att, 2.5) - st) * 0.1;
+bt = max(bt * 0.94, beat);
+be = be + (bt - be) * 0.08;
+// The turn about the axis: about a turn a minute and a half.
+ya = ya + 0.0012;
+ya = ya - 6.2831853 * floor(ya / 6.2831853);
+// The 4D rocking rotation (x2-x4 plane).
+rk = rk + 0.0019;
+rk = rk - 6.2831853 * floor(rk / 6.2831853);
+be4 = 0.1 * sin(rk);
+// The fibres' glide (z2's phase) and the beads, quicker with the mids.
+al = al + 0.004 + 0.004 * min(sm, 2) / 2;
+al = al - 6.2831853 * floor(al / 6.2831853);
+fl = fl + 0.012 + 0.012 * min(sm, 2) / 2;
+fl = fl - 6.2831853 * floor(fl / 6.2831853);
+// The tilt toward the viewer, rocking gently.
+pp = pp + 0.0013;
+pp = pp - 6.2831853 * floor(pp / 6.2831853);
+pt = 0.55 + 0.25 * sin(pp);
+q1 = cos(ya); q2 = sin(ya); q3 = cos(be4); q4 = sin(be4);
+q5 = al; q6 = fl; q7 = sb; q8 = st;
+q9 = be; q10 = cos(pt); q11 = sin(pt);
+'''
+
+# The four tori: one wave each.
+[[wave]]
+enabled = true
+samples = 360
+thick = 1
+additive = 1
+a = 1.0
+init = '''
+t2 = 0; t3 = 30; t4 = 12; t5 = 0; t6 = 1000;
+// cos and sin round one circle, the torus's cos(eta) and sin(eta), and
+// each fibre's phase and colour (its base point).
+n = 0;
+loop(t3 - 1,
+  megabuf(t5 + 2 * n) = cos(6.2831853 * n / (t3 - 2));
+  megabuf(t5 + 2 * n + 1) = sin(6.2831853 * n / (t3 - 2));
+  n = n + 1
+);
+et = 0.25 + 0.18 * t2;
+megabuf(t6 + 390) = cos(et); megabuf(t6 + 391) = sin(et);
+pl = 0.35 - 0.1 * t2;
+k = 0;
+loop(t4,
+  ph = 6.2831853 * k / t4 + t2 * 0.26;
+  o = t6 + k * 32;
+  megabuf(o) = cos(ph); megabuf(o + 1) = sin(ph);
+  r = 0.5 + 0.5 * cos(ph); g = 0.5 + 0.5 * cos(ph - 2.0943951); b = 0.5 + 0.5 * cos(ph - 4.1887902);
+  mx = max(r, max(g, b));
+  megabuf(o + 11) = (r / mx) * (1 - pl) + pl;
+  megabuf(o + 12) = (g / mx) * (1 - pl) + pl;
+  megabuf(o + 13) = (b / mx) * (1 - pl) + pl;
+  k = k + 1
+);
+'''
+frame = '''
+t1 = (0.75 + 0.25 * min(q7, 2) / 2) * (0.6 + 0.15 * t2);
+c5 = cos(q5); s5 = sin(q5);
+ce = megabuf(t6 + 390); se = megabuf(t6 + 391);
+// Each fibre is a circle in S^3, so its projection is a circle in space:
+// project three of its points, find their circle (centre and two axes),
+// and turn that to the view. The point code then only traces ellipses.
+k = 0;
+loop(t4,
+  o = t6 + k * 32;
+  ca = megabuf(o); sa = megabuf(o + 1);
+  n = 0;
+  loop(3,
+    cp = cos(n * 2.0943951); sp = sin(n * 2.0943951);
+    x1 = ce * (cp * ca - sp * sa); x2 = ce * (sp * ca + cp * sa);
+    x3 = se * (cp * c5 - sp * s5); x4 = se * (sp * c5 + cp * s5);
+    y2 = x2 * q3 - x4 * q4; y4 = x2 * q4 + x4 * q3;
+    d = 1 / max(1 - y4, 0.08);
+    megabuf(o + 16 + n * 3) = x1 * d; megabuf(o + 17 + n * 3) = y2 * d; megabuf(o + 18 + n * 3) = x3 * d;
+    n = n + 1
+  );
+  ux = megabuf(o + 16) - megabuf(o + 22); uy = megabuf(o + 17) - megabuf(o + 23); uz = megabuf(o + 18) - megabuf(o + 24);
+  vx = megabuf(o + 19) - megabuf(o + 22); vy = megabuf(o + 20) - megabuf(o + 23); vz = megabuf(o + 21) - megabuf(o + 24);
+  wx = uy * vz - uz * vy; wy = uz * vx - ux * vz; wz = ux * vy - uy * vx;
+  ww = max(wx * wx + wy * wy + wz * wz, 1e-12);
+  uu = ux * ux + uy * uy + uz * uz; vv = vx * vx + vy * vy + vz * vz;
+  ex = uu * vx - vv * ux; ey = uu * vy - vv * uy; ez = uu * vz - vv * uz;
+  cx = megabuf(o + 22) + (ey * wz - ez * wy) / (2 * ww);
+  cy = megabuf(o + 23) + (ez * wx - ex * wz) / (2 * ww);
+  cz = megabuf(o + 24) + (ex * wy - ey * wx) / (2 * ww);
+  ux = megabuf(o + 16) - cx; uy = megabuf(o + 17) - cy; uz = megabuf(o + 18) - cz;
+  wn = 1 / sqrt(ww); wx = wx * wn; wy = wy * wn; wz = wz * wn;
+  vx = wy * uz - wz * uy; vy = wz * ux - wx * uz; vz = wx * uy - wy * ux;
+  // To the view: the turn about the axis, then the tilt.
+  yb = cx * q2 + cy * q1; sc = cz * q11 - yb * q10; dc = cz * q10 + yb * q11;
+  pr = 0.2 / (1 + dc * 0.06);
+  megabuf(o + 2) = 0.5 + (cx * q1 - cy * q2) * pr * aspecty;
+  megabuf(o + 5) = 0.5 + sc * pr;
+  megabuf(o + 8) = dc;
+  yb = ux * q2 + uy * q1;
+  megabuf(o + 3) = (ux * q1 - uy * q2) * pr * aspecty;
+  megabuf(o + 6) = (uz * q11 - yb * q10) * pr;
+  megabuf(o + 9) = uz * q10 + yb * q11;
+  yb = vx * q2 + vy * q1;
+  megabuf(o + 4) = (vx * q1 - vy * q2) * pr * aspecty;
+  megabuf(o + 7) = (vz * q11 - yb * q10) * pr;
+  megabuf(o + 10) = vz * q10 + yb * q11;
+  // The bead phase.
+  megabuf(o + 14) = cos(q6 - k); megabuf(o + 15) = sin(q6 - k);
+  k = k + 1
+);
+'''
+point = '''
+j = floor(sample * 359 + 0.5);
+k = floor(j / t3); m = j - k * t3;
+i = t5 + 2 * min(max(m - 1, 0), t3 - 2);
+cp = megabuf(i); sp = megabuf(i + 1);
+o = t6 + k * 32;
+x = megabuf(o + 2) + megabuf(o + 3) * cp + megabuf(o + 4) * sp;
+y = megabuf(o + 5) + megabuf(o + 6) * cp + megabuf(o + 7) * sp;
+dz = megabuf(o + 8) + megabuf(o + 9) * cp + megabuf(o + 10) * sp;
+r = megabuf(o + 11); g = megabuf(o + 12); b = megabuf(o + 13);
+bb = 0.5 + 0.5 * (cp * (4 * cp * cp - 3) * megabuf(o + 14) + sp * (3 - 4 * sp * sp) * megabuf(o + 15));
+bb = bb * bb * bb;
+a = (m > 0.5) * (m < t3 - 1.5) * t1 * (0.32 + 0.6 * bb * bb) * min(1, max(0.35, 0.8 - dz * 0.12));
+'''
+
+[[wave]]
+enabled = true
+samples = 360
+thick = 1
+additive = 1
+a = 1.0
+init = '''
+t2 = 1; t3 = 30; t4 = 12; t5 = 0; t6 = 1400;
+// cos and sin round one circle, the torus's cos(eta) and sin(eta), and
+// each fibre's phase and colour (its base point).
+n = 0;
+loop(t3 - 1,
+  megabuf(t5 + 2 * n) = cos(6.2831853 * n / (t3 - 2));
+  megabuf(t5 + 2 * n + 1) = sin(6.2831853 * n / (t3 - 2));
+  n = n + 1
+);
+et = 0.25 + 0.18 * t2;
+megabuf(t6 + 390) = cos(et); megabuf(t6 + 391) = sin(et);
+pl = 0.35 - 0.1 * t2;
+k = 0;
+loop(t4,
+  ph = 6.2831853 * k / t4 + t2 * 0.26;
+  o = t6 + k * 32;
+  megabuf(o) = cos(ph); megabuf(o + 1) = sin(ph);
+  r = 0.5 + 0.5 * cos(ph); g = 0.5 + 0.5 * cos(ph - 2.0943951); b = 0.5 + 0.5 * cos(ph - 4.1887902);
+  mx = max(r, max(g, b));
+  megabuf(o + 11) = (r / mx) * (1 - pl) + pl;
+  megabuf(o + 12) = (g / mx) * (1 - pl) + pl;
+  megabuf(o + 13) = (b / mx) * (1 - pl) + pl;
+  k = k + 1
+);
+'''
+frame = '''
+t1 = (0.75 + 0.25 * min(q7, 2) / 2) * (0.6 + 0.15 * t2);
+c5 = cos(q5); s5 = sin(q5);
+ce = megabuf(t6 + 390); se = megabuf(t6 + 391);
+// Each fibre is a circle in S^3, so its projection is a circle in space:
+// project three of its points, find their circle (centre and two axes),
+// and turn that to the view. The point code then only traces ellipses.
+k = 0;
+loop(t4,
+  o = t6 + k * 32;
+  ca = megabuf(o); sa = megabuf(o + 1);
+  n = 0;
+  loop(3,
+    cp = cos(n * 2.0943951); sp = sin(n * 2.0943951);
+    x1 = ce * (cp * ca - sp * sa); x2 = ce * (sp * ca + cp * sa);
+    x3 = se * (cp * c5 - sp * s5); x4 = se * (sp * c5 + cp * s5);
+    y2 = x2 * q3 - x4 * q4; y4 = x2 * q4 + x4 * q3;
+    d = 1 / max(1 - y4, 0.08);
+    megabuf(o + 16 + n * 3) = x1 * d; megabuf(o + 17 + n * 3) = y2 * d; megabuf(o + 18 + n * 3) = x3 * d;
+    n = n + 1
+  );
+  ux = megabuf(o + 16) - megabuf(o + 22); uy = megabuf(o + 17) - megabuf(o + 23); uz = megabuf(o + 18) - megabuf(o + 24);
+  vx = megabuf(o + 19) - megabuf(o + 22); vy = megabuf(o + 20) - megabuf(o + 23); vz = megabuf(o + 21) - megabuf(o + 24);
+  wx = uy * vz - uz * vy; wy = uz * vx - ux * vz; wz = ux * vy - uy * vx;
+  ww = max(wx * wx + wy * wy + wz * wz, 1e-12);
+  uu = ux * ux + uy * uy + uz * uz; vv = vx * vx + vy * vy + vz * vz;
+  ex = uu * vx - vv * ux; ey = uu * vy - vv * uy; ez = uu * vz - vv * uz;
+  cx = megabuf(o + 22) + (ey * wz - ez * wy) / (2 * ww);
+  cy = megabuf(o + 23) + (ez * wx - ex * wz) / (2 * ww);
+  cz = megabuf(o + 24) + (ex * wy - ey * wx) / (2 * ww);
+  ux = megabuf(o + 16) - cx; uy = megabuf(o + 17) - cy; uz = megabuf(o + 18) - cz;
+  wn = 1 / sqrt(ww); wx = wx * wn; wy = wy * wn; wz = wz * wn;
+  vx = wy * uz - wz * uy; vy = wz * ux - wx * uz; vz = wx * uy - wy * ux;
+  // To the view: the turn about the axis, then the tilt.
+  yb = cx * q2 + cy * q1; sc = cz * q11 - yb * q10; dc = cz * q10 + yb * q11;
+  pr = 0.2 / (1 + dc * 0.06);
+  megabuf(o + 2) = 0.5 + (cx * q1 - cy * q2) * pr * aspecty;
+  megabuf(o + 5) = 0.5 + sc * pr;
+  megabuf(o + 8) = dc;
+  yb = ux * q2 + uy * q1;
+  megabuf(o + 3) = (ux * q1 - uy * q2) * pr * aspecty;
+  megabuf(o + 6) = (uz * q11 - yb * q10) * pr;
+  megabuf(o + 9) = uz * q10 + yb * q11;
+  yb = vx * q2 + vy * q1;
+  megabuf(o + 4) = (vx * q1 - vy * q2) * pr * aspecty;
+  megabuf(o + 7) = (vz * q11 - yb * q10) * pr;
+  megabuf(o + 10) = vz * q10 + yb * q11;
+  // The bead phase.
+  megabuf(o + 14) = cos(q6 - k); megabuf(o + 15) = sin(q6 - k);
+  k = k + 1
+);
+'''
+point = '''
+j = floor(sample * 359 + 0.5);
+k = floor(j / t3); m = j - k * t3;
+i = t5 + 2 * min(max(m - 1, 0), t3 - 2);
+cp = megabuf(i); sp = megabuf(i + 1);
+o = t6 + k * 32;
+x = megabuf(o + 2) + megabuf(o + 3) * cp + megabuf(o + 4) * sp;
+y = megabuf(o + 5) + megabuf(o + 6) * cp + megabuf(o + 7) * sp;
+dz = megabuf(o + 8) + megabuf(o + 9) * cp + megabuf(o + 10) * sp;
+r = megabuf(o + 11); g = megabuf(o + 12); b = megabuf(o + 13);
+bb = 0.5 + 0.5 * (cp * (4 * cp * cp - 3) * megabuf(o + 14) + sp * (3 - 4 * sp * sp) * megabuf(o + 15));
+bb = bb * bb * bb;
+a = (m > 0.5) * (m < t3 - 1.5) * t1 * (0.32 + 0.6 * bb * bb) * min(1, max(0.35, 0.8 - dz * 0.12));
+'''
+
+[[wave]]
+enabled = true
+samples = 400
+thick = 1
+additive = 1
+a = 1.0
+init = '''
+t2 = 2; t3 = 40; t4 = 10; t5 = 200; t6 = 1800;
+// cos and sin round one circle, the torus's cos(eta) and sin(eta), and
+// each fibre's phase and colour (its base point).
+n = 0;
+loop(t3 - 1,
+  megabuf(t5 + 2 * n) = cos(6.2831853 * n / (t3 - 2));
+  megabuf(t5 + 2 * n + 1) = sin(6.2831853 * n / (t3 - 2));
+  n = n + 1
+);
+et = 0.25 + 0.18 * t2;
+megabuf(t6 + 390) = cos(et); megabuf(t6 + 391) = sin(et);
+pl = 0.35 - 0.1 * t2;
+k = 0;
+loop(t4,
+  ph = 6.2831853 * k / t4 + t2 * 0.26;
+  o = t6 + k * 32;
+  megabuf(o) = cos(ph); megabuf(o + 1) = sin(ph);
+  r = 0.5 + 0.5 * cos(ph); g = 0.5 + 0.5 * cos(ph - 2.0943951); b = 0.5 + 0.5 * cos(ph - 4.1887902);
+  mx = max(r, max(g, b));
+  megabuf(o + 11) = (r / mx) * (1 - pl) + pl;
+  megabuf(o + 12) = (g / mx) * (1 - pl) + pl;
+  megabuf(o + 13) = (b / mx) * (1 - pl) + pl;
+  k = k + 1
+);
+'''
+frame = '''
+t1 = (0.75 + 0.25 * min(q7, 2) / 2) * (0.6 + 0.15 * t2);
+c5 = cos(q5); s5 = sin(q5);
+ce = megabuf(t6 + 390); se = megabuf(t6 + 391);
+// Each fibre is a circle in S^3, so its projection is a circle in space:
+// project three of its points, find their circle (centre and two axes),
+// and turn that to the view. The point code then only traces ellipses.
+k = 0;
+loop(t4,
+  o = t6 + k * 32;
+  ca = megabuf(o); sa = megabuf(o + 1);
+  n = 0;
+  loop(3,
+    cp = cos(n * 2.0943951); sp = sin(n * 2.0943951);
+    x1 = ce * (cp * ca - sp * sa); x2 = ce * (sp * ca + cp * sa);
+    x3 = se * (cp * c5 - sp * s5); x4 = se * (sp * c5 + cp * s5);
+    y2 = x2 * q3 - x4 * q4; y4 = x2 * q4 + x4 * q3;
+    d = 1 / max(1 - y4, 0.08);
+    megabuf(o + 16 + n * 3) = x1 * d; megabuf(o + 17 + n * 3) = y2 * d; megabuf(o + 18 + n * 3) = x3 * d;
+    n = n + 1
+  );
+  ux = megabuf(o + 16) - megabuf(o + 22); uy = megabuf(o + 17) - megabuf(o + 23); uz = megabuf(o + 18) - megabuf(o + 24);
+  vx = megabuf(o + 19) - megabuf(o + 22); vy = megabuf(o + 20) - megabuf(o + 23); vz = megabuf(o + 21) - megabuf(o + 24);
+  wx = uy * vz - uz * vy; wy = uz * vx - ux * vz; wz = ux * vy - uy * vx;
+  ww = max(wx * wx + wy * wy + wz * wz, 1e-12);
+  uu = ux * ux + uy * uy + uz * uz; vv = vx * vx + vy * vy + vz * vz;
+  ex = uu * vx - vv * ux; ey = uu * vy - vv * uy; ez = uu * vz - vv * uz;
+  cx = megabuf(o + 22) + (ey * wz - ez * wy) / (2 * ww);
+  cy = megabuf(o + 23) + (ez * wx - ex * wz) / (2 * ww);
+  cz = megabuf(o + 24) + (ex * wy - ey * wx) / (2 * ww);
+  ux = megabuf(o + 16) - cx; uy = megabuf(o + 17) - cy; uz = megabuf(o + 18) - cz;
+  wn = 1 / sqrt(ww); wx = wx * wn; wy = wy * wn; wz = wz * wn;
+  vx = wy * uz - wz * uy; vy = wz * ux - wx * uz; vz = wx * uy - wy * ux;
+  // To the view: the turn about the axis, then the tilt.
+  yb = cx * q2 + cy * q1; sc = cz * q11 - yb * q10; dc = cz * q10 + yb * q11;
+  pr = 0.2 / (1 + dc * 0.06);
+  megabuf(o + 2) = 0.5 + (cx * q1 - cy * q2) * pr * aspecty;
+  megabuf(o + 5) = 0.5 + sc * pr;
+  megabuf(o + 8) = dc;
+  yb = ux * q2 + uy * q1;
+  megabuf(o + 3) = (ux * q1 - uy * q2) * pr * aspecty;
+  megabuf(o + 6) = (uz * q11 - yb * q10) * pr;
+  megabuf(o + 9) = uz * q10 + yb * q11;
+  yb = vx * q2 + vy * q1;
+  megabuf(o + 4) = (vx * q1 - vy * q2) * pr * aspecty;
+  megabuf(o + 7) = (vz * q11 - yb * q10) * pr;
+  megabuf(o + 10) = vz * q10 + yb * q11;
+  // The bead phase.
+  megabuf(o + 14) = cos(q6 - k); megabuf(o + 15) = sin(q6 - k);
+  k = k + 1
+);
+'''
+point = '''
+j = floor(sample * 399 + 0.5);
+k = floor(j / t3); m = j - k * t3;
+i = t5 + 2 * min(max(m - 1, 0), t3 - 2);
+cp = megabuf(i); sp = megabuf(i + 1);
+o = t6 + k * 32;
+x = megabuf(o + 2) + megabuf(o + 3) * cp + megabuf(o + 4) * sp;
+y = megabuf(o + 5) + megabuf(o + 6) * cp + megabuf(o + 7) * sp;
+dz = megabuf(o + 8) + megabuf(o + 9) * cp + megabuf(o + 10) * sp;
+r = megabuf(o + 11); g = megabuf(o + 12); b = megabuf(o + 13);
+bb = 0.5 + 0.5 * (cp * (4 * cp * cp - 3) * megabuf(o + 14) + sp * (3 - 4 * sp * sp) * megabuf(o + 15));
+bb = bb * bb * bb;
+a = (m > 0.5) * (m < t3 - 1.5) * t1 * (0.32 + 0.6 * bb * bb) * min(1, max(0.35, 0.8 - dz * 0.12));
+'''
+
+[[wave]]
+enabled = true
+samples = 400
+thick = 1
+additive = 1
+a = 1.0
+init = '''
+t2 = 3; t3 = 40; t4 = 10; t5 = 200; t6 = 2200;
+// cos and sin round one circle, the torus's cos(eta) and sin(eta), and
+// each fibre's phase and colour (its base point).
+n = 0;
+loop(t3 - 1,
+  megabuf(t5 + 2 * n) = cos(6.2831853 * n / (t3 - 2));
+  megabuf(t5 + 2 * n + 1) = sin(6.2831853 * n / (t3 - 2));
+  n = n + 1
+);
+et = 0.25 + 0.18 * t2;
+megabuf(t6 + 390) = cos(et); megabuf(t6 + 391) = sin(et);
+pl = 0.35 - 0.1 * t2;
+k = 0;
+loop(t4,
+  ph = 6.2831853 * k / t4 + t2 * 0.26;
+  o = t6 + k * 32;
+  megabuf(o) = cos(ph); megabuf(o + 1) = sin(ph);
+  r = 0.5 + 0.5 * cos(ph); g = 0.5 + 0.5 * cos(ph - 2.0943951); b = 0.5 + 0.5 * cos(ph - 4.1887902);
+  mx = max(r, max(g, b));
+  megabuf(o + 11) = (r / mx) * (1 - pl) + pl;
+  megabuf(o + 12) = (g / mx) * (1 - pl) + pl;
+  megabuf(o + 13) = (b / mx) * (1 - pl) + pl;
+  k = k + 1
+);
+'''
+frame = '''
+t1 = (0.75 + 0.25 * min(q7, 2) / 2) * (0.6 + 0.15 * t2);
+c5 = cos(q5); s5 = sin(q5);
+ce = megabuf(t6 + 390); se = megabuf(t6 + 391);
+// Each fibre is a circle in S^3, so its projection is a circle in space:
+// project three of its points, find their circle (centre and two axes),
+// and turn that to the view. The point code then only traces ellipses.
+k = 0;
+loop(t4,
+  o = t6 + k * 32;
+  ca = megabuf(o); sa = megabuf(o + 1);
+  n = 0;
+  loop(3,
+    cp = cos(n * 2.0943951); sp = sin(n * 2.0943951);
+    x1 = ce * (cp * ca - sp * sa); x2 = ce * (sp * ca + cp * sa);
+    x3 = se * (cp * c5 - sp * s5); x4 = se * (sp * c5 + cp * s5);
+    y2 = x2 * q3 - x4 * q4; y4 = x2 * q4 + x4 * q3;
+    d = 1 / max(1 - y4, 0.08);
+    megabuf(o + 16 + n * 3) = x1 * d; megabuf(o + 17 + n * 3) = y2 * d; megabuf(o + 18 + n * 3) = x3 * d;
+    n = n + 1
+  );
+  ux = megabuf(o + 16) - megabuf(o + 22); uy = megabuf(o + 17) - megabuf(o + 23); uz = megabuf(o + 18) - megabuf(o + 24);
+  vx = megabuf(o + 19) - megabuf(o + 22); vy = megabuf(o + 20) - megabuf(o + 23); vz = megabuf(o + 21) - megabuf(o + 24);
+  wx = uy * vz - uz * vy; wy = uz * vx - ux * vz; wz = ux * vy - uy * vx;
+  ww = max(wx * wx + wy * wy + wz * wz, 1e-12);
+  uu = ux * ux + uy * uy + uz * uz; vv = vx * vx + vy * vy + vz * vz;
+  ex = uu * vx - vv * ux; ey = uu * vy - vv * uy; ez = uu * vz - vv * uz;
+  cx = megabuf(o + 22) + (ey * wz - ez * wy) / (2 * ww);
+  cy = megabuf(o + 23) + (ez * wx - ex * wz) / (2 * ww);
+  cz = megabuf(o + 24) + (ex * wy - ey * wx) / (2 * ww);
+  ux = megabuf(o + 16) - cx; uy = megabuf(o + 17) - cy; uz = megabuf(o + 18) - cz;
+  wn = 1 / sqrt(ww); wx = wx * wn; wy = wy * wn; wz = wz * wn;
+  vx = wy * uz - wz * uy; vy = wz * ux - wx * uz; vz = wx * uy - wy * ux;
+  // To the view: the turn about the axis, then the tilt.
+  yb = cx * q2 + cy * q1; sc = cz * q11 - yb * q10; dc = cz * q10 + yb * q11;
+  pr = 0.2 / (1 + dc * 0.06);
+  megabuf(o + 2) = 0.5 + (cx * q1 - cy * q2) * pr * aspecty;
+  megabuf(o + 5) = 0.5 + sc * pr;
+  megabuf(o + 8) = dc;
+  yb = ux * q2 + uy * q1;
+  megabuf(o + 3) = (ux * q1 - uy * q2) * pr * aspecty;
+  megabuf(o + 6) = (uz * q11 - yb * q10) * pr;
+  megabuf(o + 9) = uz * q10 + yb * q11;
+  yb = vx * q2 + vy * q1;
+  megabuf(o + 4) = (vx * q1 - vy * q2) * pr * aspecty;
+  megabuf(o + 7) = (vz * q11 - yb * q10) * pr;
+  megabuf(o + 10) = vz * q10 + yb * q11;
+  // The bead phase.
+  megabuf(o + 14) = cos(q6 - k); megabuf(o + 15) = sin(q6 - k);
+  k = k + 1
+);
+'''
+point = '''
+j = floor(sample * 399 + 0.5);
+k = floor(j / t3); m = j - k * t3;
+i = t5 + 2 * min(max(m - 1, 0), t3 - 2);
+cp = megabuf(i); sp = megabuf(i + 1);
+o = t6 + k * 32;
+x = megabuf(o + 2) + megabuf(o + 3) * cp + megabuf(o + 4) * sp;
+y = megabuf(o + 5) + megabuf(o + 6) * cp + megabuf(o + 7) * sp;
+dz = megabuf(o + 8) + megabuf(o + 9) * cp + megabuf(o + 10) * sp;
+r = megabuf(o + 11); g = megabuf(o + 12); b = megabuf(o + 13);
+bb = 0.5 + 0.5 * (cp * (4 * cp * cp - 3) * megabuf(o + 14) + sp * (3 - 4 * sp * sp) * megabuf(o + 15));
+bb = bb * bb * bb;
+a = (m > 0.5) * (m < t3 - 1.5) * t1 * (0.32 + 0.6 * bb * bb) * min(1, max(0.35, 0.8 - dz * 0.12));
+'''
+
+[shader]
+warp = '''
+// A short trail behind the turning circles.
+return textureSampleLevel(sampler_main, s_pc, uv_orig, 0.0).rgb * 0.5;
+'''
+comp = '''
+let asp = u.texsize.x * u.texsize.w;
+let sb = min(u.q[1].z, 2.0) * 0.5;
+let st = max(0.0, min(u.q[1].w, 2.5) - 0.3);
+let be = min(u.q[2].x, 1.0);
+let p = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
+// Deep night with a faint indigo haze behind the tori.
+let r = length(p * vec2f(0.75, 1.0));
+var col = vec3f(0.006, 0.006, 0.022) + vec3f(0.05, 0.05, 0.16) * exp(-r * r / 0.25);
+// Lines are a pixel or two wide at any size, so their share of the
+// screen, and the glow they feed, shrinks as the screen grows.
+let gr = clamp(u.texsize.y / 540.0, 0.35, 1.5);
+let fl = textureSampleLevel(sampler_main, s_fc, uv, 0.0).rgb;
+col += fl * (1.3 + 0.5 * sb);
+col += (GetBlur1(uv) * (1.8 + 1.0 * sb) + GetBlur2(uv) * (1.6 + 1.0 * sb) + GetBlur3(uv) * (2.4 + 1.4 * sb + 1.2 * be)) * gr;
+// Treble: sparks on the brightest circles.
+let cell = floor(uv * u.texsize.xy / max(1.0, u.texsize.y / 540.0));
+let hh = fract(sin(dot(cell, vec2f(12.9898, 78.233))) * 43758.5453);
+let tw = pow(max(0.0, sin(u.time * (2.0 + 5.0 * hh) + hh * 60.0)), 20.0) * step(0.75, hh);
+col += vec3f(1.0, 0.95, 0.9) * tw * st * min(dot(fl, vec3f(0.33)), 1.0) * 1.2;
+let lc = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lc) + (col - vec3f(lc)) * 1.2, vec3f(0.0));
+return col / (1.0 + 0.45 * col);
+'''

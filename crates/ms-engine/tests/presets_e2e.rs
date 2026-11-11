@@ -48,7 +48,7 @@ const HAT_SEED: u64 = 0x4A75_6E6B_4861_7473;
 const RGBA8: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 
 /// The bundled presets, by file stem. `presets/` must hold exactly these.
-const BUNDLED: [&str; 46] = [
+const BUNDLED: [&str; 47] = [
     "default",
     "ink-bloom",
     "bass-tunnel",
@@ -95,6 +95,7 @@ const BUNDLED: [&str; 46] = [
     "mandelbrot-dive",
     "gravitational-waves",
     "kelvin-helmholtz",
+    "hopf-fibration",
 ];
 
 // ------------------------------------------------------------ synthetic audio
@@ -519,6 +520,7 @@ preset_tests! {
     preset_mandelbrot_dive => "mandelbrot-dive",
     preset_gravitational_waves => "gravitational-waves",
     preset_kelvin_helmholtz => "kelvin-helmholtz",
+    preset_hopf_fibration => "hopf-fibration",
 }
 
 /// `presets/` holds exactly the bundled set (so every file has a test
@@ -551,7 +553,7 @@ fn bundled_set_is_complete() {
 /// runs: a minute for those with long-running state (accumulated phases,
 /// state machines), twenty seconds for the rest (enough for their feedback
 /// to settle; every bundled preset but the gentle default is covered).
-const LONG_RUN: [(&str, usize); 45] = [
+const LONG_RUN: [(&str, usize); 46] = [
     ("ink-bloom", 1200),
     ("bass-tunnel", 1200),
     ("prism-drift", 1200),
@@ -597,6 +599,7 @@ const LONG_RUN: [(&str, usize); 45] = [
     ("mandelbrot-dive", 3600),
     ("gravitational-waves", 3600),
     ("kelvin-helmholtz", 3600),
+    ("hopf-fibration", 3600),
 ];
 
 /// A cheap guard against flashing that only develops over time (for
