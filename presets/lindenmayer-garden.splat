@@ -1,0 +1,387 @@
+# Lindenmayer Garden: L-system plants growing branch by branch in bright
+# neon on a dark ground. Three beds, a big plant in the middle and a small
+# one either side; each grows from its root out to its finest tips, sways
+# a while, fades, and comes back as a different species.
+#
+# Init grows nine plants from their L-systems (rewriting the axiom a few
+# rounds in megabuf) and walks a turtle over each string: Lindenmayer's
+# fractal plant and its mirror, seaweed, two bushes, two sprigs, a tree and
+# a twig. Each plant becomes a polyline of records (previous vertex, this
+# vertex, each with its path length from the root, and a shown flag), a
+# straight run of F being one segment and a pop a hidden jump back to the
+# branch point. Everything is normalised to height 1 and path length 1.
+#
+# The custom waves trace the records (two waves for the big bed). A
+# vertex beyond the growth front L is pulled back along its segment to the
+# front, so every branch tip grows outward at the same rate along the
+# path, the youngest tips white-hot. The plant bends in the wind as x +=
+# sway y^2. Colour runs round the hue wheel from the stem to the tips,
+# from a hue that changes with every new plant. A short feedback trail and
+# three blur levels make the glow, and the ground mirrors it faintly.
+#
+# Bass speeds the growth a little and swings the sway wider (smoothed;
+# the sway's phase is accumulated). Mids quicken the sway. Treble
+# twinkles fireflies in the air. Each kick swells the wide glow, eased.
+version = 1
+
+[meta]
+name = "Lindenmayer Garden"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.5
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+b1n = 0.0
+b1x = 1.0
+b2n = 0.0
+b2x = 1.0
+b3n = 0.0
+b3x = 1.0
+
+[code]
+init = '''
+// The species, as L-systems. Symbols: F = 1 (grow a step), X = 2 (a bud,
+// draws nothing), + = 3 and - = 4 (turn left and right), [ = 5 and ] = 6
+// (push and pop the turtle). Each rule is written as up to three 9-digit
+// chunks of symbols, read left to right (0 digits are skipped).
+// 0: fern, 25 degrees, 4 rounds, axiom X; F -> FF, X -> F+[[X]-X]-F[-FX]+X
+s = 50000 + 0 * 20; megabuf(s) = 25; megabuf(s + 1) = 4; megabuf(s + 2) = 2;
+megabuf(s + 3) = 11; megabuf(s + 4) = 0; megabuf(s + 5) = 0;
+megabuf(s + 6) = 135526426; megabuf(s + 7) = 415412632; megabuf(s + 8) = 0;
+// 1: weed, 22.5 degrees, 4 rounds, axiom X; F -> FF, X -> F-[[X]+X]+F[+FX]-X
+s = 50000 + 1 * 20; megabuf(s) = 22.5; megabuf(s + 1) = 4; megabuf(s + 2) = 2;
+megabuf(s + 3) = 11; megabuf(s + 4) = 0; megabuf(s + 5) = 0;
+megabuf(s + 6) = 145526326; megabuf(s + 7) = 315312642; megabuf(s + 8) = 0;
+// 2: seaweed, 22.5 degrees, 3 rounds, axiom F; F -> FF-[-F+F+F]+[+F-F-F], X -> X
+s = 50000 + 2 * 20; megabuf(s) = 22.5; megabuf(s + 1) = 3; megabuf(s + 2) = 1;
+megabuf(s + 3) = 114541313; megabuf(s + 4) = 163531414; megabuf(s + 5) = 16;
+megabuf(s + 6) = 2; megabuf(s + 7) = 0; megabuf(s + 8) = 0;
+// 3: bush, 25.7 degrees, 5 rounds, axiom X; F -> FF, X -> F[+X][-X]FX
+s = 50000 + 3 * 20; megabuf(s) = 25.7; megabuf(s + 1) = 5; megabuf(s + 2) = 2;
+megabuf(s + 3) = 11; megabuf(s + 4) = 0; megabuf(s + 5) = 0;
+megabuf(s + 6) = 153265426; megabuf(s + 7) = 12; megabuf(s + 8) = 0;
+// 4: sprig, 20 degrees, 5 rounds, axiom X; F -> FF, X -> F[+X]F[-X]+X
+s = 50000 + 4 * 20; megabuf(s) = 20; megabuf(s + 1) = 5; megabuf(s + 2) = 2;
+megabuf(s + 3) = 11; megabuf(s + 4) = 0; megabuf(s + 5) = 0;
+megabuf(s + 6) = 153261542; megabuf(s + 7) = 632; megabuf(s + 8) = 0;
+// 5: tree, 25.7 degrees, 3 rounds, axiom F; F -> F[+F]F[-F]F, X -> X
+s = 50000 + 5 * 20; megabuf(s) = 25.7; megabuf(s + 1) = 3; megabuf(s + 2) = 1;
+megabuf(s + 3) = 153161541; megabuf(s + 4) = 61; megabuf(s + 5) = 0;
+megabuf(s + 6) = 2; megabuf(s + 7) = 0; megabuf(s + 8) = 0;
+// 6: twig, 20 degrees, 3 rounds, axiom F; F -> F[+F]F[-F][F], X -> X
+s = 50000 + 6 * 20; megabuf(s) = 20; megabuf(s + 1) = 3; megabuf(s + 2) = 1;
+megabuf(s + 3) = 153161541; megabuf(s + 4) = 6516; megabuf(s + 5) = 0;
+megabuf(s + 6) = 2; megabuf(s + 7) = 0; megabuf(s + 8) = 0;
+// 7: bush, 25.7 degrees, 4 rounds, axiom X; F -> FF, X -> F[+X][-X]FX
+s = 50000 + 7 * 20; megabuf(s) = 25.7; megabuf(s + 1) = 4; megabuf(s + 2) = 2;
+megabuf(s + 3) = 11; megabuf(s + 4) = 0; megabuf(s + 5) = 0;
+megabuf(s + 6) = 153265426; megabuf(s + 7) = 12; megabuf(s + 8) = 0;
+// 8: sprig, 20 degrees, 4 rounds, axiom X; F -> FF, X -> F[+X]F[-X]+X
+s = 50000 + 8 * 20; megabuf(s) = 20; megabuf(s + 1) = 4; megabuf(s + 2) = 2;
+megabuf(s + 3) = 11; megabuf(s + 4) = 0; megabuf(s + 5) = 0;
+megabuf(s + 6) = 153261542; megabuf(s + 7) = 632; megabuf(s + 8) = 0;
+// Grow each species' string, walk the turtle over it, and store the plant
+// as a polyline of records (see the header) at 100000 + 8000 j.
+j = 0;
+loop(9,
+  s = 50000 + j * 20;
+  // Decode the two rules: F's at 60000 (lf symbols), X's at 60100 (lx).
+  lf = 0; lx = 0; c = 0;
+  loop(3,
+    v = megabuf(s + 3 + c); w = megabuf(s + 6 + c); e = 100000000;
+    loop(9,
+      dg = floor(v / e) - 10 * floor(v / (e * 10));
+      megabuf(60000 + lf) = dg; lf = lf + (dg > 0);
+      dg = floor(w / e) - 10 * floor(w / (e * 10));
+      megabuf(60100 + lx) = dg; lx = lx + (dg > 0);
+      e = e / 10
+    );
+    c = c + 1
+  );
+  // Rewrite the axiom (at 200000, la symbols) round by round via 300000.
+  megabuf(200000) = megabuf(s + 2); la = 1;
+  loop(megabuf(s + 1),
+    nb = 0; i = 0;
+    loop(la,
+      c = megabuf(200000 + i);
+      m = 0;
+      loop(if(c == 1, lf, 0), megabuf(300000 + nb) = megabuf(60000 + m); nb = nb + 1; m = m + 1);
+      loop(if(c == 2, lx, 0), megabuf(300000 + nb) = megabuf(60100 + m); nb = nb + 1; m = m + 1);
+      if(c > 2, megabuf(300000 + nb) = c; nb = nb + 1, 0);
+      i = i + 1
+    );
+    i = 0;
+    loop(nb, megabuf(200000 + i) = megabuf(300000 + i); i = i + 1);
+    la = nb
+  );
+  megabuf(200000 + la) = 0;
+  // The turtle: x, y, heading a, path length sl; a stack at 400000.
+  o = 100000 + j * 8000; an = megabuf(s) * 0.017453293;
+  x = 0; y = 0; a = 1.5707963; sl = 0; sp = 0;
+  lx = 0; ly = 0; ls = 0;
+  m = 0;
+  loop(6, megabuf(o + m) = 0; m = m + 1);
+  megabuf(o + 6) = 1; n = 1;
+  xm = 0.001; ym = 0.001; zm = 0.001;
+  i = 0;
+  loop(la,
+    c = megabuf(200000 + i);
+    if(c == 1,
+      x = x + cos(a); y = y + sin(a); sl = sl + 1;
+      // The end of a straight run: a vertex.
+      if(megabuf(200000 + i + 1) != 1,
+        r = o + n * 7;
+        megabuf(r) = lx; megabuf(r + 1) = ly; megabuf(r + 2) = ls;
+        megabuf(r + 3) = x; megabuf(r + 4) = y; megabuf(r + 5) = sl; megabuf(r + 6) = 1;
+        lx = x; ly = y; ls = sl; n = n + 1;
+        xm = max(xm, abs(x)); ym = max(ym, y); zm = max(zm, sl), 0),
+      0);
+    a = a + an * ((c == 3) - (c == 4));
+    if(c == 5,
+      megabuf(400000 + sp) = x; megabuf(400001 + sp) = y; megabuf(400002 + sp) = a; megabuf(400003 + sp) = sl;
+      sp = sp + 4, 0);
+    if(c == 6,
+      sp = sp - 4;
+      x = megabuf(400000 + sp); y = megabuf(400001 + sp); a = megabuf(400002 + sp); sl = megabuf(400003 + sp);
+      // A jump: the last vertex again, hidden; the branch point, hidden;
+      // then the branch point, shown, to start the next line.
+      r = o + n * 7; m = 0;
+      loop(6, megabuf(r + m) = megabuf(r - 7 + m); m = m + 1);
+      megabuf(r + 6) = 0;
+      megabuf(r + 7) = x; megabuf(r + 8) = y; megabuf(r + 9) = sl;
+      megabuf(r + 10) = x; megabuf(r + 11) = y; megabuf(r + 12) = sl; megabuf(r + 13) = 0;
+      m = 0;
+      loop(6, megabuf(r + 14 + m) = megabuf(r + 7 + m); m = m + 1);
+      megabuf(r + 20) = 1;
+      lx = x; ly = y; ls = sl; n = n + 3, 0);
+    i = i + 1
+  );
+  // Normalise: height 1 (narrower if the plant is wide), path length 1.
+  k = 1 / max(ym, 1.6 * xm); m = 0;
+  loop(n,
+    r = o + m * 7;
+    megabuf(r) = megabuf(r) * k; megabuf(r + 1) = megabuf(r + 1) * k; megabuf(r + 2) = megabuf(r + 2) / zm;
+    megabuf(r + 3) = megabuf(r + 3) * k; megabuf(r + 4) = megabuf(r + 4) * k; megabuf(r + 5) = megabuf(r + 5) / zm;
+    m = m + 1
+  );
+  megabuf(99000 + j) = n;
+  j = j + 1
+);
+// Three beds: a big plant in the middle (species 0-4), small ones either
+// side (5-8), each part way through its cycle so the garden starts grown.
+c0 = 9; c1 = 17; c2 = 1;
+p0 = 0; p1 = 5; p2 = 7;
+m0 = 1; m1 = -1; m2 = 1;
+h0 = 0.36; h1 = 0.86; h2 = 0.1;
+x0 = 0.5; x1 = 0.21; x2 = 0.79;
+w0 = 0; w1 = 2; w2 = 4;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+sm = sm + (min(mid_att, 2.5) - sm) * 0.03;
+st = st + (min(treb_att, 2.5) - st) * 0.1;
+bt = max(bt * 0.94, beat);
+be = be + (bt - be) * 0.08;
+// Each bed's clock: 13 s of growth, 7 s grown, 4 s fading, then a new
+// species. A little quicker with the bass.
+dt = (1 + 0.35 * min(sb, 2) / 2) / 60;
+// Bed 0.
+c0 = c0 + dt;
+if(c0 >= 24,
+  c0 = 0;
+  p0 = 0 + (p0 - 0 + 1 + rand(4)) % 5;
+  m0 = if(rand(2) < 0.5, -1, 1);
+  h0 = h0 + 0.27 + rand(100) / 400; h0 = h0 - floor(h0);
+  x0 = 0.5 + (rand(100) / 100 - 0.5) * 0.08, 0);
+w0 = w0 + 0.011 + 0.009 * min(sm, 2) / 2;
+w0 = w0 - 6.2831853 * floor(w0 / 6.2831853);
+u = min(1, c0 / 13);
+q1 = 100000 + 8000 * p0; q2 = megabuf(99000 + p0);
+q3 = 1 - (1 - u) * (1 - u);
+q4 = min(1, c0 / 0.5) * min(1, max(0, (24 - c0) / 4));
+q5 = (0.06 + 0.1 * min(sb, 2) / 2) * sin(w0);
+q6 = x0; q7 = m0; q8 = h0 * 6.2831853;
+// Bed 1.
+c1 = c1 + dt;
+if(c1 >= 24,
+  c1 = 0;
+  p1 = 5 + (p1 - 5 + 1 + rand(3)) % 4;
+  m1 = if(rand(2) < 0.5, -1, 1);
+  h1 = h1 + 0.27 + rand(100) / 400; h1 = h1 - floor(h1);
+  x1 = 0.21 + (rand(100) / 100 - 0.5) * 0.06, 0);
+w1 = w1 + 0.011 + 0.009 * min(sm, 2) / 2;
+w1 = w1 - 6.2831853 * floor(w1 / 6.2831853);
+u = min(1, c1 / 13);
+q9 = 100000 + 8000 * p1; q10 = megabuf(99000 + p1);
+q11 = 1 - (1 - u) * (1 - u);
+q12 = min(1, c1 / 0.5) * min(1, max(0, (24 - c1) / 4));
+q13 = (0.06 + 0.1 * min(sb, 2) / 2) * sin(w1);
+q14 = x1; q15 = m1; q16 = h1 * 6.2831853;
+// Bed 2.
+c2 = c2 + dt;
+if(c2 >= 24,
+  c2 = 0;
+  p2 = 5 + (p2 - 5 + 1 + rand(3)) % 4;
+  m2 = if(rand(2) < 0.5, -1, 1);
+  h2 = h2 + 0.27 + rand(100) / 400; h2 = h2 - floor(h2);
+  x2 = 0.79 + (rand(100) / 100 - 0.5) * 0.06, 0);
+w2 = w2 + 0.011 + 0.009 * min(sm, 2) / 2;
+w2 = w2 - 6.2831853 * floor(w2 / 6.2831853);
+u = min(1, c2 / 13);
+q17 = 100000 + 8000 * p2; q18 = megabuf(99000 + p2);
+q19 = 1 - (1 - u) * (1 - u);
+q20 = min(1, c2 / 0.5) * min(1, max(0, (24 - c2) / 4));
+q21 = (0.06 + 0.1 * min(sb, 2) / 2) * sin(w2);
+q22 = x2; q23 = m2; q24 = h2 * 6.2831853;
+q25 = sb; q26 = st; q27 = be;
+'''
+
+# The big bed (two waves), then the two small ones.
+[[wave]]
+enabled = true
+samples = 512
+thick = 1
+additive = 1
+a = 1.0
+frame = '''
+t1 = q1; t2 = q2; t3 = q3; t4 = q4 * (0.85 + 0.25 * min(q25, 2) / 2);
+t5 = q5; t6 = q8; t7 = q6; t8 = q7 * 0.78 * aspecty;
+'''
+point = '''
+n = 0 + floor(sample * 511 + 0.5);
+o = t1 + min(n, t2 - 1) * 7;
+px = megabuf(o); py = megabuf(o + 1); ps = megabuf(o + 2);
+ex = megabuf(o + 3); ey = megabuf(o + 4); cs = megabuf(o + 5);
+f = min(1, max(0, (t3 - ps) / (cs - ps + 0.00001)));
+yy = py + (ey - py) * f;
+x = t7 + (px + (ex - px) * f + t5 * yy * yy) * t8;
+y = 0.1 + yy * 0.78;
+sn = min(cs, t3);
+h = t6 + 2.4 * sn;
+tp = max(0, 1 - abs(t3 - cs) * 14) * (t3 < 0.999);
+r = 0.5 + 0.5 * cos(h) + tp; g = 0.5 + 0.5 * cos(h - 2.0943951) + tp; b = 0.5 + 0.5 * cos(h - 4.1887902) + tp;
+a = megabuf(o + 6) * (n < t2) * t4 * (0.85 + 0.3 * sn + 0.5 * tp);
+'''
+
+[[wave]]
+enabled = true
+samples = 512
+thick = 1
+additive = 1
+a = 1.0
+frame = '''
+t1 = q1; t2 = q2; t3 = q3; t4 = q4 * (0.85 + 0.25 * min(q25, 2) / 2);
+t5 = q5; t6 = q8; t7 = q6; t8 = q7 * 0.78 * aspecty;
+'''
+point = '''
+n = 511 + floor(sample * 511 + 0.5);
+o = t1 + min(n, t2 - 1) * 7;
+px = megabuf(o); py = megabuf(o + 1); ps = megabuf(o + 2);
+ex = megabuf(o + 3); ey = megabuf(o + 4); cs = megabuf(o + 5);
+f = min(1, max(0, (t3 - ps) / (cs - ps + 0.00001)));
+yy = py + (ey - py) * f;
+x = t7 + (px + (ex - px) * f + t5 * yy * yy) * t8;
+y = 0.1 + yy * 0.78;
+sn = min(cs, t3);
+h = t6 + 2.4 * sn;
+tp = max(0, 1 - abs(t3 - cs) * 14) * (t3 < 0.999);
+r = 0.5 + 0.5 * cos(h) + tp; g = 0.5 + 0.5 * cos(h - 2.0943951) + tp; b = 0.5 + 0.5 * cos(h - 4.1887902) + tp;
+a = megabuf(o + 6) * (n < t2) * t4 * (0.85 + 0.3 * sn + 0.5 * tp);
+'''
+
+[[wave]]
+enabled = true
+samples = 512
+thick = 1
+additive = 1
+a = 1.0
+frame = '''
+t1 = q9; t2 = q10; t3 = q11; t4 = q12 * (0.85 + 0.25 * min(q25, 2) / 2);
+t5 = q13; t6 = q16; t7 = q14; t8 = q15 * 0.6 * aspecty;
+'''
+point = '''
+n = 0 + floor(sample * 511 + 0.5);
+o = t1 + min(n, t2 - 1) * 7;
+px = megabuf(o); py = megabuf(o + 1); ps = megabuf(o + 2);
+ex = megabuf(o + 3); ey = megabuf(o + 4); cs = megabuf(o + 5);
+f = min(1, max(0, (t3 - ps) / (cs - ps + 0.00001)));
+yy = py + (ey - py) * f;
+x = t7 + (px + (ex - px) * f + t5 * yy * yy) * t8;
+y = 0.1 + yy * 0.6;
+sn = min(cs, t3);
+h = t6 + 2.4 * sn;
+tp = max(0, 1 - abs(t3 - cs) * 14) * (t3 < 0.999);
+r = 0.5 + 0.5 * cos(h) + tp; g = 0.5 + 0.5 * cos(h - 2.0943951) + tp; b = 0.5 + 0.5 * cos(h - 4.1887902) + tp;
+a = megabuf(o + 6) * (n < t2) * t4 * (0.85 + 0.3 * sn + 0.5 * tp);
+'''
+
+[[wave]]
+enabled = true
+samples = 512
+thick = 1
+additive = 1
+a = 1.0
+frame = '''
+t1 = q17; t2 = q18; t3 = q19; t4 = q20 * (0.85 + 0.25 * min(q25, 2) / 2);
+t5 = q21; t6 = q24; t7 = q22; t8 = q23 * 0.6 * aspecty;
+'''
+point = '''
+n = 0 + floor(sample * 511 + 0.5);
+o = t1 + min(n, t2 - 1) * 7;
+px = megabuf(o); py = megabuf(o + 1); ps = megabuf(o + 2);
+ex = megabuf(o + 3); ey = megabuf(o + 4); cs = megabuf(o + 5);
+f = min(1, max(0, (t3 - ps) / (cs - ps + 0.00001)));
+yy = py + (ey - py) * f;
+x = t7 + (px + (ex - px) * f + t5 * yy * yy) * t8;
+y = 0.1 + yy * 0.6;
+sn = min(cs, t3);
+h = t6 + 2.4 * sn;
+tp = max(0, 1 - abs(t3 - cs) * 14) * (t3 < 0.999);
+r = 0.5 + 0.5 * cos(h) + tp; g = 0.5 + 0.5 * cos(h - 2.0943951) + tp; b = 0.5 + 0.5 * cos(h - 4.1887902) + tp;
+a = megabuf(o + 6) * (n < t2) * t4 * (0.85 + 0.3 * sn + 0.5 * tp);
+'''
+
+[shader]
+warp = '''
+// A short trail behind the swaying plants.
+return textureSampleLevel(sampler_main, s_pc, uv_orig, 0.0).rgb * 0.5;
+'''
+comp = '''
+let asp = u.texsize.x * u.texsize.w;
+let sb = min(u.q[6].x, 2.0) * 0.5;
+let st = max(0.0, min(u.q[6].y, 2.5) - 0.3);
+let be = min(u.q[6].z, 1.0);
+let gy = 0.9;
+// Night sky, a faint violet glow low over the beds.
+var col = vec3f(0.006, 0.006, 0.02) + vec3f(0.1, 0.04, 0.16) * exp(-pow((uv.y - 0.75) / 0.3, 2.0));
+let gr = clamp(u.texsize.y / 540.0, 0.35, 1.5);
+var q = uv;
+var k = 1.0;
+if (uv.y > gy) {
+    // The ground: dark loam mirroring the glow above, faintly.
+    q = vec2f(uv.x, 2.0 * gy - uv.y);
+    k = 0.28 * exp(-(uv.y - gy) / 0.06);
+    col = vec3f(0.012, 0.01, 0.016) + vec3f(0.03, 0.05, 0.04) * exp(-(uv.y - gy) / 0.02);
+}
+let fl = textureSampleLevel(sampler_main, s_fc, q, 0.0).rgb;
+col += k * fl * (1.8 + 0.5 * sb);
+col += k * (textureSampleLevel(sampler_blur1, s_fc, q, 0.0).rgb * (u.blur_max.x - u.blur_min.x) * (3.2 + 1.4 * sb)
+    + textureSampleLevel(sampler_blur2, s_fc, q, 0.0).rgb * (u.blur_max.y - u.blur_min.y) * (3.2 + 1.4 * sb)
+    + textureSampleLevel(sampler_blur3, s_fc, q, 0.0).rgb * (u.blur_max.z - u.blur_min.z) * (4.6 + 2.0 * sb + 1.5 * be)) * gr;
+// A thin glowing horizon line.
+col += vec3f(0.1, 0.25, 0.2) * exp(-pow((uv.y - gy) * u.texsize.y / (1.5 * gr), 2.0));
+// Treble: fireflies drifting in the air above the ground.
+let cell = floor(vec2f(uv.x * 48.0 * asp, uv.y * 48.0));
+let hh = fract(sin(dot(cell, vec2f(12.9898, 78.233))) * 43758.5453);
+let fp = (cell + vec2f(0.5) + 0.3 * vec2f(sin(u.time * 0.7 + hh * 40.0), cos(u.time * 0.5 + hh * 30.0))) / vec2f(48.0 * asp, 48.0);
+let fd = length((uv - fp) * vec2f(asp, 1.0)) * 540.0 / gr;
+let tw = pow(max(0.0, sin(u.time * (1.0 + 2.0 * hh) + hh * 60.0)), 6.0) * step(0.9, hh) * step(uv.y, gy - 0.02);
+col += vec3f(0.9, 1.0, 0.5) * tw * (0.15 + 0.6 * st) * exp(-fd * fd / 3.0);
+let lc = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lc) + (col - vec3f(lc)) * 1.2, vec3f(0.0));
+return col / (1.0 + 0.45 * col);
+'''

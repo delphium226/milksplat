@@ -45,6 +45,8 @@ device, so just start your music and run it.
 | **Mandelbrot Dive**: an endless zoom onto a branch point of the Mandelbrot set, its feathered filaments glowing in neon | **Gravitational Waves**: two black holes spiral in and merge, the spacetime grid rippling outward in a two-armed spiral |
 | ![Kelvin-Helmholtz Clouds](docs/images/kelvin-helmholtz.png) | ![Hopf Fibration](docs/images/hopf-fibration.png) |
 | **Kelvin-Helmholtz Clouds**: a sunset cloud layer under a fast wind, its top rolling up into glowing breaking-wave curls | **Hopf Fibration**: the 3-sphere unwound into linked circles, nested tori of glowing fibres turning slowly in 4D |
+| ![Lindenmayer Garden](docs/images/lindenmayer-garden.png) | |
+| **Lindenmayer Garden**: L-system ferns, trees and seaweed growing branch by branch in neon, swaying, fading and regrowing as new species | |
 
 These are single frames; every preset moves and changes with the music.
 
