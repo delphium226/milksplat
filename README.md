@@ -47,8 +47,8 @@ device, so just start your music and run it.
 | **Kelvin-Helmholtz Clouds**: a sunset cloud layer under a fast wind, its top rolling up into glowing breaking-wave curls | **Hopf Fibration**: the 3-sphere unwound into linked circles, nested tori of glowing fibres turning slowly in 4D |
 | ![Lindenmayer Garden](docs/images/lindenmayer-garden.png) | ![Double Slit](docs/images/double-slit.png) |
 | **Lindenmayer Garden**: L-system ferns, trees and seaweed growing branch by branch in neon, swaying, fading and regrowing as new species | **Double Slit**: Young's experiment: waves through two slits interfere in glowing fringes while a detector builds the pattern dot by dot |
-| ![Supernova Remnant](docs/images/supernova-remnant.png) | |
-| **Supernova Remnant**: a slowly expanding shell of tangled filaments in hydrogen red, oxygen teal and sulphur gold around a pulsing pulsar wind nebula | |
+| ![Supernova Remnant](docs/images/supernova-remnant.png) | ![Knot Theory](docs/images/knot-theory.png) |
+| **Supernova Remnant**: a slowly expanding shell of tangled filaments in hydrogen red, oxygen teal and sulphur gold around a pulsing pulsar wind nebula | **Knot Theory**: glowing neon tubes tied in torus knots, trefoil to cinquefoil and beyond, morphing from one to the next as they turn |
 
 These are single frames; every preset moves and changes with the music.
 

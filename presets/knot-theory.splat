@@ -1,0 +1,227 @@
+# Knot Theory: glowing tubes tied in torus knots, the trefoil, the
+# cinquefoil, the (3,4), the (3,5) and the (2,7), each melting smoothly
+# into the next as the knot turns slowly in space, lit with a hard
+# specular highlight on a dark ground.
+#
+# A (p,q) torus knot winds p times round the axis of a torus while it
+# winds q times round its tube:
+#   c(t) = ((1 + 0.42 cos(q t)) cos(p t), (1 + 0.42 cos(q t)) sin(p t),
+#           -0.42 sin(q t)).
+# The morph is a straight blend of two such curves at the same t, so for
+# a few seconds the tube passes through itself while one knot becomes the
+# next (a homotopy, not an isotopy).
+#
+# The tube is drawn in the composite, but the curve is evaluated only once
+# per tick: the warp shader writes 128 samples of the turned, projected
+# curve (screen position, depth and perspective scale) into the first
+# rows of the fp16 feedback buffer, two texels a sample with the
+# positions split into a coarse and a fine part so half floats keep them
+# exact to a fraction of a pixel. The composite reads them back with
+# textureLoad and, for each pixel, finds the nearest point of the 128
+# segments, keeps the front-most tube surface that covers it, and shades
+# it from the tube's normal: diffuse, a sharp Blinn highlight and a rim,
+# in a hue that runs along the knot. The distance to the nearest tube
+# gives a soft glow.
+#
+# The frame code holds each knot about 9 s and morphs over 5 s, and turns
+# the knot on accumulated phases. Bass quickens the turn a little and
+# swells the glow (smoothed). Mids sharpen and brighten the highlight.
+# Treble twinkles the stars. Each kick swells the glow, eased.
+version = 1
+
+[meta]
+name = "Knot Theory"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+feedback_format = "fp16"
+
+[code]
+init = '''
+kc = 4; ki = 0; ya = 0.6; sp = 0; rk = 0;
+// The knots: (p, q) pairs.
+megabuf(0) = 2; megabuf(1) = 3;
+megabuf(2) = 2; megabuf(3) = 5;
+megabuf(4) = 3; megabuf(5) = 4;
+megabuf(6) = 3; megabuf(7) = 5;
+megabuf(8) = 2; megabuf(9) = 7;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+sm = sm + (min(mid_att, 2.5) - sm) * 0.03;
+st = st + (min(treb_att, 2.5) - st) * 0.1;
+bt = max(bt * 0.94, beat);
+be = be + (bt - be) * 0.08;
+// Each knot holds 9 s, then morphs into the next over 5 s.
+kc = kc + 1 / 60;
+ki = (ki + (kc >= 14)) % 5;
+kc = kc - 14 * (kc >= 14);
+u1 = min(1, max(0, (kc - 9) / 5));
+// The turns (accumulated, wrapped): about a turn every 40 s round the
+// vertical, a slow spin about the knot's own axis and a gentle rocking.
+ya = ya + 0.0026 + 0.0012 * min(sb, 2) / 2;
+ya = ya - 6.2831853 * floor(ya / 6.2831853);
+sp = sp + 0.0019;
+sp = sp - 6.2831853 * floor(sp / 6.2831853);
+rk = rk + 0.0013;
+rk = rk - 6.2831853 * floor(rk / 6.2831853);
+q1 = megabuf(ki * 2); q2 = megabuf(ki * 2 + 1);
+q3 = megabuf(((ki + 1) % 5) * 2); q4 = megabuf(((ki + 1) % 5) * 2 + 1);
+q5 = u1 * u1 * (3 - 2 * u1);
+q6 = ya; q7 = sp; q8 = 0.75 + 0.3 * sin(rk);
+q9 = sb; q10 = sm; q11 = st; q12 = be;
+'''
+
+[shader]
+warp = '''
+// The curve table: sample i at column i % width, rows 2 (i / width) and
+// one below. Everything else is black.
+let w = u32(u.texsize.x);
+let px = vec2u(uv_orig * u.texsize.xy);
+let i = (px.y / 2u) * w + px.x;
+if (i >= 128u) {
+    return vec3f(0.0);
+}
+let t = f32(i) * 6.2831853 / 128.0;
+let pa = u.q[0].x;
+let qa = u.q[0].y;
+let pb = u.q[0].z;
+let qb = u.q[0].w;
+let m = u.q[1].x;
+let ra = 1.0 + 0.42 * cos(qa * t);
+let rb = 1.0 + 0.42 * cos(qb * t);
+let ca = vec3f(ra * cos(pa * t), ra * sin(pa * t), -0.42 * sin(qa * t));
+let cb = vec3f(rb * cos(pb * t), rb * sin(pb * t), -0.42 * sin(qb * t));
+var c = mix(ca, cb, m);
+// Spin about the knot's axis, tip it toward the viewer, then turn it
+// round the vertical.
+let s1 = sin(u.q[1].z);
+let c1 = cos(u.q[1].z);
+c = vec3f(c1 * c.x - s1 * c.y, s1 * c.x + c1 * c.y, c.z);
+let s2 = sin(u.q[1].w);
+let c2 = cos(u.q[1].w);
+c = vec3f(c.x, c2 * c.y - s2 * c.z, s2 * c.y + c2 * c.z);
+let s3 = sin(u.q[1].y);
+let c3 = cos(u.q[1].y);
+c = vec3f(c3 * c.x + s3 * c.z, c.y, -s3 * c.x + c3 * c.z);
+// Perspective: the viewer at depth -5.5.
+let f = 5.5 / (5.5 + c.z);
+let x = c.x * 0.33 * f;
+let y = c.y * 0.33 * f;
+// Coarse parts (multiples of 1/256, exact in half floats) and fine parts.
+let xh = floor(x * 256.0 + 0.5) / 256.0;
+let yh = floor(y * 256.0 + 0.5) / 256.0;
+if (px.y % 2u == 0u) {
+    return vec3f(xh + 2.0, (x - xh) * 256.0 + 0.5, yh + 2.0);
+}
+return vec3f((y - yh) * 256.0 + 0.5, c.z * 0.2 + 0.5, f);
+'''
+comp = '''
+let asp = u.texsize.x * u.texsize.w;
+let p = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
+let sb = min(u.q[2].x, 2.0) * 0.5;
+let sm = min(u.q[2].y, 2.0) * 0.5;
+let st = max(0.0, min(u.q[2].z, 2.5) - 0.3);
+let be = min(u.q[2].w, 1.0);
+let w = u32(textureDimensions(sampler_main).x);
+let tube = 0.04;
+// Sample 0, then walk the segments.
+var a0 = textureLoad(sampler_main, vec2i(0, 0), 0).rgb;
+var a1 = textureLoad(sampler_main, vec2i(0, 1), 0).rgb;
+let pa0 = vec2f(a0.x - 2.0 + (a0.y - 0.5) / 256.0, a0.z - 2.0 + (a1.x - 0.5) / 256.0);
+var pa = pa0;
+var za = a1.y;
+var fa = a1.z;
+let z0 = za;
+let f0 = fa;
+var best = 1e9;
+var off = vec2f(0.0);
+var tb = 0.0;
+var bk = 1.0;
+var bi = -100;
+// The glow: a weighted sum of the segments' hue directions (turned one
+// step per segment) and weights.
+var gv = vec2f(0.0);
+var gw = 0.0;
+var hd = vec2f(1.0, 0.0);
+let hs = vec2f(cos(6.2831853 * 2.0 / 128.0), sin(6.2831853 * 2.0 / 128.0));
+for (var i = 1u; i <= 128u; i++) {
+    var pb = pa0;
+    var zb = z0;
+    var fb = f0;
+    if (i < 128u) {
+        let col = i32(i % w);
+        let row = i32((i / w) * 2u);
+        let b0 = textureLoad(sampler_main, vec2i(col, row), 0).rgb;
+        let b1 = textureLoad(sampler_main, vec2i(col, row + 1), 0).rgb;
+        pb = vec2f(b0.x - 2.0 + (b0.y - 0.5) / 256.0, b0.z - 2.0 + (b1.x - 0.5) / 256.0);
+        zb = b1.y;
+        fb = b1.z;
+    }
+    let e = pb - pa;
+    let h = clamp(dot(p - pa, e) / max(dot(e, e), 1e-9), 0.0, 1.0);
+    let v = p - pa - e * h;
+    let d = length(v);
+    let rr = tube * mix(fa, fb, h);
+    let ts = (f32(i) - 1.0 + h) / 128.0;
+    let gq = max(0.0, 1.0 - max(d - rr, 0.0) / 0.08);
+    let g2 = gq * gq;
+    gv += hd * g2;
+    gw += g2;
+    hd = vec2f(hd.x * hs.x - hd.y * hs.y, hd.x * hs.y + hd.y * hs.x);
+    if (d < rr) {
+        let k = d / rr;
+        let zf = mix(za, zb, h) - 0.75 * rr * sqrt(1.0 - k * k);
+        // Within a few segments of the best so far (the same stretch of
+        // tube) the segment nearest its centre line wins; otherwise the
+        // one in front.
+        let di = abs(i32(i) - bi);
+        let same = min(di, 128 - di) <= 4;
+        if ((same && k < bk) || (!same && zf < best)) {
+            best = zf;
+            bk = k;
+            bi = i32(i);
+            off = v / rr;
+            tb = ts;
+        }
+    }
+    pa = pb;
+    za = zb;
+    fa = fb;
+}
+// A dark ground, a faint violet glow behind the knot and stars.
+var col = vec3f(0.006, 0.005, 0.016) + vec3f(0.1, 0.04, 0.17) * exp(-dot(p, p) / 0.3);
+let lw = max(1.0, u.texsize.y / 540.0);
+let cell = floor(uv * u.texsize.xy / lw);
+let hh = fract(sin(dot(cell, vec2f(12.9898, 78.233))) * 43758.5453);
+let tw = 0.5 + 0.5 * sin(u.time * (1.0 + 3.0 * hh) + hh * 40.0);
+col += vec3f(0.7, 0.8, 1.0) * step(0.997, hh) * (0.2 + 0.5 * tw * st);
+// The glow round the tube, in the colour of the nearest part.
+let hg = atan2(gv.y, gv.x) + 6.2831853 * u.time * 0.02;
+let gc = 0.5 + 0.5 * cos(vec3f(hg, hg - 2.0943951, hg - 4.1887902));
+col += gc * (1.0 - exp(-0.5 * gw)) * (0.42 + 0.15 * sb + 0.15 * be);
+if (best < 1e8) {
+    let hu = 6.2831853 * (tb * 2.0 + u.time * 0.02);
+    let base = 0.5 + 0.5 * cos(vec3f(hu, hu - 2.0943951, hu - 4.1887902));
+    let bc = base / max(base.r, max(base.g, base.b));
+    // The tube's normal: across it in the screen, out toward the viewer.
+    let n = vec3f(off.x, off.y, sqrt(max(1.0 - dot(off, off), 0.0)));
+    let l = normalize(vec3f(-0.45, 0.6, 0.65));
+    let hv = normalize(l + vec3f(0.0, 0.0, 1.0));
+    let dif = max(dot(n, l), 0.0);
+    let spec = pow(max(dot(n, hv), 0.0), 50.0 + 40.0 * sm) * (1.2 + 0.8 * sm);
+    let rim = pow(1.0 - n.z, 3.0);
+    // Farther parts a little dimmer.
+    let dk = clamp(1.25 - (best - 0.5) * 2.5, 0.55, 1.2);
+    col = bc * (0.2 + 1.05 * dif) * dk + vec3f(1.0) * spec + bc * rim * 0.6;
+}
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.15, vec3f(0.0));
+return col / (1.0 + 0.35 * col);
+'''
