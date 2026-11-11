@@ -90,6 +90,8 @@ Command line options: `--presets <dir>` uses another preset folder,
 | * / Del | favourite / ban the current preset |
 | Space | hard cut to the next preset |
 | [ / ] | A/V offset -/+ 10 ms |
+| Up / Down | make the current preset more / less reactive to the music (0.25x to 2.5x, remembered per preset) |
+| Backspace | reset the current preset's reactivity to 1x |
 | Q | cycle quality |
 | N | show the preset name |
 | ` | fps / debug readout |
@@ -113,6 +115,16 @@ where `[` and `]` need AltGr.
 
 Drop `.splat` files into your presets folder; edits to preset files reload
 live.
+
+### Reactivity
+
+Each preset's Up / Down level is saved in the config under
+`[preset_reactivity]`, by preset file name. The config-only setting
+`reactivity = 1.0` multiplies every preset's level, e.g. `reactivity = 0.5`
+to calm everything down; the combined level is capped at 2.5x. Turning a
+preset up exaggerates how the music moves but never feeds it values
+louder than loud music gives at 1x, so presets stay within their
+flash-safety limits.
 
 ## Safe mode
 
