@@ -1,0 +1,147 @@
+# Gravitational Waves: two black holes circling closer and faster, the
+# spacetime grid around them drawn in fine bright lines on the dark and
+# rippling outward in a two-armed spiral of quadrupole waves that tighten
+# as the orbit chirps. The holes plunge and merge, the remnant rings down
+# in quick fading ripples, and a new pair drifts in to start again.
+#
+# One clock drives it all, advanced by the frame code (a little faster
+# with the bass) and wrapped every 30 seconds: 24 seconds of inspiral,
+# then the merger and 6 seconds of ringdown and calm. The orbit follows the
+# leading-order chirp: with tau the time left before the merger, the
+# orbital phase is -K tau^(5/8), its frequency rising as tau^(-3/8) from
+# a turn every 4.6 s to a little over one a second, and the separation
+# shrinks as tau^(1/4); in the last 0.3 s the frequency holds and the two
+# plunge together. Then the remnant rings down: the same frequency, its
+# amplitude dying in 0.7 s.
+#
+# The composite computes the wave at each pixel from the retarded time,
+# the clock minus the distance over the wave speed, so the spiral is the
+# true record of the orbit: loose outer arms emitted early, tight inner
+# ones emitted late, the ringdown racing out through them and the field
+# falling to nothing before each new cycle. The strain h = A cos(2 theta -
+# 2 phi) displaces the grid lines radially and brightens their crests; the
+# grid also sags toward the holes. The holes are black discs with thin
+# glowing photon rings; the merger adds no flash, only a slightly larger
+# ring for the remnant.
+#
+# Bass speeds the clock and brightens the crests. Mids swell the waves'
+# amplitude. Treble twinkles stars in the background. Each kick makes the
+# grid glow a little, eased.
+version = 1
+
+[meta]
+name = "Gravitational Waves"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+tc = 1.5;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+sm = sm + (min(mid_att, 2.5) - sm) * 0.03;
+st = st + (min(treb_att, 2.5) - st) * 0.1;
+bt = max(bt * 0.94, beat);
+be = be + (bt - be) * 0.08;
+// The clock (accumulated, wrapped every 30 s).
+tc = tc + (1 + 0.35 * min(sb, 2) / 2) / 60;
+tc = tc - 30 * floor(tc / 30);
+// The orbit: tau is the time left before the merger.
+tau = 24 - tc;
+kk = 7.1; te = 0.3;
+we = 0.625 * kk * pow(te, -0.375);
+ph = if(tau >= te, -kk * pow(tau, 0.625), -kk * pow(te, 0.625) + we * (te - min(tau, te)));
+ph = if(tau < 0, -kk * pow(te, 0.625) + we * te + we * (-tau), ph);
+sep = if(tau >= te, 0.3 * pow(tau / 24, 0.25), 0.3 * pow(te / 24, 0.25) * max(tau, 0) / te);
+// The pair fades in over the first 1.5 s; the remnant grows a little
+// after the merger and fades out over the last 1.5 s.
+rb = if(tau >= 0, 0.03 * min(1, (24 - tau) / 1.5),
+  (0.03 + 0.012 * min(1, -tau / 0.6)) * min(1, (tau + 6) / 1.5));
+q1 = tc; q2 = sb; q3 = sm; q4 = st;
+q5 = 0.5 * sep * cos(ph); q6 = 0.5 * sep * sin(ph);
+q7 = rb; q8 = be;
+'''
+
+[shader]
+comp = '''
+let tau2 = 6.2831853;
+let asp = u.texsize.x * u.texsize.w;
+let tc = u.q[0].x;
+let sb = min(u.q[0].y, 2.0) * 0.5;
+let sm = min(u.q[0].z, 2.0) * 0.5;
+let st = max(0.0, min(u.q[0].w, 2.5) - 0.3);
+let b1 = vec2f(u.q[1].x, u.q[1].y);
+let b2 = -b1;
+let rb = u.q[1].z;
+let be = min(u.q[1].w, 1.0);
+let p = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
+let px = u.texsize.w;
+let lw = max(1.0, u.texsize.y / 540.0);
+let r = length(p);
+let th = atan2(p.y, p.x);
+// The wave at this pixel, from the retarded time.
+let cw = 0.32;
+let tr = tc - r / cw;
+let loc = tr - 30.0 * floor(tr / 30.0);
+let tau = 24.0 - loc;
+let kk = 7.1;
+let te = 0.3;
+let we = 0.625 * kk * pow(te, -0.375);
+var ph = 0.0;
+var amp = 0.0;
+if (tau >= te) {
+    ph = -kk * pow(tau, 0.625);
+    amp = pow(tau / te, -0.12) * smoothstep(24.0, 21.5, tau);
+} else if (tau >= 0.0) {
+    ph = -kk * pow(te, 0.625) + we * (te - tau);
+    amp = 1.0;
+} else {
+    ph = -kk * pow(te, 0.625) + we * te - we * tau;
+    amp = exp(tau / 0.7);
+}
+let fall = smoothstep(0.02, 0.16, r) / sqrt(1.0 + r / 0.3);
+let h = amp * cos(2.0 * th - 2.0 * ph) * fall * (0.8 + 0.4 * sm);
+// The grid: displaced radially by the strain and sagging toward the holes.
+var g = p + (p / max(r, 1e-4)) * h * 0.016;
+let d1 = p - b1;
+let d2 = p - b2;
+let m = rb / 0.03;
+g -= 0.0022 * m * d1 / (dot(d1, d1) + 0.004);
+g -= 0.0022 * m * d2 / (dot(d2, d2) + 0.004);
+let nl = 16.0;
+let gl = g * nl;
+let cpx = nl * px * lw;
+let dx = abs(fract(gl.x + 0.5) - 0.5) / cpx;
+let dy = abs(fract(gl.y + 0.5) - 0.5) / cpx;
+let line = max(exp(-dx * dx / 1.4), exp(-dy * dy / 1.4));
+let crest = max(h, 0.0);
+let trough = max(-h, 0.0);
+var col = vec3f(0.004, 0.005, 0.016);
+// A faint glow of the spiral between the lines.
+col += vec3f(0.45, 0.1, 0.75) * crest * 0.55 * (1.0 + 0.4 * sb) + vec3f(0.04, 0.16, 0.45) * trough * 0.12;
+let lc = mix(vec3f(0.15, 0.45, 1.0), vec3f(1.0, 0.3, 0.85), clamp(crest * 1.4, 0.0, 1.0));
+let lc2 = mix(lc, vec3f(1.0, 0.85, 0.5), clamp(crest * crest * 1.2, 0.0, 1.0) * 0.6);
+let vg = 1.0 - 0.45 * smoothstep(0.3, 0.95, length(p * vec2f(0.75, 1.0)));
+col += lc2 * line * (1.05 + 1.7 * crest * (1.0 + 0.5 * sb) + 0.15 * be) * vg;
+// Stars, twinkling with the treble.
+let cell = floor(uv * u.texsize.xy / lw);
+let hh = fract(sin(dot(cell, vec2f(12.9898, 78.233))) * 43758.5453);
+let tw = 0.5 + 0.5 * sin(u.time * (1.0 + 3.0 * hh) + hh * 40.0);
+col += vec3f(0.7, 0.8, 1.0) * step(0.997, hh) * (0.25 + 0.6 * tw * st);
+// The holes: black discs with thin photon rings.
+let sd = min(length(d1), length(d2)) - rb;
+let ring = exp(-pow(sd / (0.0035 + 1.2 * px * lw), 2.0)) * smoothstep(0.0, 0.01, rb);
+col *= smoothstep(-1.5 * px, 1.5 * px, sd);
+col += vec3f(1.0, 0.7, 0.35) * ring * 1.1 + vec3f(1.0, 0.45, 0.2) * exp(-max(sd, 0.0) / 0.02) * 0.12 * m;
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.15, vec3f(0.0));
+return col / (1.0 + 0.3 * col);
+'''
