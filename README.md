@@ -51,8 +51,8 @@ device, so just start your music and run it.
 | **Supernova Remnant**: a slowly expanding shell of tangled filaments in hydrogen red, oxygen teal and sulphur gold around a pulsing pulsar wind nebula | **Knot Theory**: glowing neon tubes tied in torus knots, trefoil to cinquefoil and beyond, morphing from one to the next as they turn |
 | ![Newton Fractal](docs/images/newton-fractal.png) | ![Wormhole](docs/images/wormhole.png) |
 | **Newton Fractal**: the basins of Newton's method as dark jewels, their fractal borders glowing in beaded lace around five wandering star-roots | **Wormhole**: a ray-traced Ellis wormhole lensing two universes' stars and nebulae, the camera drifting through its throat and back |
-| ![Ising Model](docs/images/ising-model.png) | |
-| **Ising Model**: a magnet at its critical point, dark spin domains of every size merging and melting behind glowing neon walls | |
+| ![Ising Model](docs/images/ising-model.png) | ![Abelian Sandpile](docs/images/sandpile.png) |
+| **Ising Model**: a magnet at its critical point, dark spin domains of every size merging and melting behind glowing neon walls | **Abelian Sandpile**: grains poured on the centre topple outward into the sandpile fractal's octagon of nested triangles and patches, in four neon colours |
 
 These are single frames; every preset moves and changes with the music.
 
