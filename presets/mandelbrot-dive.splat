@@ -1,0 +1,151 @@
+# Mandelbrot Dive: an endless, seamless zoom into the Mandelbrot set,
+# down onto the branch point where three of its glowing filaments meet,
+# each filament feathered with smaller branches that open into ever more
+# of the same as the view falls through them.
+#
+# The dive centres on the Misiurewicz point c0 = -0.10109636 + 0.95628651i,
+# the tip of the 1/3 limb's antenna, whose orbit lands on the fixed point
+# alpha after three steps. Near such a point the set is asymptotically
+# self-similar: it looks the same magnified by the multiplier of that
+# cycle. Three turns of it, lambda^3 = (2 alpha)^3, magnify 2.344 times
+# and turn by only -1.34 degrees, so the view at one depth matches the
+# view 2.344 times deeper. The composite renders the same view twice,
+# from two copies of it one period apart in depth, each wrapped back up a
+# period at a different moment, and crossfades them so each one jumps
+# only while its weight is zero: an endless dive that never runs out of
+# float precision (the view never gets more than 3.6 times smaller than
+# its start) and never pixelates.
+#
+# The colouring is smooth and scale-free: the distance estimate, divided
+# by the view's size, gives white-gold filament cores, a neon halo shading
+# from magenta by the filaments to cyan further out, and a violet haze;
+# the smooth iteration count (whose period of three matches a layer's
+# three extra iterations) ripples the halo's hue. Interior and
+# background are near black.
+#
+# Bass quickens the dive (an accumulated phase) and brightens the
+# filaments. Mids widen the halo. Treble twinkles sparks along the
+# filaments. The view rolls slowly; each kick swells the glow, eased.
+version = 1
+
+[meta]
+name = "Mandelbrot Dive"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+ph = 0.2; ro = 0.4;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+sm = sm + (min(mid_att, 2.5) - sm) * 0.03;
+st = st + (min(treb_att, 2.5) - st) * 0.1;
+bt = max(bt * 0.94, beat);
+be = be + (bt - be) * 0.08;
+// The dive, as a phase of one self-similar period (ln 2.344 = 0.852
+// e-folds): about 0.13 e-folds a second, up to twice that with the bass.
+ph = ph + (0.0022 + 0.0022 * min(sb, 2) / 2) / 0.85165;
+ph = ph - floor(ph);
+// The slow roll (wrapped).
+ro = ro + 0.0007;
+ro = ro - 6.2831853 * floor(ro / 6.2831853);
+// Colour drift.
+hu = hu + 0.00012;
+hu = hu - floor(hu);
+q1 = ph; q2 = ro; q3 = sb; q4 = sm;
+q5 = st; q6 = be; q7 = hu;
+'''
+
+[shader]
+comp = '''
+let tau = 6.2831853;
+let asp = u.texsize.x * u.texsize.w;
+let ph = u.q[0].x;
+let ro = u.q[0].y;
+let sb = min(u.q[0].z, 2.0) * 0.5;
+let sm = min(u.q[0].w, 2.0) * 0.5;
+let st = max(0.0, min(u.q[1].x, 2.5) - 0.3);
+let be = min(u.q[1].y, 1.0);
+let hu = u.q[1].z;
+let p = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
+let c0x = -0.10109636;
+let c0y = 0.95628651;
+var col = vec3f(0.0);
+var core = 0.0;
+for (var l = 0; l < 2; l++) {
+    // Both layers show the same view, each from its own copy of it: the
+    // first at a depth of f periods in [0, 1), the second one period
+    // deeper, in [0.5, 1.5). Each jumps back a period only where its
+    // weight is zero.
+    let fa = fract(ph);
+    let f = select(fa, fract(ph - 0.5) + 0.5, l == 1);
+    let w = select(sin(3.14159265 * fa) * sin(3.14159265 * fa), cos(3.14159265 * fa) * cos(3.14159265 * fa), l == 1);
+    // A period deeper is 2.344 times smaller and turned -1.34 degrees
+    // (lambda^3), so the view turns +1.34 degrees per period it falls.
+    let s = 0.032 * exp(-0.85165 * f);
+    let an = ro + 0.0233994 * f;
+    let ca = cos(an);
+    let sa = sin(an);
+    let cx = c0x + s * (ca * p.x - sa * p.y);
+    let cy = c0y + s * (sa * p.x + ca * p.y);
+    var zx = 0.0;
+    var zy = 0.0;
+    var dx = 0.0;
+    var dy = 0.0;
+    var n = 0;
+    var r2 = 0.0;
+    for (n = 0; n < 300; n++) {
+        let ndx = 2.0 * (zx * dx - zy * dy) + 1.0;
+        let ndy = 2.0 * (zx * dy + zy * dx);
+        dx = ndx;
+        dy = ndy;
+        let nzx = zx * zx - zy * zy + cx;
+        zy = 2.0 * zx * zy + cy;
+        zx = nzx;
+        r2 = zx * zx + zy * zy;
+        if (r2 > 65536.0) {
+            break;
+        }
+    }
+    var lc = vec3f(0.0);
+    if (r2 > 65536.0) {
+        let rz = sqrt(r2);
+        // Distance estimate, in units of the view's size.
+        let de = rz * log(rz) / max(sqrt(dx * dx + dy * dy), 1e-20);
+        let dn = de / s;
+        // Smooth iteration count; its period of three is seamless.
+        let nsm = f32(n) + 1.0 - log2(log2(rz));
+        let k = 0.5 + 0.5 * sin(tau * nsm / 3.0);
+        let cyc = 0.5 + 0.5 * cos(tau * (hu + vec3f(0.0, 0.33, 0.67)));
+        // Hot magenta by the filaments, cyan further out, the iteration
+        // count's ripple shifting it a little.
+        let tt = clamp(smoothstep(0.0006, 0.01, dn) + 0.25 * (k - 0.5), 0.0, 1.0);
+        let neon2 = mix(mix(vec3f(1.0, 0.16, 0.7), vec3f(0.08, 0.7, 1.0), tt), cyc, 0.22);
+        let cr = exp(-dn / 0.0009);
+        let ha = exp(-dn / (0.007 + 0.006 * sm));
+        let hz = exp(-dn / 0.06);
+        lc = mix(neon2, vec3f(1.0, 0.92, 0.75), 0.6) * cr * (1.3 + 0.4 * sb + 0.3 * be)
+            + neon2 * ha * (1.3 + 0.5 * sb + 0.2 * be)
+            + vec3f(0.18, 0.06, 0.42) * hz * 0.6;
+        core += w * cr;
+    }
+    col += w * lc;
+}
+// Treble: sparks on the filaments.
+let cell = floor(uv * u.texsize.xy / max(1.0, u.texsize.y / 540.0));
+let hh = fract(sin(dot(cell, vec2f(12.9898, 78.233))) * 43758.5453);
+let tw = pow(max(0.0, sin(u.time * (2.0 + 5.0 * hh) + hh * 60.0)), 20.0) * step(0.7, hh);
+col += vec3f(1.0, 0.95, 0.9) * tw * st * min(core * 2.0, 1.0);
+col += vec3f(0.006, 0.005, 0.018);
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.15, vec3f(0.0));
+return col / (1.0 + 0.35 * col);
+'''
