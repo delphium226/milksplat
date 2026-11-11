@@ -1,0 +1,224 @@
+# Wormhole: a ray-traced Ellis wormhole seen from close by. The throat is
+# a glass sphere hanging in space that shows a whole other sky: on this
+# side violet and magenta nebulae with blue-white stars, through the
+# throat teal and gold nebulae with warmer stars. Round its edge both
+# skies are squeezed into thin bright Einstein rings, and the stars
+# behind it smear into arcs. The camera drifts in, orbiting slowly, falls
+# through the throat into the other universe, turns round, and comes back
+# through to where it started; then the journey repeats.
+#
+# Everything is in the composite, traced exactly per pixel. The Ellis
+# metric is ds^2 = -dt^2 + dl^2 + (b^2 + l^2) dOmega^2 with throat radius
+# b = 1, so a light ray in its plane has r^2 = b^2 + l^2 and impact
+# parameter h = r sin(alpha) at the camera, and it turns by
+#   F(a, h) = integral from a to infinity of h dl / (r sqrt(r^2 - h^2))
+# on its way out from l = a. Substituting r = r_a / sin(t) turns that
+# into a smooth integral over t in [0, pi/2] (the turning point's square
+# root singularity cancels), done with 20 midpoint steps. A ray heading
+# outward turns by F(a, h); one heading in with h < b passes the throat
+# and turns by 2 F(0, h) - F(a, h) into the other sky; one with h > b
+# turns back at r = h and turns by 2 F(l_t, h) - F(a, h). Its direction
+# at infinity picks a colour from that side's sky: two layers of stars on
+# a cube-map grid and nebulae from the 3D noise volume.
+#
+# The frame code runs the journey on one accumulated clock (a little
+# faster with the bass): the camera's l follows 4.5 cos(phase), so it
+# eases to rest at each end. It passes through facing forward, then turns
+# round over 9 s to watch the throat as it backs away and comes in again,
+# and it looks a little off the axis, swaying, so the throat drifts about
+# the frame. The orbit itself turns the skies slowly round the throat.
+#
+# Bass brightens the nebulae (smoothed). Mids sharpen the rim glow at the
+# throat's edge. Each kick swells the stars, eased.
+version = 1
+
+[meta]
+name = "Wormhole"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+s = 0.09; ob = 0; sw = 0;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+sm = sm + (min(mid_att, 2.5) - sm) * 0.03;
+bt = max(bt * 0.94, beat);
+be = be + (bt - be) * 0.08;
+// The journey: one cycle in about 64 s.
+s = s + (1 + 0.2 * min(sb, 2) / 2) / (64 * 60);
+s = s - floor(s);
+// The camera's place along the throat: +4.5 (this side) to -4.5 (the
+// other side) and back.
+lc = 4.5 * cos(6.2831853 * s);
+// Facing: toward decreasing l on the way through one way, then, just
+// past the throat, it turns round (over 9 s) to look back at it as it
+// backs away and comes again; the same on the way back.
+v = s - 0.28; v = v - floor(v);
+a1 = min(1, max(0, v / 0.14)); a2 = min(1, max(0, (v - 0.5) / 0.14));
+ps = 3.14159265 * (a1 * a1 * (3 - 2 * a1) + a2 * a2 * (3 - 2 * a2));
+// A slow sway off the axis, and the orbit turning the skies.
+sw = sw + 6.2831853 / 60 / 60;
+sw = sw - 6.2831853 * floor(sw / 6.2831853);
+ob = ob + 6.2831853 / 150 / 60;
+ob = ob - 6.2831853 * floor(ob / 6.2831853);
+q1 = lc;
+q2 = ps + 0.28 * sin(sw);
+q3 = 0.17 * sin(2 * sw + 1.0);
+q4 = 0.25 * sin(sw + 2.0);
+q5 = ob;
+q6 = 0.35 * sin(ob + 0.7);
+q9 = sb; q10 = sm; q11 = be;
+'''
+
+[shader]
+comp = '''
+let asp = u.texsize.x * u.texsize.w;
+let sb = min(u.q[2].x, 2.0) * 0.5;
+let sm = min(u.q[2].y, 2.0) * 0.5;
+let be = min(u.q[2].z, 1.0);
+let lc = u.q[0].x;
+let yaw = u.q[0].y;
+let pitch = u.q[0].z;
+let roll = u.q[0].w;
+let ob = u.q[1].x;
+let tl = u.q[1].y;
+let lw = max(1.0, u.texsize.y / 540.0);
+// The camera, in a frame whose x axis points toward increasing l.
+let tf = 0.62;
+let f = vec3f(-cos(yaw) * cos(pitch), sin(yaw) * cos(pitch), sin(pitch));
+let rt0 = normalize(cross(f, vec3f(0.0, 0.0, 1.0)));
+let up0 = cross(rt0, f);
+let cr = cos(roll);
+let sr = sin(roll);
+let rgt = rt0 * cr + up0 * sr;
+let upv = up0 * cr - rt0 * sr;
+let sx = (uv.x - 0.5) * asp * 2.0 * tf;
+let sy = (0.5 - uv.y) * 2.0 * tf;
+let d = normalize(f + rgt * sx + upv * sy);
+// The camera's side, and the outward direction there.
+let sg = select(-1.0, 1.0, lc >= 0.0);
+let a = abs(lc);
+let n = vec3f(sg, 0.0, 0.0);
+let ca = dot(d, n);
+let sa = sqrt(max(1.0 - ca * ca, 0.0));
+let ra = sqrt(1.0 + a * a);
+// One pixel's angle, so stars stay a pixel or two wide at any size.
+let pa = 2.0 * tf * u.texsize.w;
+// The turn of this ray, and of one a pixel further from the axis (to
+// know how much the lens squeezes the sky here).
+let al = atan2(sa, ca);
+var dph = array<f32, 2>(0.0, 0.0);
+var hv = array<f32, 2>(0.0, 0.0);
+for (var j = 0; j < 2; j++) {
+    let aj = al + f32(j) * pa;
+    let cj = cos(aj);
+    let h = ra * sin(aj);
+    // The turn on the way out from l = a, and from the far point.
+    var fa = 0.0;
+    var fb = 0.0;
+    let lo = select(sqrt(max(h * h - 1.0, 0.0)), 0.0, h < 1.0);
+    let rb = sqrt(1.0 + lo * lo);
+    for (var i = 0; i < 20; i++) {
+        let t = (f32(i) + 0.5) * 1.5707963 / 20.0;
+        let st = sin(t);
+        let ct = cos(t);
+        let s2 = st * st;
+        fa += h * ra * ct / (sqrt(max(ra * ra - s2, 1e-9)) * sqrt(max(ra * ra - h * h * s2, 1e-9)));
+        fb += h * rb * ct / (sqrt(max(rb * rb - s2, 1e-9)) * sqrt(max(rb * rb - h * h * s2, 1e-9)));
+    }
+    fa *= 1.5707963 / 20.0;
+    fb *= 1.5707963 / 20.0;
+    dph[j] = select(fa, 2.0 * fb - fa, cj < 0.0);
+    hv[j] = h;
+}
+let h = hv[0];
+let dphi = dph[0];
+let cross_over = ca < 0.0 && h < 1.0;
+// Sky angle per screen angle across the rings (1 for no lens).
+let squeeze = clamp(abs(dph[1] - dph[0]) / pa, 1.0, 400.0);
+// The ray's direction at infinity, in the plane of n and d.
+var tv = d - ca * n;
+let tl2 = dot(tv, tv);
+tv = select(vec3f(0.0, 1.0, 0.0), tv / sqrt(max(tl2, 1e-12)), tl2 > 1e-10);
+var dir = cos(dphi) * n + sin(dphi) * tv;
+// Which sky: this side's own (l > 0 is sky 0) unless it went through.
+let other = (sg < 0.0) != cross_over;
+// The orbit turns the skies round the throat.
+let co = cos(ob);
+let so = sin(ob);
+dir = vec3f(co * dir.x - so * dir.y, so * dir.x + co * dir.y, dir.z);
+let ct2 = cos(tl);
+let st2 = sin(tl);
+dir = vec3f(ct2 * dir.x + st2 * dir.z, dir.y, ct2 * dir.z - st2 * dir.x);
+// The sky.
+let sk = select(0.0, 1.0, other);
+let off = vec3f(0.37, 0.71, 0.13) + sk * vec3f(0.29, 0.43, 0.61);
+let n1 = mix(vec4f(0.5), textureSampleLevel(sampler_noisevol_hq, s_fw, dir * 0.07 + off, 0.0), min(1.0, 15.0 / squeeze));
+let n2 = mix(vec4f(0.5), textureSampleLevel(sampler_noisevol_hq, s_fw, dir * 0.16 + off.zxy + (n1.xyz - 0.5) * 0.06, 0.0), min(1.0, 4.0 / squeeze));
+// Each octave fades where the lens squeezes the sky so much that it
+// would shimmer, the finest first.
+let n3 = mix(vec4f(0.5), textureSampleLevel(sampler_noisevol_hq, s_fw, dir * 0.38 + off.yzx + (n2.xyz - 0.5) * 0.03, 0.0), 1.0 / squeeze);
+let cloud = smoothstep(0.36, 0.85, n1.x * 0.55 + n2.y * 0.3 + n3.z * 0.15);
+let cloud2 = smoothstep(0.4, 0.9, n1.z * 0.5 + n2.w * 0.35 + n3.x * 0.15);
+let wisp = pow(1.0 - abs(2.0 * n2.x - 1.0), 5.0) * (0.5 + 0.5 * n3.y);
+let dust = smoothstep(0.55, 0.85, n2.z * 0.6 + n3.w * 0.4);
+var c1 = vec3f(0.85, 0.15, 0.95);
+var c2 = vec3f(0.2, 0.35, 1.0);
+var c3 = vec3f(1.0, 0.35, 0.6);
+var sc = vec3f(0.75, 0.85, 1.0);
+if (other) {
+    c1 = vec3f(0.1, 0.9, 0.75);
+    c2 = vec3f(1.0, 0.62, 0.12);
+    c3 = vec3f(0.4, 1.0, 0.35);
+    sc = vec3f(1.0, 0.88, 0.7);
+}
+var col = vec3f(0.006, 0.006, 0.016);
+let neb = c1 * cloud * cloud * 0.75 + c2 * cloud2 * cloud2 * 0.6 + c3 * wisp * (cloud + cloud2) * 0.6;
+col += neb * (1.0 - 0.6 * dust) * (0.8 + 0.4 * sb);
+// Stars: two layers on a cube-map grid.
+let ad = abs(dir);
+var fc = vec2f(0.0);
+var face = 0.0;
+if (ad.x >= ad.y && ad.x >= ad.z) {
+    fc = dir.yz / ad.x;
+    face = select(1.0, 0.0, dir.x > 0.0);
+} else if (ad.y >= ad.z) {
+    fc = dir.xz / ad.y;
+    face = select(3.0, 2.0, dir.y > 0.0);
+} else {
+    fc = dir.xy / ad.z;
+    face = select(5.0, 4.0, dir.z > 0.0);
+}
+for (var k = 0; k < 2; k++) {
+    let g = select(140.0, 45.0, k == 0);
+    let q = fc * g * 0.5;
+    let cell = floor(q);
+    let hs = (u32(cell.x + 1000.0) * 1973u + u32(cell.y + 1000.0) * 9277u + u32(face + sk * 6.0 + f32(k) * 12.0) * 26699u) * 747796405u + 2891336453u;
+    let h1 = ((hs >> ((hs >> 28u) + 4u)) ^ hs) * 277803737u;
+    let x1 = f32((h1 >> 22u) ^ h1) / 4294967296.0;
+    let h2 = h1 * 747796405u + 2891336453u;
+    let x2 = f32((h2 >> 9u) & 0xffffu) / 65536.0;
+    let x3 = f32((h2 >> 3u) & 0x3fu) / 64.0;
+    let sp = cell + vec2f(0.2 + 0.6 * x2, 0.2 + 0.6 * x3);
+    let dd = (q - sp) / (g * 0.5);
+    let r2 = dot(dd, dd) / (pa * pa * lw * lw * squeeze * squeeze);
+    let bright = select(0.7, 2.2, k == 0) * pow(x1, 6.0) * (1.0 + 0.6 * be) / squeeze;
+    let tint = mix(sc, vec3f(1.0), x2 * 0.6);
+    col += tint * bright * exp(-r2 / select(0.6, 1.1, k == 0)) * step(0.35, x1);
+}
+// A faint glow where rays skim the throat (h near b).
+let rim = exp(-pow((h - 1.0) / (0.025 + 0.02 * (1.0 - sm)), 2.0));
+col += mix(vec3f(0.6, 0.4, 1.0), vec3f(0.4, 1.0, 0.85), sk) * rim * 0.25 * select(0.0, 1.0, ca < 0.0);
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.2, vec3f(0.0));
+return col / (1.0 + 0.4 * col);
+'''
