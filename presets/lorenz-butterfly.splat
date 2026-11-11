@@ -1,0 +1,259 @@
+# Lorenz Butterfly: the Lorenz strange attractor traced as a glowing
+# ribbon, its two wings building up loop by loop as the whole figure turns
+# slowly in 3D.
+#
+# The frame code integrates the Lorenz system
+#   x' = 10 (y - x),  y' = x (28 - z) - y,  z' = x y - 8/3 z
+# with classical Runge-Kutta, two fixed steps of 0.005 per tick, so the
+# run is deterministic and the parameters never change. Each tick's point
+# goes into a ring of the last 2048 in megabuf (about 34 seconds, some
+# twenty-five loops round the wings); init runs the orbit onto the
+# attractor and fills the ring, so it starts whole.
+#
+# Four custom waves draw the ring as one continuous line, newest to
+# oldest, projected with a slow turn about the vertical axis and a gently
+# rocking tilt (both accumulated phases) and a little perspective. Each
+# wing has its colour, cyan and magenta, warming to gold high on the
+# lobes; the line fades with age and runs white-hot at the head. A short
+# feedback trail and two blur levels make the glow.
+#
+# Bass thickens and brightens the glow (smoothed). Mids quicken the turn
+# a little. Treble twinkles sparks along the newest part of the ribbon.
+# Each kick swells the wide glow, eased.
+version = 1
+
+[meta]
+name = "Lorenz Butterfly"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.45
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+b1n = 0.0
+b1x = 1.0
+b2n = 0.0
+b2x = 1.0
+b3n = 0.0
+b3x = 1.0
+
+[code]
+init = '''
+x = 1.0; y = 1.0; z = 20.0;
+h = 0.005;
+// Run onto the attractor, then fill the ring with a history.
+loop(3000,
+  k1x = 10 * (y - x); k1y = x * (28 - z) - y; k1z = x * y - 2.6666667 * z;
+  ax = x + 0.5 * h * k1x; ay = y + 0.5 * h * k1y; az = z + 0.5 * h * k1z;
+  k2x = 10 * (ay - ax); k2y = ax * (28 - az) - ay; k2z = ax * ay - 2.6666667 * az;
+  ax = x + 0.5 * h * k2x; ay = y + 0.5 * h * k2y; az = z + 0.5 * h * k2z;
+  k3x = 10 * (ay - ax); k3y = ax * (28 - az) - ay; k3z = ax * ay - 2.6666667 * az;
+  ax = x + h * k3x; ay = y + h * k3y; az = z + h * k3z;
+  k4x = 10 * (ay - ax); k4y = ax * (28 - az) - ay; k4z = ax * ay - 2.6666667 * az;
+  x = x + h / 6 * (k1x + 2 * k2x + 2 * k3x + k4x);
+  y = y + h / 6 * (k1y + 2 * k2y + 2 * k3y + k4y);
+  z = z + h / 6 * (k1z + 2 * k2z + 2 * k3z + k4z)
+);
+hd = 0;
+loop(2048,
+  loop(2,
+    k1x = 10 * (y - x); k1y = x * (28 - z) - y; k1z = x * y - 2.6666667 * z;
+    ax = x + 0.5 * h * k1x; ay = y + 0.5 * h * k1y; az = z + 0.5 * h * k1z;
+    k2x = 10 * (ay - ax); k2y = ax * (28 - az) - ay; k2z = ax * ay - 2.6666667 * az;
+    ax = x + 0.5 * h * k2x; ay = y + 0.5 * h * k2y; az = z + 0.5 * h * k2z;
+    k3x = 10 * (ay - ax); k3y = ax * (28 - az) - ay; k3z = ax * ay - 2.6666667 * az;
+    ax = x + h * k3x; ay = y + h * k3y; az = z + h * k3z;
+    k4x = 10 * (ay - ax); k4y = ax * (28 - az) - ay; k4z = ax * ay - 2.6666667 * az;
+    x = x + h / 6 * (k1x + 2 * k2x + 2 * k3x + k4x);
+    y = y + h / 6 * (k1y + 2 * k2y + 2 * k3y + k4y);
+    z = z + h / 6 * (k1z + 2 * k2z + 2 * k3z + k4z)
+  );
+  hd = (hd + 1) % 2048;
+  megabuf(hd * 3) = x; megabuf(hd * 3 + 1) = y; megabuf(hd * 3 + 2) = z
+);
+ya = 0.6; pp = 0;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+sm = sm + (min(mid_att, 2.5) - sm) * 0.03;
+st = st + (min(treb_att, 2.5) - st) * 0.1;
+bt = max(bt * 0.94, beat);
+be = be + (bt - be) * 0.08;
+// Two fixed RK4 steps per tick; the parameters never change.
+loop(2,
+  k1x = 10 * (y - x); k1y = x * (28 - z) - y; k1z = x * y - 2.6666667 * z;
+  ax = x + 0.5 * h * k1x; ay = y + 0.5 * h * k1y; az = z + 0.5 * h * k1z;
+  k2x = 10 * (ay - ax); k2y = ax * (28 - az) - ay; k2z = ax * ay - 2.6666667 * az;
+  ax = x + 0.5 * h * k2x; ay = y + 0.5 * h * k2y; az = z + 0.5 * h * k2z;
+  k3x = 10 * (ay - ax); k3y = ax * (28 - az) - ay; k3z = ax * ay - 2.6666667 * az;
+  ax = x + h * k3x; ay = y + h * k3y; az = z + h * k3z;
+  k4x = 10 * (ay - ax); k4y = ax * (28 - az) - ay; k4z = ax * ay - 2.6666667 * az;
+  x = x + h / 6 * (k1x + 2 * k2x + 2 * k3x + k4x);
+  y = y + h / 6 * (k1y + 2 * k2y + 2 * k3y + k4y);
+  z = z + h / 6 * (k1z + 2 * k2z + 2 * k3z + k4z)
+);
+hd = (hd + 1) % 2048;
+megabuf(hd * 3) = x; megabuf(hd * 3 + 1) = y; megabuf(hd * 3 + 2) = z;
+// The turn (accumulated, wrapped): about a turn a minute.
+ya = ya + 0.0017 + 0.0012 * min(sm, 2) / 2;
+ya = ya - 6.2831853 * floor(ya / 6.2831853);
+// The rocking tilt.
+pp = pp + 0.0011;
+pp = pp - 6.2831853 * floor(pp / 6.2831853);
+pt = 0.22 + 0.2 * sin(pp);
+// Sparks running down the ribbon.
+sk = sk + 0.002;
+sk = sk - floor(sk);
+q1 = hd; q2 = cos(ya); q3 = sin(ya); q4 = cos(pt);
+q5 = sin(pt); q6 = sb; q7 = st; q8 = be;
+q9 = sk;
+'''
+
+# The ribbon: four waves of 512 points draw ring entries 0..2044 (newest
+# first), each wave sharing its end point with the next.
+[[wave]]
+enabled = true
+samples = 512
+thick = 1
+additive = 1
+a = 1.0
+init = '''
+t2 = 0;
+'''
+frame = '''
+t1 = 0.7 + 0.3 * min(q6, 2) / 2;
+'''
+point = '''
+n = t2 * 511 + floor(sample * 511 + 0.5);
+s = (q1 - n + 2048) % 2048;
+cx = megabuf(s * 3); cy = megabuf(s * 3 + 1); cz = megabuf(s * 3 + 2) - 25;
+xx = cx * q2 - cy * q3; dd = cx * q3 + cy * q2;
+yv = cz * q4 + dd * q5; dv = -cz * q5 + dd * q4;
+pr = 0.0195 / (1 + dv * 0.006);
+x = 0.5 + xx * pr * aspecty;
+y = 0.49 + yv * pr;
+ag = n / 2044;
+w = min(1, max(0, 0.5 + cx / 16));
+hi = min(1, max(0, (cz - 6) / 16));
+r = 0.15 + 0.85 * w; g = 0.75 - 0.5 * w + 0.25 * hi; b = 1.0 - 0.3 * w - 0.4 * hi;
+hot = max(0, 1 - n / 60);
+r = r + (1 - r) * hot; g = g + (1 - g) * hot; b = b + (1 - b) * hot;
+a = t1 * (0.12 + 0.88 * pow(1 - ag, 2.2)) * (0.8 - 0.2 * dv / 30);
+'''
+
+[[wave]]
+enabled = true
+samples = 512
+thick = 1
+additive = 1
+a = 1.0
+init = '''
+t2 = 1;
+'''
+frame = '''
+t1 = 0.7 + 0.3 * min(q6, 2) / 2;
+'''
+point = '''
+n = t2 * 511 + floor(sample * 511 + 0.5);
+s = (q1 - n + 2048) % 2048;
+cx = megabuf(s * 3); cy = megabuf(s * 3 + 1); cz = megabuf(s * 3 + 2) - 25;
+xx = cx * q2 - cy * q3; dd = cx * q3 + cy * q2;
+yv = cz * q4 + dd * q5; dv = -cz * q5 + dd * q4;
+pr = 0.0195 / (1 + dv * 0.006);
+x = 0.5 + xx * pr * aspecty;
+y = 0.49 + yv * pr;
+ag = n / 2044;
+w = min(1, max(0, 0.5 + cx / 16));
+hi = min(1, max(0, (cz - 6) / 16));
+r = 0.15 + 0.85 * w; g = 0.75 - 0.5 * w + 0.25 * hi; b = 1.0 - 0.3 * w - 0.4 * hi;
+a = t1 * (0.12 + 0.88 * pow(1 - ag, 2.2)) * (0.8 - 0.2 * dv / 30);
+'''
+
+[[wave]]
+enabled = true
+samples = 512
+thick = 1
+additive = 1
+a = 1.0
+init = '''
+t2 = 2;
+'''
+frame = '''
+t1 = 0.7 + 0.3 * min(q6, 2) / 2;
+'''
+point = '''
+n = t2 * 511 + floor(sample * 511 + 0.5);
+s = (q1 - n + 2048) % 2048;
+cx = megabuf(s * 3); cy = megabuf(s * 3 + 1); cz = megabuf(s * 3 + 2) - 25;
+xx = cx * q2 - cy * q3; dd = cx * q3 + cy * q2;
+yv = cz * q4 + dd * q5; dv = -cz * q5 + dd * q4;
+pr = 0.0195 / (1 + dv * 0.006);
+x = 0.5 + xx * pr * aspecty;
+y = 0.49 + yv * pr;
+ag = n / 2044;
+w = min(1, max(0, 0.5 + cx / 16));
+hi = min(1, max(0, (cz - 6) / 16));
+r = 0.15 + 0.85 * w; g = 0.75 - 0.5 * w + 0.25 * hi; b = 1.0 - 0.3 * w - 0.4 * hi;
+a = t1 * (0.12 + 0.88 * pow(1 - ag, 2.2)) * (0.8 - 0.2 * dv / 30);
+'''
+
+[[wave]]
+enabled = true
+samples = 512
+thick = 1
+additive = 1
+a = 1.0
+init = '''
+t2 = 3;
+'''
+frame = '''
+t1 = 0.7 + 0.3 * min(q6, 2) / 2;
+'''
+point = '''
+n = t2 * 511 + floor(sample * 511 + 0.5);
+s = (q1 - n + 2048) % 2048;
+cx = megabuf(s * 3); cy = megabuf(s * 3 + 1); cz = megabuf(s * 3 + 2) - 25;
+xx = cx * q2 - cy * q3; dd = cx * q3 + cy * q2;
+yv = cz * q4 + dd * q5; dv = -cz * q5 + dd * q4;
+pr = 0.0195 / (1 + dv * 0.006);
+x = 0.5 + xx * pr * aspecty;
+y = 0.49 + yv * pr;
+ag = n / 2044;
+w = min(1, max(0, 0.5 + cx / 16));
+hi = min(1, max(0, (cz - 6) / 16));
+r = 0.15 + 0.85 * w; g = 0.75 - 0.5 * w + 0.25 * hi; b = 1.0 - 0.3 * w - 0.4 * hi;
+a = t1 * (0.12 + 0.88 * pow(1 - ag, 2.2)) * (0.8 - 0.2 * dv / 30);
+'''
+
+[shader]
+warp = '''
+// A short trail behind the turning ribbon.
+return textureSampleLevel(sampler_main, s_pc, uv_orig, 0.0).rgb * 0.45;
+'''
+comp = '''
+let asp = u.texsize.x * u.texsize.w;
+let sb = min(u.q[1].y, 2.0) * 0.5;
+let st = max(0.0, min(u.q[1].z, 2.5) - 0.3);
+let be = min(u.q[1].w, 1.0);
+let p = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
+// Deep night with a faint violet haze behind the attractor.
+let r = length(p * vec2f(0.8, 1.0));
+var col = vec3f(0.006, 0.006, 0.02) + vec3f(0.09, 0.04, 0.15) * exp(-r * r / 0.2);
+// Lines are a pixel or two wide at any size, so their share of the
+// screen, and the glow they feed, shrinks as the screen grows.
+let gr = clamp(u.texsize.y / 540.0, 0.35, 1.5);
+let fl = textureSampleLevel(sampler_main, s_fc, uv, 0.0).rgb;
+col += fl * (2.0 + 0.6 * sb);
+col += (GetBlur1(uv) * (2.8 + 1.6 * sb) + GetBlur2(uv) * (2.6 + 1.6 * sb) + GetBlur3(uv) * (4.0 + 2.0 * sb + 1.5 * be)) * gr;
+// Treble: sparks on the brightest strands.
+let cell = floor(uv * u.texsize.xy / max(1.0, u.texsize.y / 540.0));
+let hh = fract(sin(dot(cell, vec2f(12.9898, 78.233))) * 43758.5453);
+let tw = pow(max(0.0, sin(u.time * (2.0 + 5.0 * hh) + hh * 60.0)), 20.0) * step(0.75, hh);
+col += vec3f(1.0, 0.95, 0.9) * tw * st * min(dot(fl, vec3f(0.33)), 1.0) * 1.2;
+let lc = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lc) + (col - vec3f(lc)) * 1.2, vec3f(0.0));
+return col / (1.0 + 0.45 * col);
+'''

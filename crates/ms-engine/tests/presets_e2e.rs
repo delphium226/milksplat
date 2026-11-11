@@ -48,7 +48,7 @@ const HAT_SEED: u64 = 0x4A75_6E6B_4861_7473;
 const RGBA8: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 
 /// The bundled presets, by file stem. `presets/` must hold exactly these.
-const BUNDLED: [&str; 41] = [
+const BUNDLED: [&str; 42] = [
     "default",
     "ink-bloom",
     "bass-tunnel",
@@ -90,6 +90,7 @@ const BUNDLED: [&str; 41] = [
     "pulsar",
     "penrose-quasicrystal",
     "solar-surface",
+    "lorenz-butterfly",
 ];
 
 // ------------------------------------------------------------ synthetic audio
@@ -509,6 +510,7 @@ preset_tests! {
     preset_pulsar => "pulsar",
     preset_penrose_quasicrystal => "penrose-quasicrystal",
     preset_solar_surface => "solar-surface",
+    preset_lorenz_butterfly => "lorenz-butterfly",
 }
 
 /// `presets/` holds exactly the bundled set (so every file has a test
@@ -541,7 +543,7 @@ fn bundled_set_is_complete() {
 /// runs: a minute for those with long-running state (accumulated phases,
 /// state machines), twenty seconds for the rest (enough for their feedback
 /// to settle; every bundled preset but the gentle default is covered).
-const LONG_RUN: [(&str, usize); 40] = [
+const LONG_RUN: [(&str, usize); 41] = [
     ("ink-bloom", 1200),
     ("bass-tunnel", 1200),
     ("prism-drift", 1200),
@@ -582,6 +584,7 @@ const LONG_RUN: [(&str, usize); 40] = [
     ("pulsar", 3600),
     ("penrose-quasicrystal", 3600),
     ("solar-surface", 3600),
+    ("lorenz-butterfly", 3600),
 ];
 
 /// A cheap guard against flashing that only develops over time (for
