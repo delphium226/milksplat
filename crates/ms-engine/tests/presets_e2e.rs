@@ -16,7 +16,9 @@
 //! count, size, shot and timing options). With `MS_TUNE_AUDIO` naming a raw
 //! recording (interleaved little-endian f32 stereo at 48 kHz, at least 10 s,
 //! looped if shorter than the run; never committed), it uses that instead
-//! of the synthetic music.
+//! of the synthetic music. `MS_TUNE_REACTIVITY` (e.g. `2.5`) runs every
+//! preset at that reactivity level (the audio scaled as the director
+//! scales it, flash-safety guard included).
 
 use ms_render::test_support::{test_gpu, TestGpu};
 use std::cell::RefCell;
@@ -25,7 +27,7 @@ use std::sync::{Arc, OnceLock};
 
 use image::RgbaImage;
 use ms_analysis::{Analyzer, AudioFrame, AudioHistory, Frame};
-use ms_engine::{feedback_format, Globals, PresetInstance, TickInput, PICKS_SALT};
+use ms_engine::{feedback_format, Globals, PresetInstance, Reactivity, TickInput, PICKS_SALT};
 use ms_preset::{compile_preset, parse, CompiledPreset};
 use ms_render::{
     assert_golden, golden, read_texture, CompositeLayer, Gpu, PresetPicks, RenderConfig, Renderer,
@@ -744,14 +746,50 @@ fn bundled_set_coverage() {
     }
 }
 
+/// The most full-frame flashes in any one second (60 ticks) of a mean
+/// luminance trace, WCAG style: a flash is a pair of opposing luminance
+/// changes of at least 0.1 each. Photosensitivity-safe is at most 3.
+fn max_flashes_per_second(lum: &[f64]) -> f64 {
+    const SWING: f64 = 0.1;
+    // Ticks at which the luminance turned by a full swing.
+    let mut turns = Vec::new();
+    let (mut lo, mut hi) = (f64::MAX, f64::MIN);
+    let mut dir = 0i8;
+    for (k, &l) in lum.iter().enumerate() {
+        lo = lo.min(l);
+        hi = hi.max(l);
+        if dir >= 0 && hi - l >= SWING {
+            // Fell a full swing from the high.
+            turns.push(k);
+            dir = -1;
+            hi = l;
+            lo = l;
+        } else if dir <= 0 && l - lo >= SWING {
+            turns.push(k);
+            dir = 1;
+            hi = l;
+            lo = l;
+        }
+    }
+    let most = turns
+        .iter()
+        .enumerate()
+        .map(|(i, &k)| turns[i..].iter().take_while(|&&t| t < k + 60).count())
+        .max()
+        .unwrap_or(0);
+    most as f64 / 2.0
+}
+
 /// Tuning harness (see the module docs): `MS_TUNE_TICKS` (default 600)
 /// ticks per preset at `MS_TUNE_SIZE` (`WxH`, default the golden size),
 /// mean luminance every tick, PNGs of the ticks in `MS_TUNE_SHOTS`
 /// (comma-separated, default 60,300,600) to `MS_TUNE_OUT`. Prints the
 /// range, the mean, the range and mean after the first five seconds (the
-/// settled look) and the largest tick-to-tick luminance change (a
-/// full-frame flash detector), for the music and, unless `MS_TUNE_AUDIO` is
-/// set, again for the music with double-time (4 Hz) hats. With
+/// settled look), the largest tick-to-tick luminance change and the most
+/// full-frame flashes in a second (flash detectors), for the music and,
+/// unless `MS_TUNE_AUDIO` is set, again for the music with double-time
+/// (4 Hz) hats, at the reactivity level in `MS_TUNE_REACTIVITY` (default
+/// 1). With
 /// `MS_TUNE_BENCH=1` it also times 600 ticks of each preset at 1920x1080
 /// (engine tick plus every GPU pass, waiting for the GPU each tick). Fails
 /// if a preset's mean luminance leaves [0.05, 0.85] after the first second.
@@ -806,6 +844,21 @@ fn tune_presets() {
             ),
         ],
     };
+    // The audio as a preset at this reactivity level sees it.
+    let runs: Vec<(&str, Vec<AudioFrame>)> = match env("MS_TUNE_REACTIVITY") {
+        Some(k) => {
+            let k: f32 = k.parse().expect("MS_TUNE_REACTIVITY");
+            println!("reactivity {k}");
+            runs.into_iter()
+                .map(|(label, audio)| {
+                    let mut r = Reactivity::new(k);
+                    let scaled = audio.iter().map(|a| *r.apply(a)).collect();
+                    (label, scaled)
+                })
+                .collect()
+        }
+        None => runs,
+    };
     let mut bad = Vec::new();
     for (label, audio) in &runs {
         println!("--- {label}");
@@ -856,13 +909,14 @@ fn tune_presets() {
                 .windows(2)
                 .map(|w| (w[1].1 - w[0].1).abs())
                 .fold(0.0, f64::max);
+            let flashes = max_flashes_per_second(&lum.iter().map(|(_, l)| *l).collect::<Vec<_>>());
             let trace: Vec<String> = lum
                 .iter()
                 .filter(|(k, _)| k % 60 == 0)
                 .map(|(_, l)| format!("{l:.3}"))
                 .collect();
             println!(
-                "{stem:15} luminance min {lo:.3} max {hi:.3} mean {mean:.3} settled {late_lo:.3}..{late_hi:.3} mean {late_mean:.3} max-tick-delta {jump:.4}  per second: {}",
+                "{stem:15} luminance min {lo:.3} max {hi:.3} mean {mean:.3} settled {late_lo:.3}..{late_hi:.3} mean {late_mean:.3} max-tick-delta {jump:.4} max-flashes/s {flashes:.1}  per second: {}",
                 trace.join(" ")
             );
             if !(0.05..=0.85).contains(&lo) || !(0.05..=0.85).contains(&hi) {
