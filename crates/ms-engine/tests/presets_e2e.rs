@@ -1071,6 +1071,8 @@ struct Score {
     rho_lum: f64,
     sd_change: f64,
     sd_lum: f64,
+    /// Mean image change on the music (how active the picture is).
+    mean_change: f64,
 }
 
 /// The scale at which image change following the music counts fully: a
@@ -1150,6 +1152,7 @@ fn reactivity_score(
         rho_lum,
         sd_change,
         sd_lum,
+        mean_change: mean(c_music),
     }
 }
 
@@ -1212,8 +1215,8 @@ fn rank_reactivity() {
             .zip(&scores)
             .map(|(k, s)| {
                 format!(
-                    "{k}x {:.1} (drive {:.2} rho_c {:.2} rho_L {:.2} sd_c {:.4} sd_L {:.4})",
-                    s.score, s.drive, s.rho_change, s.rho_lum, s.sd_change, s.sd_lum
+                    "{k}x {:.1} (drive {:.2} rho_c {:.2} rho_L {:.2} sd_c {:.4} sd_L {:.4} mean_c {:.4})",
+                    s.score, s.drive, s.rho_change, s.rho_lum, s.sd_change, s.sd_lum, s.mean_change
                 )
             })
             .collect();

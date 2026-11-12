@@ -128,7 +128,7 @@ fn wave_scales_about_zero_and_spectrum_proportionally() {
 #[test]
 fn turning_up_never_exceeds_the_ceiling_or_the_unscaled_value() {
     let mut a = frame();
-    a.bass = 2.5; // 1 + 5 * 1.5 = 8.5 > the ceiling
+    a.bass = 2.5; // 1 + 5 * 1.5 = 8.5 > the ceiling: under it, softly
     a.mid = 40.0; // already above the ceiling: no further than 1x
     a.spectrum[0] = 2.0;
     a.spectrum[1] = 50.0;
@@ -136,13 +136,58 @@ fn turning_up_never_exceeds_the_ceiling_or_the_unscaled_value() {
     a.wave[0][1] = -0.9;
     a.wave[0][2] = 3.0;
     let o = *Reactivity::new(REACTIVITY_MAX).apply(&a);
-    assert_eq!(o.bass, BAND_CEILING);
+    assert!(o.bass < BAND_CEILING && o.bass > 4.0, "{}", o.bass);
     assert_eq!(o.mid, 40.0);
     assert_eq!(o.spectrum[0], SPECTRUM_CEILING);
     assert_eq!(o.spectrum[1], 50.0);
     assert_eq!(o.wave[0][0], WAVE_CEILING);
     assert_eq!(o.wave[0][1], -WAVE_CEILING);
     assert_eq!(o.wave[0][2], 3.0);
+}
+
+/// The band ceiling is a soft knee (ruling R79): turned up, a loud band
+/// value approaches the ceiling but never reaches it, and a louder value
+/// always comes out larger, so loud hits stay graded instead of all
+/// flattening onto the ceiling. A value already over the ceiling stays at
+/// its unscaled value; a value well under the knee scales as before.
+#[test]
+fn loud_band_values_stay_graded_under_the_soft_ceiling() {
+    let one = |k: f32, v: f32| {
+        let a = AudioFrame {
+            bass: v,
+            ..AudioFrame::default()
+        };
+        Reactivity::new(k).apply(&a).bass
+    };
+    for k in [1.25, 2.0, 2.5, 3.0, REACTIVITY_MAX] {
+        let mut last = 0.0f32;
+        for i in 100..=495 {
+            let v = i as f32 * 0.01; // 1.0 ..= 4.95
+            let o = one(k, v);
+            assert!(o > last, "{k}x: bass {v} -> {o} after {last}");
+            assert!(o < BAND_CEILING, "{k}x: bass {v} -> {o}");
+            // Never held below the unscaled value, never above the
+            // plain scaled one.
+            assert!(o >= v && o <= 1.0 + k * (v - 1.0) + 1e-5, "{k}x: {v} -> {o}");
+            last = o;
+        }
+        for v in [BAND_CEILING, 6.0, 18.0, 40.0] {
+            assert_eq!(one(k, v), v, "{k}x: over the ceiling stays unscaled");
+        }
+    }
+    // Under the knee the scaling is unchanged: 1 + 5 * 0.3.
+    assert!(approx(one(REACTIVITY_MAX, 1.3), 2.5));
+    // At the top level, kicks of different sizes stay apart (the hard
+    // ceiling gave 5.0 for all of these).
+    let kicks: Vec<f32> = [1.8, 2.0, 2.5, 3.0, 4.0]
+        .iter()
+        .map(|&v| one(REACTIVITY_MAX, v))
+        .collect();
+    eprintln!("5x kicks 1.8 2 2.5 3 4 -> {kicks:?}");
+    assert!(kicks[0] < 4.5 && kicks[0] > 3.8, "{kicks:?}");
+    for w in kicks.windows(2) {
+        assert!(w[1] - w[0] > 0.02, "{kicks:?}");
+    }
 }
 
 #[test]

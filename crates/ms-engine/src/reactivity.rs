@@ -36,7 +36,13 @@
 //!   ([`BAND_CEILING`], [`WAVE_CEILING`], [`SPECTRUM_CEILING`]): no higher
 //!   than a loud value, unless the unscaled value is itself higher, in which
 //!   case it stays at that unscaled value. The mapping stays monotonic (a
-//!   louder input never comes out quieter).
+//!   louder input never comes out quieter). For bands the ceiling is a
+//!   soft knee (ruling R79, `soft_ceiling`): the raise over the unscaled
+//!   value passes unchanged up to half the headroom left under the
+//!   ceiling, then bends smoothly towards the ceiling without reaching it,
+//!   so loud hits stay graded (strictly: a louder value always comes out
+//!   larger) instead of all landing on the ceiling. Waveform and spectrum
+//!   keep a hard ceiling.
 //! - **Slew limit.** A luminance step comes from how far an input moves in
 //!   one tick, not from how high it is, and scaling by `k` makes every
 //!   step `k` times larger. So each band and spectrum value may move at
@@ -82,7 +88,8 @@ pub const REACTIVITY_STEP: f32 = 0.25;
 /// beyond at 1x; with the slew limit holding the per-tick change, the
 /// ceiling only bounds how far a turned-up value travels, and 5 lets a
 /// preset keep gaining reaction all the way to 5x (chosen from every
-/// bundled preset at 5x on real techno, see ruling R77).
+/// bundled preset at 5x on real techno, see ruling R77). Approached
+/// through a soft knee, never reached by a turned-up value (ruling R79).
 pub const BAND_CEILING: f32 = 5.0;
 /// The guard's ceiling for a turned-up waveform sample's magnitude (full
 /// scale).
@@ -195,7 +202,7 @@ impl Reactivity {
             let target = if k == 1.0 {
                 finite(v)
             } else {
-                guard(scale_band(v, k), v, BAND_CEILING, 0.0)
+                soft_ceiling(scale_band(v, k), v, BAND_CEILING)
             };
             let n = step(v, pv, *last, target, BAND_SLEW_ALLOWANCE);
             settled &= n.to_bits() == v.to_bits();
@@ -263,6 +270,43 @@ fn scale_band(v: f32, k: f32) -> f32 {
         v.powf(k)
     } else {
         1.0 + k * (v - 1.0)
+    }
+}
+
+/// A turned-up band value `scaled` held under `ceiling` by a soft knee
+/// (ruling R79), relative to its unscaled value `unscaled`. With `a` the
+/// excess over the unscaled value (`scaled - unscaled`) and `m` half the
+/// headroom (`(ceiling - unscaled) / 2`), the excess passes unchanged up
+/// to `m`, then bends smoothly (same slope at the knee) towards `2m`:
+/// `unscaled + m (2 - m / a)`, so the value approaches the ceiling but
+/// never reaches it. In `unscaled` it is strictly increasing (its slope is
+/// `m/a + (k-1) m^2/a^2`, positive and at most `k`), so a louder hit
+/// always gives a larger value and the slew limit's bound on the slope
+/// still holds. A value not raised (`a <= 0`) passes; an unscaled value at
+/// or over the ceiling is kept (never held below it). Never negative;
+/// non-finite gives 0.
+#[inline]
+fn soft_ceiling(scaled: f32, unscaled: f32, ceiling: f32) -> f32 {
+    if !scaled.is_finite() {
+        return 0.0;
+    }
+    let s = scaled.max(0.0);
+    if !unscaled.is_finite() {
+        return s.min(ceiling);
+    }
+    let a = s - unscaled;
+    if a <= 0.0 {
+        return s;
+    }
+    let m = 0.5 * (ceiling - unscaled);
+    if m <= 0.0 {
+        return unscaled;
+    }
+    if a <= m {
+        s
+    } else {
+        // Under the ceiling in exact arithmetic; `min` guards the rounding.
+        (unscaled + m * (2.0 - m / a)).min(ceiling)
     }
 }
 
