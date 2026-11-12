@@ -185,8 +185,5 @@ fn reactivity_notice_text() {
         reactivity_notice(1.5, 0.5),
         "Reactivity 1.5x (effective 0.75x)"
     );
-    assert_eq!(
-        reactivity_notice(3.0, 2.0),
-        "Reactivity 3x (effective 5x)"
-    );
+    assert_eq!(reactivity_notice(3.0, 2.0), "Reactivity 3x (effective 5x)");
 }

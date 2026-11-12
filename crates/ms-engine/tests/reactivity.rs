@@ -220,7 +220,11 @@ fn walk(ticks: u32) -> Vec<AudioFrame> {
             a.bass = kick(n, 0.8, 1.5);
             a.bass_att = 0.8 + 0.5 * (n as f32 * 0.05).sin();
             // Mostly smooth, with an occasional big jump.
-            a.mid = if n % 97 < 3 { 3.5 } else { 1.0 + 0.3 * (n as f32 * 0.11).sin() };
+            a.mid = if n % 97 < 3 {
+                3.5
+            } else {
+                1.0 + 0.3 * (n as f32 * 0.11).sin()
+            };
             a.mid_att = 1.0 + 0.2 * rnd(1, n);
             a.treb = 0.5 + 1.5 * rnd(2, n);
             a.treb_att = 1.0;
@@ -300,7 +304,10 @@ fn turning_up_still_widens_the_reaction() {
     eprintln!("bass sd {sd1:.3} {sd25:.3} {sd5:.3}, range {range1:.3} {range25:.3} {range5:.3}");
     assert!(sd25 > 2.0 * sd1, "2.5x: sd {sd25} vs 1x {sd1}");
     assert!(sd5 > 1.3 * sd25, "5x: sd {sd5} vs 2.5x {sd25}");
-    assert!(range5 > 1.3 * range25, "5x: range {range5} vs 2.5x {range25}");
+    assert!(
+        range5 > 1.3 * range25,
+        "5x: range {range5} vs 2.5x {range25}"
+    );
     // Against 1x: the limit costs some of the peak (each kick's attack is
     // only two ticks long), but 5x still moves well over twice as far.
     assert!(sd5 > 3.0 * sd1, "5x: sd {sd5} vs 1x {sd1}");

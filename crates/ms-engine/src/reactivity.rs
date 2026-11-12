@@ -252,4 +252,3 @@ fn guard(scaled: f32, unscaled: f32, ceiling: f32, floor: f32) -> f32 {
     };
     scaled.clamp(floor, top)
 }
-
