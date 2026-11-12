@@ -26,10 +26,14 @@
 #
 # The coupling drifts slowly over a 50 s cycle (accumulated). Bass makes
 # the fireflies blink a little faster (a rate, so it accumulates in their
-# clocks), and the beat strengthens the coupling a little. Mids drift the
-# mist, and the bass (slowly smoothed) brightens it a little and quickens
-# the fireflies' wandering. Treble
-# brightens the stars a touch.
+# clocks). Each hit of the music is felt at once, through pulses of the
+# bass, mids and treble that rise in a tick or two and die away over a
+# fraction of a second (soft-limited, so a bigger hit still means more):
+# on a kick every firefly's light swells and glows and the swarm darts
+# in its wandering (their clocks are left alone, so a kick never syncs
+# the whole swarm into one flash); the mids brighten and stir the mist,
+# and the treble flares the fireflies toward white and twinkles the
+# stars.
 version = 1
 
 [meta]
@@ -53,24 +57,31 @@ frame = '''
 sb = sb + (min(bass_att, 2.5) - sb) * 0.02;
 sm = sm + (min(mid_att, 2.5) - sm) * 0.03;
 st = st + (min(treb_att, 2.5) - st) * 0.05;
-bt = max(bt * 0.95, beat);
-be = be + (bt - be) * 0.05;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 0.7, 0); xb = xb / (1 + 0.5 * xb);
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 0.7, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.5, 0.08);
+xt = max(treb - 0.7, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.12);
 // The coupling cycle (50 s): strong enough to sync for part of it.
 kc = kc + 6.2831853 / 50 / 60;
 kc = kc - 6.2831853 * floor(kc / 6.2831853);
-q1 = 0.42 * (0.2 + 0.8 * (0.5 + 0.5 * sin(kc))) * (1 + 0.15 * min(be, 1));
+q1 = 0.42 * (0.2 + 0.8 * (0.5 + 0.5 * sin(kc))) * (1 + 0.15 * min(pb, 1));
 // The natural frequency (rad/s): a blink every 2.4 s, a little quicker
 // with the bass.
 q2 = 6.2831853 / 2.4 * (1 + 0.08 * min(sb, 2) / 2);
-// The fireflies' wandering (accumulated, livelier with the bass).
-wd = wd + (1 + 0.8 * min(sb, 2) / 2) / 60;
+// The fireflies' wandering (accumulated, livelier with the bass, and a
+// dart on each kick).
+wd = wd + (1 + 0.8 * min(sb, 2) / 2 + 3 * pb) / 60;
 wd = wd - 628.31853 * floor(wd / 628.31853);
 q3 = wd;
 // The mist drift (accumulated, quicker with the mids).
-ms = ms + (0.006 + 0.01 * min(sm, 2) / 2) / 60;
+ms = ms + (0.006 + 0.01 * min(sm, 2) / 2 + 0.03 * pm) / 60;
 ms = ms - 64 * floor(ms / 64);
 q4 = ms;
 q5 = st; q6 = sb;
+q7 = pb; q8 = pm; q9 = pt;
 '''
 
 [shader]
@@ -171,6 +182,12 @@ let wd = u.q[0].z;
 let ms = u.q[0].w;
 let st = max(0.0, min(u.q[1].x, 2.5) - 0.3);
 let sb = min(u.q[1].y, 2.0) * 0.5;
+// The fireflies keep their size in pixels, so in a small buffer they
+// cover more of the screen: scale their pulses down there.
+let kp = clamp(sz.y / 540.0, 0.15, 1.0);
+let pb = u.q[1].z * kp;
+let pm = u.q[1].w;
+let pt = u.q[2].x * kp;
 let nx = 32;
 let ny = 18;
 let sent = textureLoad(sampler_main, vec2i(nx, 0), 0).rgb;
@@ -193,7 +210,7 @@ let sq = vec2f(x, y) * 34.0;
 let sc = floor(sq);
 let sh = fract(sin(vec2f(dot(sc, vec2f(127.1, 311.7)), dot(sc, vec2f(269.5, 183.3)))) * 43758.5453);
 let sd = length(sq - sc - vec2f(0.2) - sh * 0.6) / 34.0 / ppx / lw;
-col += vec3f(0.7, 0.8, 1.0) * exp(-sd * sd / 1.6) * step(0.88, sh.x) * (0.3 + 0.1 * min(st, 1.0)) * smoothstep(0.5, 0.15, y);
+col += vec3f(0.7, 0.8, 1.0) * exp(-sd * sd / 1.6) * step(0.88, sh.x) * (0.3 + 0.1 * min(st, 1.0) + 0.5 * pt) * smoothstep(0.5, 0.15, y);
 // Two rows of firs: a far row in the haze, a near row, taller toward
 // the edges of the clearing.
 for (var row = 0; row < 2; row++) {
@@ -227,7 +244,7 @@ let gn = textureSampleLevel(sampler_noise_lq, s_fw, vec2f(x * 2.0, y * 0.5) * 1.
 col = mix(col, vec3f(0.012, 0.03, 0.02) * (0.7 + 0.6 * gn), gy);
 let mn = textureSampleLevel(sampler_noise_lq, s_fw, vec2f(x * 0.35 + ms, y * 1.4 - ms * 0.3), 0.0).r;
 let mband = exp(-(y - 0.6) * (y - 0.6) / 0.006) * (0.55 + 0.6 * mn);
-col += vec3f(0.09, 0.19, 0.19) * mband * (1.0 + 0.6 * mslow + 0.5 * sb) + vec3f(0.04, 0.075, 0.055) * gy * (0.6 + 0.4 * mn);
+col += vec3f(0.09, 0.19, 0.19) * mband * (1.0 + 0.6 * mslow + 0.5 * sb + 0.9 * pm) + vec3f(0.04, 0.075, 0.055) * gy * (0.6 + 0.4 * mn);
 // The fireflies, from the 3 x 3 cells round the pixel.
 let cpos = uv * vec2f(f32(nx), f32(ny));
 let cpx = sz / vec2f(f32(nx), f32(ny));
@@ -256,12 +273,12 @@ for (var j = -1; j <= 1; j++) {
                 let d = (cpos - fp) * cpx;
                 let r2 = dot(d, d);
                 let dep = 0.55 + 0.45 * j3;
-                let rc = 2.4 * lw * dep;
+                let rc = 2.4 * lw * dep * (1.0 + 0.25 * pb);
                 let core = exp(-r2 / (rc * rc));
                 let hr = 1.0 - min(r2 / (rh * rh), 1.0);
                 let halo = hr * hr * hr;
-                let hue = vec3f(0.7 + 0.25 * j1, 1.0, 0.25 + 0.15 * j2);
-                ff += hue * (b * (core * 2.2 + halo * 0.16) * dep + core * 0.04);
+                let hue = mix(vec3f(0.7 + 0.25 * j1, 1.0, 0.25 + 0.15 * j2), vec3f(1.0, 1.0, 0.85), 0.6 * min(pt, 1.0));
+                ff += hue * ((b * (core * 2.2 + halo * 0.16 * (1.0 + 0.6 * pb)) + core * 0.3 * pb) * dep + core * 0.04);
             }
         }
     }
