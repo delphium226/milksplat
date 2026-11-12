@@ -1,11 +1,13 @@
 //! After the first tick, ticking a preset with a batchable vertex program
 //! does not allocate: the mesh, draw list and batching buffers are reused.
+//! The audio goes through a turned-up [`Reactivity`] first (scaling, guard
+//! and slew limit), which must not allocate either.
 //!
 //! A separate test binary because it installs a counting global allocator.
 //! It holds a single test so no other test allocates while it measures.
 
 use ms_analysis::AudioFrame;
-use ms_engine::{Globals, PresetInstance, TickInput, VertexPath};
+use ms_engine::{Globals, PresetInstance, Reactivity, TickInput, VertexPath, REACTIVITY_MAX};
 use ms_preset::{compile_preset, parse};
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -47,15 +49,24 @@ static GLOBAL: Counting = Counting;
 fn allocations(toml: &str, ticks: usize) -> usize {
     let (p, _) = parse(toml.as_bytes()).unwrap();
     let mut inst = PresetInstance::new(Arc::new(compile_preset(p)), 3, [192, 144]);
-    let audio = AudioFrame::default();
+    // Varying audio, so the slew limit has something to limit.
+    let frames: Vec<AudioFrame> = (0..4)
+        .map(|i| AudioFrame {
+            bass: 0.5 + i as f32 * 0.6,
+            mid: 2.0 - i as f32 * 0.4,
+            ..AudioFrame::default()
+        })
+        .collect();
+    let mut reactivity = Reactivity::new(REACTIVITY_MAX);
     let mut g = Globals::default();
     let mut tick = |i: u64| {
+        let audio = reactivity.apply(&frames[i as usize % frames.len()]);
         let input = TickInput {
             time: i as f64 / 60.0,
             fps: 60.0,
             frame: i,
             progress: 0.0,
-            audio: &audio,
+            audio,
             aspect: [1.0, 1.0],
             pixels: [1280, 720],
         };

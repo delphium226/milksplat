@@ -3,8 +3,9 @@
 
 use ms_analysis::AudioFrame;
 use ms_engine::{
-    effective_reactivity, step_reactivity, Reactivity, BAND_CEILING, REACTIVITY_MAX,
-    REACTIVITY_MIN, SPECTRUM_CEILING, WAVE_CEILING,
+    effective_reactivity, step_reactivity, Reactivity, BAND_CEILING, BAND_SLEW_ALLOWANCE,
+    REACTIVITY_MAX, REACTIVITY_MIN, SLEW_FACTOR, SPECTRUM_CEILING, SPECTRUM_SLEW_ALLOWANCE,
+    WAVE_CEILING,
 };
 
 fn frame() -> AudioFrame {
@@ -106,7 +107,7 @@ fn wave_scales_about_zero_and_spectrum_proportionally() {
 #[test]
 fn turning_up_never_exceeds_the_ceiling_or_the_unscaled_value() {
     let mut a = frame();
-    a.bass = 2.5; // 1 + 2.5 * 1.5 = 4.75 > the ceiling
+    a.bass = 2.5; // 1 + 5 * 1.5 = 8.5 > the ceiling
     a.mid = 40.0; // already above the ceiling: no further than 1x
     a.spectrum[0] = 2.0;
     a.spectrum[1] = 50.0;
@@ -185,4 +186,175 @@ fn effective_level_is_the_clamped_product() {
     assert_eq!(effective_reactivity(1.0, -1.0), 0.0);
     assert_eq!(effective_reactivity(f32::NAN, 1.0), 1.0);
     assert_eq!(effective_reactivity(1.0, f32::INFINITY), 1.0);
+}
+
+// ------------------------------------------------------------ slew limit
+
+/// A deterministic pseudo-random value in [0, 1) for tick `n`, stream `s`.
+fn rnd(s: u32, n: u32) -> f32 {
+    let mut x = (u64::from(s) << 32 | u64::from(n)).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    x ^= x >> 29;
+    x = x.wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    x ^= x >> 32;
+    (x >> 40) as f32 / (1u64 << 24) as f32
+}
+
+/// A kick-drum-like bass envelope at 2 Hz (a 60 Hz tick): a two-tick
+/// attack to `peak`, then an exponential decay back towards `rest`, with a
+/// little noise, as the analyser gives for techno.
+fn kick(n: u32, rest: f32, peak: f32) -> f32 {
+    let t = n % 30;
+    let env = match t {
+        0 => 0.5,
+        1 => 1.0,
+        _ => (-((t - 1) as f32) / 5.0).exp(),
+    };
+    rest + (peak - rest) * env + 0.05 * (rnd(9, n) - 0.5)
+}
+
+/// Ticks of audio: a band walk with kicks and jumps, and spectrum noise.
+fn walk(ticks: u32) -> Vec<AudioFrame> {
+    (0..ticks)
+        .map(|n| {
+            let mut a = frame();
+            a.bass = kick(n, 0.8, 1.5);
+            a.bass_att = 0.8 + 0.5 * (n as f32 * 0.05).sin();
+            // Mostly smooth, with an occasional big jump.
+            a.mid = if n % 97 < 3 { 3.5 } else { 1.0 + 0.3 * (n as f32 * 0.11).sin() };
+            a.mid_att = 1.0 + 0.2 * rnd(1, n);
+            a.treb = 0.5 + 1.5 * rnd(2, n);
+            a.treb_att = 1.0;
+            for (i, s) in a.spectrum.iter_mut().enumerate() {
+                *s = 1.2 * rnd(3 + i as u32, n);
+            }
+            a
+        })
+        .collect()
+}
+
+fn bands(a: &AudioFrame) -> [f32; 6] {
+    [a.bass, a.mid, a.treb, a.bass_att, a.mid_att, a.treb_att]
+}
+
+/// The limit on one tick's change of a turned-up value whose unscaled
+/// value moved by `d`, with a small tolerance for rounding.
+fn limit(d: f32, allowance: f32) -> f32 {
+    SLEW_FACTOR * d.abs().max(allowance) * (1.0 + 1e-5) + 1e-6
+}
+
+#[test]
+fn every_scaled_step_is_slew_limited() {
+    let audio = walk(600);
+    for k in [REACTIVITY_MAX, 3.0, 2.0, 0.5] {
+        let mut r = Reactivity::new(k);
+        let mut last = *r.apply(&audio[0]);
+        for (n, w) in audio.windows(2).enumerate() {
+            let o = *r.apply(&w[1]);
+            for ((p, q), (u, v)) in bands(&last)
+                .iter()
+                .zip(bands(&o))
+                .zip(bands(&w[0]).iter().zip(bands(&w[1])))
+            {
+                assert!(
+                    (q - p).abs() <= limit(v - u, BAND_SLEW_ALLOWANCE),
+                    "{k}x tick {n}: band {p} -> {q} while unscaled {u} -> {v}"
+                );
+            }
+            for (i, ((p, q), (u, v))) in last
+                .spectrum
+                .iter()
+                .zip(&o.spectrum)
+                .zip(w[0].spectrum.iter().zip(&w[1].spectrum))
+                .enumerate()
+            {
+                assert!(
+                    (q - p).abs() <= limit(v - u, SPECTRUM_SLEW_ALLOWANCE),
+                    "{k}x tick {n}: bin {i} {p} -> {q} while unscaled {u} -> {v}"
+                );
+            }
+            last = o;
+        }
+    }
+}
+
+fn std_dev(v: &[f32]) -> f32 {
+    let mean = v.iter().sum::<f32>() / v.len() as f32;
+    (v.iter().map(|x| (x - mean) * (x - mean)).sum::<f32>() / v.len() as f32).sqrt()
+}
+
+/// The slew limit must not undo the scaling: on kick-like bass, each step
+/// up in level still clearly widens what the preset sees.
+#[test]
+fn turning_up_still_widens_the_reaction() {
+    let audio = walk(1200);
+    let spread = |k: f32| {
+        let mut r = Reactivity::new(k);
+        let bass: Vec<f32> = audio.iter().map(|a| r.apply(a).bass).skip(60).collect();
+        let lo = bass.iter().copied().fold(f32::MAX, f32::min);
+        let hi = bass.iter().copied().fold(f32::MIN, f32::max);
+        (std_dev(&bass), hi - lo)
+    };
+    let (sd1, range1) = spread(1.0);
+    let (sd25, range25) = spread(2.5);
+    let (sd5, range5) = spread(REACTIVITY_MAX);
+    eprintln!("bass sd {sd1:.3} {sd25:.3} {sd5:.3}, range {range1:.3} {range25:.3} {range5:.3}");
+    assert!(sd25 > 2.0 * sd1, "2.5x: sd {sd25} vs 1x {sd1}");
+    assert!(sd5 > 1.3 * sd25, "5x: sd {sd5} vs 2.5x {sd25}");
+    assert!(range5 > 1.3 * range25, "5x: range {range5} vs 2.5x {range25}");
+    // Against 1x: the limit costs some of the peak (each kick's attack is
+    // only two ticks long), but 5x still moves well over twice as far.
+    assert!(sd5 > 3.0 * sd1, "5x: sd {sd5} vs 1x {sd1}");
+    assert!(range5 > 2.5 * range1, "5x: range {range5} vs 1x {range1}");
+}
+
+/// A level change while the music holds steady moves the values gradually
+/// to the new level instead of in one step.
+#[test]
+fn a_level_change_is_slewed() {
+    let mut a = frame();
+    a.bass = 1.6;
+    a.spectrum[0] = 0.5;
+    let mut r = Reactivity::new(1.0);
+    for _ in 0..10 {
+        r.apply(&a);
+    }
+    r.set(REACTIVITY_MAX);
+    let mut last = a.bass;
+    let mut s0 = a.spectrum[0];
+    for _ in 0..1000 {
+        let o = *r.apply(&a);
+        assert!((o.bass - last).abs() <= limit(0.0, BAND_SLEW_ALLOWANCE));
+        assert!((o.spectrum[0] - s0).abs() <= limit(0.0, SPECTRUM_SLEW_ALLOWANCE));
+        last = o.bass;
+        s0 = o.spectrum[0];
+    }
+    // Settled on the scaled value: 1 + 5 * 0.6 = 4, under the ceiling.
+    assert!(approx(last, 1.0 + REACTIVITY_MAX * 0.6), "{last}");
+    assert!(approx(s0, REACTIVITY_MAX * 0.5), "{s0}");
+}
+
+/// Going back to 1x (Backspace) slews back to the unscaled values, then
+/// passes the frame through bit for bit again.
+#[test]
+fn back_to_one_slews_then_passes_through() {
+    let mut a = frame();
+    a.bass = 1.6;
+    let mut r = Reactivity::new(REACTIVITY_MAX);
+    for _ in 0..1000 {
+        r.apply(&a);
+    }
+    let high = r.apply(&a).bass;
+    assert!(high > 3.0, "{high}");
+    r.set(1.0);
+    let first = r.apply(&a).bass;
+    assert!(first < high && first > a.bass, "{high} -> {first}");
+    assert!((high - first) <= limit(0.0, BAND_SLEW_ALLOWANCE));
+    for _ in 0..1000 {
+        r.apply(&a);
+    }
+    a.wave[0][5] = -3e-12;
+    let out = *r.apply(&a);
+    assert_eq!(out, a);
+    assert_eq!(out.bass.to_bits(), a.bass.to_bits());
+    assert!(std::ptr::eq(r.applied(&a), &a));
 }

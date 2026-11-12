@@ -29,7 +29,8 @@ pub use loader::{
     feedback_format, LoadResult, Loader, LOADER_STACK_BYTES, MAX_PRESET_BYTES, PICKS_SALT,
 };
 pub use reactivity::{
-    effective_reactivity, step_reactivity, Reactivity, BAND_CEILING, REACTIVITY_MAX,
-    REACTIVITY_MIN, REACTIVITY_STEP, SPECTRUM_CEILING, WAVE_CEILING,
+    effective_reactivity, step_reactivity, Reactivity, BAND_CEILING, BAND_SLEW_ALLOWANCE,
+    REACTIVITY_MAX, REACTIVITY_MIN, REACTIVITY_STEP, SLEW_FACTOR, SPECTRUM_CEILING,
+    SPECTRUM_SLEW_ALLOWANCE, WAVE_CEILING,
 };
 pub use tick::{PresetInstance, TickOutput, VertexPath};
