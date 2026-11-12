@@ -122,9 +122,10 @@ Each preset's Up / Down level is saved in the config under
 `[preset_reactivity]`, by preset file name. The config-only setting
 `reactivity = 1.0` multiplies every preset's level, e.g. `reactivity = 0.5`
 to calm everything down; the combined level is capped at 5x. Turning a
-preset up exaggerates how the music moves but never feeds it values
-louder than loud music gives at 1x, so presets stay within their
-flash-safety limits.
+preset up exaggerates how the music moves, but the values it sees are
+capped and may only change about twice as fast per frame as they would at
+1x, so presets stay within their flash-safety limits; a big level change
+takes effect over a fraction of a second rather than in one jump.
 
 ## Safe mode
 
