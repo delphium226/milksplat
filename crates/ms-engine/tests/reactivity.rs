@@ -179,6 +179,8 @@ fn effective_level_is_the_clamped_product() {
     assert_eq!(effective_reactivity(1.0, 1.0), 1.0);
     assert_eq!(effective_reactivity(1.5, 0.5), 0.75);
     assert_eq!(effective_reactivity(2.5, 2.0), REACTIVITY_MAX);
+    assert_eq!(effective_reactivity(3.0, 2.0), REACTIVITY_MAX);
+    assert_eq!(REACTIVITY_MAX, 5.0);
     assert_eq!(effective_reactivity(0.5, 0.0), 0.0);
     assert_eq!(effective_reactivity(1.0, -1.0), 0.0);
     assert_eq!(effective_reactivity(f32::NAN, 1.0), 1.0);

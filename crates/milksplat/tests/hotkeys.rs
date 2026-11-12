@@ -149,7 +149,7 @@ fn reactivity_keys_are_in_the_help() {
 }
 
 /// Up/Down move the shown preset's level in quarter steps within
-/// 0.25..=2.5; Backspace (and stepping back to 1x) removes its entry.
+/// 0.25..=5; Backspace (and stepping back to 1x) removes its entry.
 #[test]
 fn reactivity_hotkeys_change_the_stored_level() {
     let mut c = Config::default();
@@ -159,7 +159,7 @@ fn reactivity_hotkeys_change_the_stored_level() {
     for _ in 0..20 {
         c.step_preset_reactivity("a.splat", 1);
     }
-    assert_eq!(c.preset_reactivity("a.splat"), 2.5);
+    assert_eq!(c.preset_reactivity("a.splat"), 5.0);
     for _ in 0..20 {
         c.step_preset_reactivity("b.splat", -1);
     }
@@ -186,7 +186,7 @@ fn reactivity_notice_text() {
         "Reactivity 1.5x (effective 0.75x)"
     );
     assert_eq!(
-        reactivity_notice(2.5, 2.0),
-        "Reactivity 2.5x (effective 2.5x)"
+        reactivity_notice(3.0, 2.0),
+        "Reactivity 3x (effective 5x)"
     );
 }

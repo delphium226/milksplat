@@ -35,7 +35,7 @@ use ms_analysis::AudioFrame;
 pub const REACTIVITY_MIN: f32 = 0.25;
 /// The highest per-preset level (Up arrow), and the highest effective
 /// level (per-preset times global).
-pub const REACTIVITY_MAX: f32 = 2.5;
+pub const REACTIVITY_MAX: f32 = 5.0;
 /// One Up/Down step.
 pub const REACTIVITY_STEP: f32 = 0.25;
 /// The guard's ceiling for a turned-up band value (`bass`, `bass_att`,

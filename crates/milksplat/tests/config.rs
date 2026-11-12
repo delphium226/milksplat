@@ -293,7 +293,7 @@ fn unreadable_unmovable_config_is_not_overwritten() {
 }
 
 /// The reactivity settings: the global multiplier is clamped to
-/// 0..=2.5, per-preset levels to 0.25..=2.5; 1x entries are dropped and a
+/// 0..=5, per-preset levels to 0.25..=5; 1x entries are dropped and a
 /// bad entry is ignored with a warning.
 #[test]
 fn reactivity_values_checked() {
