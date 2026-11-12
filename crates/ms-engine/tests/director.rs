@@ -1553,8 +1553,8 @@ fn each_preset_ticks_at_its_own_reactivity() {
     assert_eq!(tick(&mut rig, 5.0), (2.0, Some(0.5)));
     // A new level applies from the next tick; the global one multiplies
     // and the product is clamped.
-    let levels = [("a.splat".to_string(), 2.5)].into_iter().collect();
+    let levels = [("a.splat".to_string(), 3.0)].into_iter().collect();
     rig.director.set_reactivity(levels, 2.0);
-    assert_eq!(tick(&mut rig, 5.1), (2.5, Some(2.0)));
+    assert_eq!(tick(&mut rig, 5.1), (5.0, Some(2.0)));
     assert!(rig.gpu.poll_wait().is_ok());
 }
