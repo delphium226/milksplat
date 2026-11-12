@@ -18,7 +18,12 @@
 # The helix turns and slides away along its axis (both accumulated). Bass
 # makes the rungs glow (smoothed) and slowly uncoils the helix a little,
 # and it recoils as the bass falls. Mids drift the fog's hue. Treble
-# twinkles the motes. Each kick brightens the backbones, eased.
+# twinkles the motes. Each hit of the music is felt at once, through
+# pulses of the bass, mids and treble that rise in a tick or two and die
+# away over a fraction of a second (soft-limited, so a bigger hit still
+# means more): a kick throws the helix on round its turn and along its
+# slide (accumulated) and flares the backbones; the mids light the rungs;
+# the treble twinkles the motes.
 version = 1
 
 [meta]
@@ -42,12 +47,18 @@ sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
 sc = sc + (min(bass_att, 2.5) - sc) * 0.008;
 sm = sm + (min(mid_att, 2.5) - sm) * 0.03;
 st = st + (min(treb_att, 2.5) - st) * 0.1;
-bt = max(bt * 0.94, beat);
-be = be + (bt - be) * 0.08;
-// The helix turns (a turn in 40 s) and slides away along its axis.
-ph = ph + 6.2831853 / 40 / 60;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+// The helix turns (a turn in 40 s) and slides away along its axis, each
+// kick throwing it on.
+ph = ph + 6.2831853 / 40 / 60 + 0.025 * pb;
 ph = ph - 6.2831853 * floor(ph / 6.2831853);
-sl = sl + 0.12 / 60;
+sl = sl + 0.12 / 60 + 0.03 * pb;
 sl = sl - 3.4 * floor(sl / 3.4);
 // The camera sways slowly round the helix.
 ca = ca + 6.2831853 / 75 / 60;
@@ -61,8 +72,8 @@ q1 = ph; q2 = sl; q3 = ca; q4 = dr;
 // The twist: a turn every 3.4 units, uncoiling by up to 9% with the bass
 // (very slowly smoothed).
 q5 = 6.2831853 / 3.4 * (1 - 0.09 * min(sc, 2) / 2);
-q6 = sb; q7 = be; q8 = st;
-q9 = hu;
+q6 = sb; q7 = pb; q8 = st;
+q9 = hu; q10 = pm; q11 = pt;
 '''
 
 [shader]
@@ -75,9 +86,11 @@ let ca = u.q[0].z;
 let dr = u.q[0].w;
 let kk = u.q[1].x;
 let sb = min(u.q[1].y, 2.0) * 0.5;
-let be = min(u.q[1].z, 1.0);
+let pb = u.q[1].z;
 let st = max(0.0, min(u.q[1].w, 2.5) - 0.3);
 let hu = u.q[2].x;
+let pm = u.q[2].y;
+let pt = u.q[2].z;
 let lw = max(1.0, sz.y / 540.0);
 let sp = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
 // The camera: beside the helix near its start, looking along it.
@@ -174,13 +187,13 @@ if (disc > 0.0) {
             var base = vec3f(0.0);
             if (drr < min(dA, dB)) {
                 nv = vec3f(vxy, dz);
-                base = rc * (0.75 + 1.4 * sb);
+                base = rc * (0.75 + 1.4 * sb + 1.0 * pm);
             } else {
                 let tc = select(ta + 2.4, ta, dA < dB);
                 let v = P - vec3f(R * cos(tc), R * sin(tc), P.z);
                 let tg = normalize(vec3f(-R * kk * sin(tc), R * kk * cos(tc), 1.0));
                 nv = v - tg * dot(v, tg);
-                base = select(kb, ka, dA < dB) * (0.85 + 0.5 * be);
+                base = select(kb, ka, dA < dB) * (0.85 + 0.9 * pb);
             }
             let nn = normalize(nv + vec3f(1e-6));
             let lt = normalize(vec3f(0.5, 0.8, -0.4));
@@ -196,8 +209,8 @@ if (disc > 0.0) {
 if (hit) {
     col = mix(bgc, hitc, exp(-th * 0.07));
 }
-col += ka * glowA * (0.7 + 0.4 * be) + kb * glowB * (0.7 + 0.4 * be);
-col += glowR * (0.5 + 1.0 * sb);
+col += ka * glowA * (0.7 + 0.8 * pb) + kb * glowB * (0.7 + 0.8 * pb);
+col += glowR * (0.5 + 1.0 * sb + 1.2 * pm);
 // Drifting motes, in three layers.
 for (var l = 0; l < 3; l++) {
     let fl = f32(l);
@@ -208,7 +221,7 @@ for (var l = 0; l < 3; l++) {
     let pp = cell + vec2f(0.2) + hp * 0.6;
     let dd = length(q - pp) / ls * sz.y / lw;
     let on = step(0.7, fract(hp.x * 7.31 + hp.y * 3.17));
-    let tw = 0.75 + 0.25 * sin(u.time * (2.0 + hp.y * 3.0) + hp.x * 40.0) * min(st, 1.0);
+    let tw = 0.75 + 0.25 * sin(u.time * (2.0 + hp.y * 3.0) + hp.x * 40.0) * (min(st, 1.0) + 0.6 * pt);
     let w = 1.5 + 2.5 * (2.0 - fl);
     col += vec3f(0.55, 0.8, 1.0) * on * exp(-dd * dd / w) * (0.25 + 0.1 * fl) * tw;
 }
