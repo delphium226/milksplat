@@ -19,7 +19,12 @@
 # the box's fold limit sways on a phase that quickens with it
 # (accumulated, never time times the bass). Mids reshape the sphere fold,
 # opening and closing the pierced domes. Treble makes the veins glitter.
-# Each kick flares the rims and the haze, eased in and out.
+# Each hit of the music is felt at once, through pulses of the bass, mids
+# and treble that rise in a tick or two and die away over a fraction of a
+# second (soft-limited, so a bigger hit still means more): a kick deepens
+# the folds, pushes the camera in and swings it on round its orbit, and
+# flares the rims and the haze; the mids open the domes and light the
+# veins; the treble makes the veins glitter.
 version = 1
 
 [meta]
@@ -40,25 +45,32 @@ frame = '''
 sb = sb + (min(bass_att, 2.5) - sb) * 0.02;
 sm = sm + (min(mid_att, 2.5) - sm) * 0.02;
 st = st + (min(treb, 2.5) - st) * 0.15;
-bt = max(bt * 0.94, beat);
-be = be + (bt - be) * 0.1;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
 // The breath (accumulated, wrapped), quicker with the bass.
 bp = bp + 0.006 + 0.014 * min(sb, 2) / 2;
 bp = bp - 6.2831853 * floor(bp / 6.2831853);
 // The sphere fold's sway (accumulated, wrapped), quicker with the mids.
 ra = ra + 0.0007 + 0.0022 * min(sm, 2) / 2;
 ra = ra - 6.2831853 * floor(ra / 6.2831853);
-// The camera's orbit (wrapped).
-ca = ca + 0.0016 + 0.0008 * min(sb, 2) / 2;
+// The camera's orbit (wrapped), swung on by the kicks.
+ca = ca + 0.0016 + 0.0008 * min(sb, 2) / 2 + 0.004 * pb;
 ca = ca - 6.2831853 * floor(ca / 6.2831853);
 hu = hu + 0.00025;
 hu = hu - floor(hu);
-// The scale deepens with the bass; the box fold sways with the breath;
-// the sphere fold's core radius (squared) sways with the mids.
-q1 = -1.72 - 0.12 * min(sb, 2) / 2 - 0.03 * sin(bp);
+// The scale deepens with the bass and each kick; the box fold sways with
+// the breath; the sphere fold's core radius (squared) sways with the mids
+// and opens on each mid hit.
+q1 = -1.72 - 0.12 * min(sb, 2) / 2 - 0.03 * sin(bp) - 0.02 * pb;
 q2 = 1 + (0.02 + 0.05 * min(sb, 2) / 2) * sin(bp * 2 + 0.6);
-q3 = 0.22 + 0.08 * sin(ra); q4 = ca;
-q5 = hu; q6 = sb; q7 = st; q8 = be;
+q3 = 0.22 + 0.08 * sin(ra) + 0.04 * pm; q4 = ca;
+q5 = hu; q6 = sb; q7 = st; q8 = pb;
+q9 = pm; q10 = pt;
 '''
 
 [shader]
@@ -72,10 +84,12 @@ let ca = u.q[0].w;
 let hu = u.q[1].x;
 let sb = min(u.q[1].y, 2.0) * 0.5;
 let st = max(0.0, min(u.q[1].z, 2.5) - 0.4);
-let be = min(u.q[1].w, 1.0);
-// The camera, orbiting and rising and sinking slowly.
+let kb = u.q[1].w;
+let pm = u.q[2].x;
+let pt = u.q[2].y;
+// The camera, orbiting and rising and sinking slowly, pushed in by a kick.
 let el = 0.35 + 0.3 * sin(u.time * 0.019);
-let cd = 3.4 + 0.4 * sin(u.time * 0.013 + 1.0);
+let cd = (3.4 + 0.4 * sin(u.time * 0.013 + 1.0)) / (1.0 + 0.06 * kb);
 let ro = vec3f(cos(ca) * cos(el), sin(el), sin(ca) * cos(el)) * cd;
 let fw = normalize(-ro);
 let rt = normalize(cross(fw, vec3f(0.0, 1.0, 0.0)));
@@ -129,7 +143,7 @@ let pa = 0.5 + 0.5 * cos(tau * (vec3f(he) + vec3f(0.0, 0.33, 0.67)));
 let pb = 0.5 + 0.5 * cos(tau * (vec3f(hb) + vec3f(0.0, 0.33, 0.67)));
 let ca2 = pa * pa / max(max(pa.r * pa.r, pa.g * pa.g), max(pa.b * pa.b, 0.05));
 let cb2 = pb * pb / max(max(pb.r * pb.r, pb.g * pb.g), max(pb.b * pb.b, 0.05));
-var col = sky + cb2 * glow * (0.008 + 0.006 * be + 0.004 * sb);
+var col = sky + cb2 * glow * (0.008 + 0.006 * kb + 0.004 * sb);
 if (hit) {
     let p0 = ro + rd * t;
     let e = max(t * pxa, 1e-4);
@@ -161,11 +175,11 @@ if (hit) {
     let lt2 = sqrt(trap) * 2.2 + hu * 6.0;
     let vf = abs(fract(lt2) - 0.5);
     let gn = textureSampleLevel(sampler_noise_hq, s_pw, uv * u.texsize.xy / 256.0, 0.0).x;
-    let vein = exp(-vf * vf * 160.0) * (0.7 + st * 1.4 * smoothstep(0.6, 0.95, gn));
+    let vein = exp(-vf * vf * 160.0) * (0.7 + 0.5 * pm + (st + 0.8 * pt) * 1.4 * smoothstep(0.6, 0.95, gn));
     let ph = fract(lt2 * 0.3);
     let pv = 0.5 + 0.5 * cos(tau * (vec3f(he + 0.13 * sin(tau * ph)) + vec3f(0.0, 0.33, 0.67)));
     var sc = vec3f(0.015, 0.015, 0.025) + (pv * pv * (0.025 + 0.2 * dif) + cb2 * 0.08 * dif2) * ao;
-    sc += mix(ca2, pv, 0.5) * fr * (1.5 + 0.5 * sb + 0.4 * be) * (0.3 + 0.7 * ao);
+    sc += mix(ca2, pv, 0.5) * fr * (1.5 + 0.5 * sb + 0.8 * kb) * (0.3 + 0.7 * ao);
     sc += cb2 * vein * 1.5 * ao;
     sc += vec3f(1.0, 0.95, 0.9) * spc * 0.5 * ao;
     let fog = exp(-max(t - 0.6, 0.0) * 0.42);
