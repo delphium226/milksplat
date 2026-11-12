@@ -52,23 +52,44 @@ fn level_one_is_bit_identical() {
 }
 
 #[test]
-fn bands_scale_their_deviation_from_one() {
+fn bands_scale_as_a_power_below_one_and_linearly_above() {
+    // Average loudness (1) stays at 1. Under it `v' = v^k`, over it
+    // `v' = 1 + k (v - 1)`.
     let a = frame();
     let mut r = Reactivity::new(2.0);
     let o = *r.apply(&a);
     assert!(approx(o.bass, 1.8), "{}", o.bass); // 1 + 2 * 0.4
-    assert!(approx(o.mid, 0.6), "{}", o.mid); // 1 + 2 * -0.2
+    assert!(approx(o.mid, 0.64), "{}", o.mid); // 0.8^2
     assert!(approx(o.treb, 1.0));
     assert!(approx(o.bass_att, 1.4));
-    assert!(approx(o.mid_att, 0.8));
-    // 1 + 2 * -0.7 < 0: clamped at 0.
-    assert_eq!(o.treb_att, 0.0);
+    assert!(approx(o.mid_att, 0.81));
+    // Quiet stays graded and above 0 (`1 + k(v-1)` would have floored it).
+    assert!(approx(o.treb_att, 0.09), "{}", o.treb_att);
 
     let mut r = Reactivity::new(0.5);
     let o = *r.apply(&a);
     assert!(approx(o.bass, 1.2));
-    assert!(approx(o.mid, 0.9));
-    assert!(approx(o.treb_att, 0.65));
+    assert!(approx(o.mid, 0.8f32.sqrt()));
+    assert!(approx(o.treb_att, 0.3f32.sqrt()));
+}
+
+/// On real techno most of the time the bass sits under its average (median
+/// about 0.6): turned all the way up, those values must stay graded, in
+/// order and above 0, not clip to a near on/off signal.
+#[test]
+fn quiet_passages_stay_graded_at_the_top_level() {
+    let mut last = 0.0f32;
+    for i in 1..=16 {
+        let v = i as f32 * 0.05; // 0.05 ..= 0.8
+        let a = AudioFrame {
+            bass: v,
+            ..AudioFrame::default()
+        };
+        let o = Reactivity::new(REACTIVITY_MAX).apply(&a).bass;
+        assert!(o > last, "bass {v} -> {o} after {last}");
+        assert!(approx(o, v.powf(REACTIVITY_MAX)), "{v} -> {o}");
+        last = o;
+    }
 }
 
 #[test]
@@ -304,8 +325,10 @@ fn turning_up_still_widens_the_reaction() {
     eprintln!("bass sd {sd1:.3} {sd25:.3} {sd5:.3}, range {range1:.3} {range25:.3} {range5:.3}");
     assert!(sd25 > 2.0 * sd1, "2.5x: sd {sd25} vs 1x {sd1}");
     assert!(sd5 > 1.3 * sd25, "5x: sd {sd5} vs 2.5x {sd25}");
+    // `v^k` reaches far on a kick's attack, which the slew limit holds to
+    // two ticks' worth, so the peak gains less than the spread does.
     assert!(
-        range5 > 1.3 * range25,
+        range5 > 1.2 * range25,
         "5x: range {range5} vs 2.5x {range25}"
     );
     // Against 1x: the limit costs some of the peak (each kick's attack is
@@ -319,7 +342,7 @@ fn turning_up_still_widens_the_reaction() {
 #[test]
 fn a_level_change_is_slewed() {
     let mut a = frame();
-    a.bass = 1.6;
+    a.bass = 1.3;
     a.spectrum[0] = 0.5;
     let mut r = Reactivity::new(1.0);
     for _ in 0..10 {
@@ -335,8 +358,8 @@ fn a_level_change_is_slewed() {
         last = o.bass;
         s0 = o.spectrum[0];
     }
-    // Settled on the scaled value: 1 + 5 * 0.6 = 4, under the ceiling.
-    assert!(approx(last, 1.0 + REACTIVITY_MAX * 0.6), "{last}");
+    // Settled on the scaled value: 1 + 5 * 0.3 = 2.5, under the ceiling.
+    assert!(approx(last, 1.0 + REACTIVITY_MAX * 0.3), "{last}");
     assert!(approx(s0, REACTIVITY_MAX * 0.5), "{s0}");
 }
 

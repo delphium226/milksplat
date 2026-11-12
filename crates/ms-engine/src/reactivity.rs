@@ -6,9 +6,19 @@
 //!
 //! - **Bands** (`bass`, `mid`, `treb` and the `_att` versions) are the
 //!   band energy over its long-term average, so they hover around 1 at
-//!   average loudness. Their deviation from 1 is scaled:
-//!   `v' = 1 + k (v - 1)`, never below 0. Average loudness stays at 1, so a
-//!   preset does not simply get brighter or darker with the setting.
+//!   average loudness. Under the average they are scaled as a power,
+//!   `v' = v^k` (the ratio's logarithm times `k`); over it their deviation
+//!   is scaled, `v' = 1 + k (v - 1)`. The two meet at 1 with the same
+//!   slope `k`. Average loudness stays at 1, so a preset does not simply
+//!   get brighter or darker with the setting, and a quiet value stays
+//!   graded and above 0 at any level: real music's bass sits under its
+//!   average most of the time (median about 0.6 on techno), and scaling
+//!   the deviation there too floored everything under `1 - 1/k` at 0,
+//!   which at 5x left a preset a near on/off signal. Over the average the
+//!   deviation scaling is kept because a power climbs much faster there
+//!   (it reached the ceiling at 1.38 times the average at 5x, against 1.8)
+//!   and flattened the loud hits into one value (ruling R78). Turned down
+//!   (`k < 1`) both sides move towards 1; at 0 the bands are held at 1.
 //! - **Waveform** samples are signed audio: scaled about 0, `w' = k w`.
 //! - **Spectrum** bins are `ln(1 + |X| / 2)`, an absolute level that is 0
 //!   in silence and has no running average to deviate from, so they are
@@ -40,9 +50,11 @@
 //!   scaling: on a kick the turned-up value keeps climbing while the
 //!   unscaled one decays (the decay moves too, so the limit is not zero),
 //!   so it still peaks much higher, a few ticks later, and falls back as
-//!   gradually. Up to `SLEW_FACTOR`x it never binds (`k |dv| <=
-//!   SLEW_FACTOR |dv|`), so those levels behave as plain scaling. A level
-//!   change, including back to 1x, also moves the values gradually; once
+//!   gradually. Up to `SLEW_FACTOR`x it never binds (the scaling is
+//!   nowhere steeper than `k`, as `v^k` under 1 is no steeper than `k`
+//!   for `k >= 1`, so `|dv'| <= k |dv| <= SLEW_FACTOR |dv|`), so those
+//!   levels behave as plain scaling. A level change, including back to
+//!   1x, also moves the values gradually; once
 //!   back on the unscaled values at 1x, the frame is passed through again.
 //!   The waveform is not slew-limited: its samples are new audio every
 //!   tick, at 1x as much as turned up, and only the ceiling holds them.
@@ -50,7 +62,8 @@
 //!   limited.
 //!
 //! Turning down only moves values towards their resting point, which a 1x
-//! preset sees too, and never binds the slew limit.
+//! preset sees too, and binds the slew limit only for band values very
+//! near 0 (where `v^k` is steep for `k < 1`).
 //!
 //! At exactly 1 (once settled, see above) the frame is passed through
 //! untouched (bit-identical).
@@ -182,7 +195,7 @@ impl Reactivity {
             let target = if k == 1.0 {
                 finite(v)
             } else {
-                guard(1.0 + k * (v - 1.0), v, BAND_CEILING, 0.0)
+                guard(scale_band(v, k), v, BAND_CEILING, 0.0)
             };
             let n = step(v, pv, *last, target, BAND_SLEW_ALLOWANCE);
             settled &= n.to_bits() == v.to_bits();
@@ -235,6 +248,21 @@ impl Reactivity {
         } else {
             &self.out
         }
+    }
+}
+
+/// A band value at level `k`: `v^k` up to the average (1), `1 + k (v - 1)`
+/// above it (0 for a negative or non-finite `v`; at `k = 0`, 1). The two
+/// meet at 1 with the same slope, `k`. See the module docs.
+#[inline]
+fn scale_band(v: f32, k: f32) -> f32 {
+    if !(v.is_finite() && v > 0.0) {
+        return if k == 0.0 { 1.0 } else { 0.0 };
+    }
+    if v <= 1.0 {
+        v.powf(k)
+    } else {
+        1.0 + k * (v - 1.0)
     }
 }
 
