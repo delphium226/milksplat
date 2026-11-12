@@ -168,7 +168,10 @@ fn loud_band_values_stay_graded_under_the_soft_ceiling() {
             assert!(o < BAND_CEILING, "{k}x: bass {v} -> {o}");
             // Never held below the unscaled value, never above the
             // plain scaled one.
-            assert!(o >= v && o <= 1.0 + k * (v - 1.0) + 1e-5, "{k}x: {v} -> {o}");
+            assert!(
+                o >= v && o <= 1.0 + k * (v - 1.0) + 1e-5,
+                "{k}x: {v} -> {o}"
+            );
             last = o;
         }
         for v in [BAND_CEILING, 6.0, 18.0, 40.0] {
