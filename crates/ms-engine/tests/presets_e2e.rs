@@ -19,6 +19,10 @@
 //! of the synthetic music. `MS_TUNE_REACTIVITY` (e.g. `2.5`) runs every
 //! preset at that reactivity level (the audio scaled as the director
 //! scales it, flash-safety guard included).
+//!
+//! `rank_reactivity` (also ignored) scores how strongly each preset reacts
+//! to a recording, against its own animation on silence; see
+//! `reactivity_score`.
 
 use ms_render::test_support::{test_gpu, TestGpu};
 use std::cell::RefCell;
@@ -780,6 +784,27 @@ fn max_flashes_per_second(lum: &[f64]) -> f64 {
     most as f64 / 2.0
 }
 
+/// `ticks` ticks of analysed audio from the raw recording at `path`
+/// (interleaved little-endian f32 stereo at 48 kHz), looped if the run is
+/// longer than it.
+fn recorded_audio(path: &str, ticks: usize) -> Vec<AudioFrame> {
+    let bytes = std::fs::read(path).expect("read the recording");
+    let samples: Vec<f32> = bytes
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|b| f32::from_le_bytes(*b))
+        .collect();
+    let frames = (samples.len() / 2).max(1);
+    analyse(ticks, |n| {
+        let i = n as usize % frames * 2;
+        [
+            samples.get(i).copied().unwrap_or(0.0),
+            samples.get(i + 1).copied().unwrap_or(0.0),
+        ]
+    })
+}
+
 /// Tuning harness (see the module docs): `MS_TUNE_TICKS` (default 600)
 /// ticks per preset at `MS_TUNE_SIZE` (`WxH`, default the golden size),
 /// mean luminance every tick, PNGs of the ticks in `MS_TUNE_SHOTS`
@@ -811,24 +836,7 @@ fn tune_presets() {
         [w.parse().expect("width"), h.parse().expect("height")]
     });
     let bench = env("MS_TUNE_BENCH").is_some_and(|b| b == "1");
-    let recorded = env("MS_TUNE_AUDIO").map(|path| {
-        let bytes = std::fs::read(&path).expect("read MS_TUNE_AUDIO");
-        let samples: Vec<f32> = bytes
-            .as_chunks::<4>()
-            .0
-            .iter()
-            .map(|b| f32::from_le_bytes(*b))
-            .collect();
-        // Loop the recording if the run is longer than it.
-        let frames = (samples.len() / 2).max(1);
-        analyse(ticks, |n| {
-            let i = n as usize % frames * 2;
-            [
-                samples.get(i).copied().unwrap_or(0.0),
-                samples.get(i + 1).copied().unwrap_or(0.0),
-            ]
-        })
-    });
+    let recorded = env("MS_TUNE_AUDIO").map(|path| recorded_audio(&path, ticks));
     let runs: Vec<(&str, Vec<AudioFrame>)> = match recorded {
         Some(r) => vec![("recorded", r)],
         None => vec![
@@ -946,4 +954,294 @@ fn tune_presets() {
         }
     }
     assert!(bad.is_empty(), "luminance out of [0.05, 0.85]: {bad:?}");
+}
+
+// ------------------------------------------------------------ reactivity metric
+
+/// Mean absolute per-pixel, per-channel (RGB) difference of two images,
+/// in [0, 1]: how much the picture changed.
+fn frame_change(a: &RgbaImage, b: &RgbaImage) -> f64 {
+    let sum: u64 = a
+        .pixels()
+        .zip(b.pixels())
+        .map(|(p, q)| {
+            (0..3)
+                .map(|c| u64::from(p.0[c].abs_diff(q.0[c])))
+                .sum::<u64>()
+        })
+        .sum();
+    sum as f64 / 255.0 / 3.0 / f64::from(a.width() * a.height())
+}
+
+/// Ranks of `v` (0-based, ties sharing their mean rank), for Spearman
+/// correlation: robust to the spikes of real music's band values.
+fn ranks(v: &[f64]) -> Vec<f64> {
+    let mut idx: Vec<usize> = (0..v.len()).collect();
+    idx.sort_by(|&a, &b| v[a].total_cmp(&v[b]));
+    let mut r = vec![0.0; v.len()];
+    let mut i = 0;
+    while i < idx.len() {
+        let mut j = i;
+        while j + 1 < idx.len() && v[idx[j + 1]] == v[idx[i]] {
+            j += 1;
+        }
+        for &k in &idx[i..=j] {
+            r[k] = (i + j) as f64 / 2.0;
+        }
+        i = j + 1;
+    }
+    r
+}
+
+/// Pearson correlation of `a` and `b` (0 when either is constant).
+fn pearson(a: &[f64], b: &[f64]) -> f64 {
+    let n = a.len().min(b.len()) as f64;
+    let ma = a.iter().sum::<f64>() / n;
+    let mb = b.iter().sum::<f64>() / n;
+    let (mut ab, mut aa, mut bb) = (0.0, 0.0, 0.0);
+    for (x, y) in a.iter().zip(b) {
+        ab += (x - ma) * (y - mb);
+        aa += (x - ma) * (x - ma);
+        bb += (y - mb) * (y - mb);
+    }
+    if aa <= 0.0 || bb <= 0.0 {
+        0.0
+    } else {
+        ab / (aa * bb).sqrt()
+    }
+}
+
+/// Spearman correlation of trace `x` with envelope `e`, `x` lagging `e`
+/// by 0 to `max_lag` ticks: the most positive and the most negative.
+fn lagged_spearman(x: &[f64], e: &[f64], max_lag: usize) -> (f64, f64) {
+    let (rx, re) = (ranks(x), ranks(e));
+    let n = rx.len();
+    (0..=max_lag)
+        .map(|lag| pearson(&rx[lag..], &re[..n - lag]))
+        .fold((0.0f64, 0.0f64), |(hi, lo), r| (hi.max(r), lo.min(r)))
+}
+
+fn mean(v: &[f64]) -> f64 {
+    v.iter().sum::<f64>() / v.len().max(1) as f64
+}
+
+fn std_dev(v: &[f64]) -> f64 {
+    let m = mean(v);
+    (v.iter().map(|x| (x - m) * (x - m)).sum::<f64>() / v.len().max(1) as f64).sqrt()
+}
+
+/// `v` minus its centred moving average over `2 * half + 1` ticks: what
+/// moves faster than about a second.
+fn high_pass(v: &[f64], half: usize) -> Vec<f64> {
+    (0..v.len())
+        .map(|i| {
+            let w = &v[i.saturating_sub(half)..(i + half + 1).min(v.len())];
+            v[i] - mean(w)
+        })
+        .collect()
+}
+
+/// The per-tick traces of one run: image change (`frame_change` from the
+/// previous tick) and mean luminance.
+fn traces(gpu: &Gpu, stem: &str, audio: &[AudioFrame], size: [u32; 2]) -> (Vec<f64>, Vec<f64>) {
+    let mut change = Vec::with_capacity(audio.len());
+    let mut lum = Vec::with_capacity(audio.len());
+    let mut prev: Option<RgbaImage> = None;
+    render_at(
+        gpu,
+        stem,
+        audio,
+        At::size(size),
+        |_| true,
+        |_, img| {
+            change.push(prev.as_ref().map_or(0.0, |p| frame_change(p, &img)));
+            lum.push(luminance(&img));
+            prev = Some(img);
+        },
+        None,
+    );
+    (change, lum)
+}
+
+/// One preset's reactivity score and its parts (see [`reactivity_score`]).
+struct Score {
+    score: f64,
+    drive: f64,
+    rho_change: f64,
+    rho_lum: f64,
+    sd_change: f64,
+    sd_lum: f64,
+}
+
+/// The scale at which image change following the music counts fully: a
+/// standard deviation of 0.001 in the mean per-pixel change (an object
+/// covering a tenth of the screen pulsing by about 2.5/255 a tick).
+const CHANGE_VISIBLE: f64 = 0.001;
+/// The scale at which luminance pulsing counts fully: a standard deviation
+/// of 0.003 in the high-passed mean luminance.
+const LUM_VISIBLE: f64 = 0.003;
+
+/// Scores how strongly a preset reacts to music, 0 to 100, separating
+/// music-driven change from its own animation. It runs the preset twice
+/// with the same seed and clock, on the music and on silence, both seen
+/// through the same reactivity level, and keeps two per-tick traces of
+/// each run (the first two seconds skipped): the image change `c` (mean
+/// absolute per-pixel RGB difference from the previous tick, 0..1) and the
+/// mean luminance `L`. The runs diverge, so only statistics are compared:
+///
+/// - **drive** = `max(0, 1 - mean c(silence) / mean c(music))`: the share
+///   of the picture's motion the music adds (music speeding up an
+///   animation counts here, beat-locked or not);
+/// - **sync_c** = `max(0, rho_c) * min(1, sd c / CHANGE_VISIBLE)`: how
+///   closely the amount of change follows the music (more change on a
+///   hit);
+/// - **sync_L** = `|rho_L| * min(1, sd L_hp / LUM_VISIBLE)`: how closely
+///   the brightness pulses with the music (either way round). `L_hp` is
+///   the luminance less its one-second moving average: beat-rate pulsing,
+///   not slow drift.
+///
+/// `rho` is the Spearman (rank) correlation with the unscaled music
+/// envelopes `bass`, `mid`, `treb` and `beat_strength`, the best of them,
+/// allowing the picture to lag by up to 6 ticks: ranks keep real music's
+/// spikes from dominating, and a preset driven by the treble counts as
+/// well as one driven by the bass. Correlations measure timing, not size,
+/// so the visibility factors stop an invisible but perfectly locked
+/// flicker from scoring; past them, a sparse but sharp reaction (thin
+/// lines pulsing) counts as much as a full-screen one, as it does to the
+/// eye. The best of four envelopes over seven lags puts the floor for
+/// unrelated traces at about 0.1.
+///
+/// `score = 100 * (0.4 sync_c + 0.3 sync_L + 0.3 drive)`.
+fn reactivity_score(
+    gpu: &Gpu,
+    stem: &str,
+    music: &[AudioFrame],
+    silence: &[AudioFrame],
+    envelopes: &[Vec<f64>],
+    size: [u32; 2],
+) -> Score {
+    const SKIP: usize = 120;
+    let (c_music, l_music) = traces(gpu, stem, music, size);
+    let (c_silence, _) = traces(gpu, stem, silence, size);
+    let (c_music, l_music, c_silence) = (&c_music[SKIP..], &l_music[SKIP..], &c_silence[SKIP..]);
+    let l_hp = high_pass(l_music, 30);
+    let (mut rho_change, mut rho_lum) = (0.0f64, 0.0f64);
+    for e in envelopes {
+        rho_change = rho_change.max(lagged_spearman(c_music, &e[SKIP..], 6).0);
+        let (hi, lo) = lagged_spearman(&l_hp, &e[SKIP..], 6);
+        for r in [hi, lo] {
+            if r.abs() > rho_lum.abs() {
+                rho_lum = r;
+            }
+        }
+    }
+    let (sd_change, sd_lum) = (std_dev(c_music), std_dev(&l_hp));
+    let drive = if mean(c_music) > 0.0 {
+        (1.0 - mean(c_silence) / mean(c_music)).max(0.0)
+    } else {
+        0.0
+    };
+    let sync_c = rho_change.max(0.0) * (sd_change / CHANGE_VISIBLE).min(1.0);
+    let sync_l = rho_lum.abs() * (sd_lum / LUM_VISIBLE).min(1.0);
+    Score {
+        score: 100.0 * (0.4 * sync_c + 0.3 * sync_l + 0.3 * drive),
+        drive,
+        rho_change,
+        rho_lum,
+        sd_change,
+        sd_lum,
+    }
+}
+
+/// Reactivity ranking (see [`reactivity_score`]): every bundled preset (or
+/// those in `MS_TUNE_ONLY`) on the recording in `MS_TUNE_AUDIO` (required)
+/// and on silence, for `MS_TUNE_TICKS` (default 1800) ticks at
+/// `MS_TUNE_SIZE` (default 240x135), at each level in `MS_RANK_LEVELS`
+/// (comma-separated, default `1,5`). Prints a table ranked by the score at
+/// the first level and, if `MS_RANK_OUT` names a file, writes it there as
+/// Markdown.
+#[test]
+#[ignore = "reactivity ranking: slow, needs a recording"]
+fn rank_reactivity() {
+    let gpu = gpu();
+    let env = |k: &str| std::env::var(k).ok();
+    let only = env("MS_TUNE_ONLY");
+    let ticks: usize = env("MS_TUNE_TICKS").map_or(1800, |t| t.parse().expect("MS_TUNE_TICKS"));
+    let size = env("MS_TUNE_SIZE").map_or([240, 135], |s| {
+        let (w, h) = s.split_once('x').expect("MS_TUNE_SIZE is WxH");
+        [w.parse().expect("width"), h.parse().expect("height")]
+    });
+    let levels: Vec<f32> = env("MS_RANK_LEVELS").map_or(vec![1.0, 5.0], |s| {
+        s.split(',')
+            .map(|k| k.trim().parse().expect("MS_RANK_LEVELS"))
+            .collect()
+    });
+    let music = recorded_audio(
+        &env("MS_TUNE_AUDIO").expect("MS_TUNE_AUDIO names a raw recording"),
+        ticks,
+    );
+    let silence = analyse(ticks, |_| [0.0, 0.0]);
+    let envelope = |f: fn(&AudioFrame) -> f32| music.iter().map(|a| f64::from(f(a))).collect();
+    let envelopes: Vec<Vec<f64>> = vec![
+        envelope(|a| a.bass),
+        envelope(|a| a.mid),
+        envelope(|a| a.treb),
+        envelope(|a| a.beat_strength),
+    ];
+    let scaled = |audio: &[AudioFrame], k: f32| -> Vec<AudioFrame> {
+        let mut r = Reactivity::new(k);
+        audio.iter().map(|a| *r.apply(a)).collect()
+    };
+    let runs: Vec<(Vec<AudioFrame>, Vec<AudioFrame>)> = levels
+        .iter()
+        .map(|&k| (scaled(&music, k), scaled(&silence, k)))
+        .collect();
+    let mut rows: Vec<(&str, Vec<Score>)> = Vec::new();
+    for stem in BUNDLED {
+        if let Some(only) = &only {
+            if !only.split(',').any(|s| s.trim() == stem) {
+                continue;
+            }
+        }
+        let scores: Vec<Score> = runs
+            .iter()
+            .map(|(m, s)| reactivity_score(&gpu, stem, m, s, &envelopes, size))
+            .collect();
+        let parts: Vec<String> = levels
+            .iter()
+            .zip(&scores)
+            .map(|(k, s)| {
+                format!(
+                    "{k}x {:.1} (drive {:.2} rho_c {:.2} rho_L {:.2} sd_c {:.4} sd_L {:.4})",
+                    s.score, s.drive, s.rho_change, s.rho_lum, s.sd_change, s.sd_lum
+                )
+            })
+            .collect();
+        println!("{stem:20} {}", parts.join("  "));
+        rows.push((stem, scores));
+    }
+    rows.sort_by(|a, b| b.1[0].score.total_cmp(&a.1[0].score));
+    let mut md = String::from("| rank | preset |");
+    for k in &levels {
+        md += &format!(" score {k}x |");
+    }
+    // The parts of the score at the first level.
+    md += " drive | rho_c | rho_L |\n|---|---|";
+    md += &"---|".repeat(levels.len() + 3);
+    md += "\n";
+    for (i, (stem, scores)) in rows.iter().enumerate() {
+        md += &format!("| {} | {stem} |", i + 1);
+        for s in scores {
+            md += &format!(" {:.1} |", s.score);
+        }
+        let s = &scores[0];
+        md += &format!(
+            " {:.2} | {:.2} | {:.2} |\n",
+            s.drive, s.rho_change, s.rho_lum
+        );
+    }
+    println!("{md}");
+    if let Some(path) = env("MS_RANK_OUT") {
+        std::fs::write(&path, md).expect("write MS_RANK_OUT");
+    }
 }
