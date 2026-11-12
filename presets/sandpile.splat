@@ -31,9 +31,17 @@
 # settles), fade out over 3 s, clear, and start again (there is a fast
 # burst at the start so the screen is never bare).
 #
-# Bass pours the sand faster and brightens the colours and the dusk
-# behind (smoothed). Mids swell the halo. Each kick makes the falling
-# core flare, eased.
+# The kicks (their pulse smoothed over a few seconds) brighten the
+# colours and the dusk behind (resting dimmer in silence). Each hit of the music is felt at once, through
+# pulses of the bass, mids and treble that rise in a tick or two and die
+# away over a fraction of a second (soft-limited, so a bigger hit still
+# means more): a kick pours a burst of grains (so the avalanches surge;
+# fewer fall between kicks, so the piles keep their timing),
+# makes the falling core and the tiles flare, pushes the camera in and
+# sends a ring of light rippling out across the pile's tiles (up to
+# three at once); the mids swell the
+# halo; the treble flares the gold cells, the ones about to topple,
+# toward white.
 version = 1
 
 [meta]
@@ -57,8 +65,29 @@ lx = pixelsx; ly = pixelsy;
 frame = '''
 sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
 sm = sm + (min(mid_att, 2.5) - sm) * 0.03;
-bt = max(bt * 0.94, beat);
-be = be + (bt - be) * 0.08;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+ob = pb;
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.5, 0.08);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.12);
+// A fresh kick starts a ring at the centre, in the next of three
+// slots; each runs out across the pile (radius in units of the pile's
+// reach) in about two thirds of a second, fading.
+kk = max(pb - ob, 0);
+// The kicks' pulse smoothed over a few seconds (0 in silence).
+es = es + (pb - es) * 0.01;
+cd = cd + 1;
+if(kk > 0.12 && cd > 8,
+  cd = 0; sl = (sl + 1) % 3;
+  if(sl == 0, r1 = 0; a1 = min(pb, 1.5), 0);
+  if(sl == 1, r2 = 0; a2 = min(pb, 1.5), 0);
+  if(sl == 2, r3 = 0; a3 = min(pb, 1.5), 0),
+  0);
+r1 = min(r1 + 0.03, 3); r2 = min(r2 + 0.03, 3); r3 = min(r3 + 0.03, 3);
+a1 = a1 * 0.96; a2 = a2 * 0.96; a3 = a3 * 0.96;
 // The grid: 150 cells down (fewer in a tiny buffer); the pile is full
 // at 0.48 of that in radius.
 ny = min(150, pixelsy);
@@ -73,7 +102,9 @@ if(pixelsx != lx || pixelsy != ly,
 lx = pixelsx; ly = pixelsy;
 // Growing: the grains this tick (whole grains), a burst at the start.
 if(ph < 0.5,
-  dr = floor(20 + 24 * min(sb, 2) / 2 + 150 * exp(-fc / 120));
+  // The kicks pour bursts of grains, and fewer fall between them: as
+  // many on average as in silence, so the piles keep their timing.
+  dr = floor(max(0, 20 + 60 * (pb - es)) + 150 * exp(-fc / 120));
   ng = ng + dr;
   if(ng >= full, ph = 1; ht = 0, 0),
   0);
@@ -92,8 +123,11 @@ q1 = rs || fc < 3; q2 = dr;
 // How far out the sand reaches (cells).
 q3 = sqrt(ng / 6.676);
 q4 = fi * (1 - fd);
-q5 = sb; q6 = sm; q7 = be;
+q5 = 0.6 + 1.6 * es / (1 + es); q6 = sm; q7 = pb;
 q8 = dr;
+q9 = pm; q10 = pt;
+q11 = r1; q12 = r2; q13 = r3;
+q14 = a1; q15 = a2; q16 = a3;
 '''
 
 [shader]
@@ -161,10 +195,14 @@ let sz = u.texsize.xy;
 let fade = u.q[0].w;
 let sb = min(u.q[1].x, 2.0) * 0.5;
 let sm = min(u.q[1].y, 2.0) * 0.5;
-let be = min(u.q[1].z, 1.0);
+let pb = u.q[1].z;
+let be = min(pb, 1.2);
+let pm = u.q[2].x;
+let pt = min(u.q[2].y, 1.5);
 let ny = min(150.0, sz.y);
 let nc = vec2f(floor(ny * sz.x / sz.y), ny);
-let cp = uv * nc;
+// A kick pushes the camera in on the pile.
+let cp = ((uv - vec2f(0.5)) / (1.0 + 0.06 * pb) + vec2f(0.5)) * nc;
 let c = min(floor(cp), nc - vec2f(1.0));
 let fr = cp - floor(cp);
 let st = textureLoad(sampler_main, vec2i(c), 0).rgb;
@@ -178,7 +216,8 @@ if (h > 1.5) {
     cc = vec3f(1.0, 0.1, 0.6);
 }
 if (h > 2.5) {
-    cc = vec3f(1.0, 0.62, 0.05);
+    // Gold, flaring toward white with the treble.
+    cc = mix(vec3f(1.0, 0.62, 0.05), vec3f(1.25, 0.95, 0.45), 0.3 * min(pt, 1.0));
 }
 // A small tile with a dark seam, when cells are big enough to show one
 // (sz.y / ny pixels of the buffer a cell).
@@ -188,7 +227,12 @@ let tx = smoothstep(0.0, e, fr.x) * smoothstep(1.0, 1.0 - e, fr.x);
 let ty = smoothstep(0.0, e, fr.y) * smoothstep(1.0, 1.0 - e, fr.y);
 let tile = mix(1.0, 0.4 + 0.6 * tx * ty, smoothstep(2.5, 4.0, px));
 var col = vec3f(0.005, 0.005, 0.016);
-col += cc * st.g * tile * (1.25 + 0.5 * sb);
+// The kicks' rings rippling out across the pile.
+let rr = length(cp - nc * 0.5) / max(u.q[0].z, 4.0);
+let wv = u.q[3].y * exp(-pow((rr - u.q[2].z) / 0.09, 2.0)) + u.q[3].z * exp(-pow((rr - u.q[2].w) / 0.09, 2.0)) + u.q[3].w * exp(-pow((rr - u.q[3].x) / 0.09, 2.0));
+// The tiles rest a little dimmer in silence, brighten with the kicks
+// over a few seconds and flare on each one.
+col += cc * st.g * tile * (1.25 + 0.3 * sb + 0.3 * pb + 1.2 * wv);
 // The toppling heart: white-hot where the sand is busy.
 let busy = clamp(st.b * 2.0, 0.0, 1.0);
 col = mix(col, vec3f(1.0, 0.95, 0.85) * (1.2 + 0.6 * be), busy * 0.85);
@@ -202,7 +246,7 @@ for (var j = 0; j < 8; j++) {
     let p2 = clamp(c + floor(dv * 10.0 + 0.5), vec2f(0.0), nc - vec2f(1.0));
     near += textureLoad(sampler_main, vec2i(p1), 0).g * 0.6 + textureLoad(sampler_main, vec2i(p2), 0).g * 0.4;
 }
-col += vec3f(0.35, 0.12, 0.9) * (near / 8.0) * (0.2 + 0.15 * sm);
+col += vec3f(0.35, 0.12, 0.9) * (near / 8.0) * (0.2 + 0.15 * sm + 0.45 * pm);
 let r = length(cp - nc * 0.5);
 // A deep violet dusk behind it all, a little brighter with the bass.
 col += vec3f(0.05, 0.015, 0.13) * (0.25 + 0.75 * sb) * exp(-r * r / (ny * ny * 0.5));
