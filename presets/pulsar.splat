@@ -22,8 +22,14 @@
 #
 # Bass quickens the spin a little and swells the beams and the nebula.
 # Mids inflate the outer loops and brighten the field. Treble sets the
-# sparks streaming and the stars twinkling. Each kick gives the star an
-# eased flare.
+# sparks streaming and the stars twinkling. Each hit of the music is felt
+# at once, through pulses of the bass, mids and treble that rise in a tick
+# or two and die away over a fraction of a second (soft-limited, so a
+# bigger hit still means more): a kick throws the star's spin forward (the
+# beams lurch on along their sweep) and flares the beams, the open lines,
+# the star and the nebula; the mids throw the outer loops wide and
+# brighten the field lines; the treble bursts sparks out along the open
+# lines.
 version = 1
 
 [meta]
@@ -50,10 +56,16 @@ frame = '''
 sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
 sm = sm + (min(mid_att, 2.5) - sm) * 0.03;
 st = st + (min(treb_att, 2.5) - st) * 0.08;
-bt = max(bt * 0.94, beat);
-be = be + (bt - be) * 0.08;
-// The spin: about a turn every ten seconds, at most one every six.
-ph = ph + 0.0105 + 0.006 * min(sb, 2) / 2;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+// The spin: about a turn every ten seconds, at most one every six, and a
+// kick throws it forward.
+ph = ph + 0.0105 + 0.006 * min(sb, 2) / 2 + 0.03 * pb;
 ph = ph - 6.2831853 * floor(ph / 6.2831853);
 // The spin axis S, leaning right and toward the viewer.
 a1 = 0.35; a2 = 0.3;
@@ -72,7 +84,7 @@ an = sqrt(ax * ax + ay * ay + az * az);
 ax = ax / an; ay = ay / an; az = az / an;
 bx = my * az - mz * ay; by = mz * ax - mx * az; bz = mx * ay - my * ax;
 // Sparks streaming out along the open lines (wrapped).
-sk = sk + 0.004 + 0.01 * max(0, min(st, 2.5) - 0.4);
+sk = sk + 0.004 + 0.01 * max(0, min(st, 2.5) - 0.4) + 0.012 * pt;
 sk = sk - floor(sk);
 hu = hu + 0.00008;
 hu = hu - floor(hu);
@@ -80,11 +92,12 @@ q1 = mx; q2 = my; q3 = mz; q4 = ax;
 q5 = ay; q6 = az; q7 = bx; q8 = by;
 q9 = bz; q10 = sx; q11 = sy; q12 = sz;
 // Shell sizes: the outer loops breathe with the mids.
-q13 = 0.19; q14 = 0.33 + 0.06 * min(sm, 2) / 2;
-q15 = sb; q16 = sm; q17 = st; q18 = be;
+q13 = 0.19; q14 = 0.33 + 0.06 * min(sm, 2) / 2 + 0.05 * pm;
+q15 = sb; q16 = sm; q17 = st; q18 = pb;
 q19 = ph; q20 = sk; q21 = hu;
 // The star's radius.
 q22 = 0.038;
+q23 = pm; q24 = pt;
 '''
 
 # Closed loops on the inner shell: 8 lines, 64 points each.
@@ -116,7 +129,7 @@ y = 0.5 + py;
 hid = (px * px + py * py < q22 * q22 * 1.1) * (pz < 0);
 dz = 0.55 + 0.45 * pz / max(r, 0.001);
 r = 0.25 + 0.3 * f; g = 0.75 - 0.2 * f; b = 1.0;
-a = if(j - k * 64 < 0.5 || j - k * 64 > 62.5 || hid, 0, (0.8 + 0.4 * min(q16, 2) / 2) * dz * t1);
+a = if(j - k * 64 < 0.5 || j - k * 64 > 62.5 || hid, 0, (0.8 + 0.4 * min(q16, 2) / 2 + 0.5 * q23) * dz * t1);
 '''
 
 # Closed loops on the outer shell, between the inner ones.
@@ -148,7 +161,7 @@ y = 0.5 + py;
 hid = (px * px + py * py < q22 * q22 * 1.1) * (pz < 0);
 dz = 0.55 + 0.45 * pz / max(r, 0.001);
 r = 0.6 - 0.2 * f; g = 0.35 + 0.2 * f; b = 1.0;
-a = if(j - k * 64 < 0.5 || j - k * 64 > 62.5 || hid, 0, (0.7 + 0.45 * min(q16, 2) / 2) * dz * t1);
+a = if(j - k * 64 < 0.5 || j - k * 64 > 62.5 || hid, 0, (0.7 + 0.45 * min(q16, 2) / 2 + 0.6 * q23) * dz * t1);
 '''
 
 # Open lines from both polar caps, trailing back in a spiral: 2 caps x 6
@@ -191,7 +204,7 @@ y = 0.5 + py2;
 hid = (px2 * px2 + py2 * py2 < q22 * q22 * 1.1) * (pz2 < 0);
 dz = 0.6 + 0.4 * pz2 / max(r, 0.001);
 r = 1.0; g = 0.3 + 0.35 * f; b = 0.75 - 0.35 * f;
-a = if(j - k * 40 < 0.5 || j - k * 40 > 38.5 || hid, 0, 0.85 * (1 - f) * dz * t1);
+a = if(j - k * 40 < 0.5 || j - k * 40 > 38.5 || hid, 0, 0.85 * (1 - f) * dz * t1 * (1 + 0.5 * q18));
 '''
 
 # Sparks streaming out along the open lines (treble).
@@ -203,7 +216,7 @@ thick = 1
 additive = 1
 a = 1.0
 frame = '''
-t1 = 0.15 + 0.85 * max(0, min(q17, 2.5) - 0.5) / 2;
+t1 = 0.15 + 0.85 * max(0, min(q17, 2.5) - 0.5) / 2 + 0.6 * q24;
 '''
 point = '''
 j = floor(sample * 119 + 0.5);
@@ -246,8 +259,10 @@ let sp = vec3f(u.q[2].y, u.q[2].z, u.q[2].w);
 let sb = min(u.q[3].z, 2.0) * 0.5;
 let sm = min(u.q[3].w, 2.0) * 0.5;
 let st = max(0.0, min(u.q[4].x, 2.5) - 0.3);
-let be = min(u.q[4].y, 1.0);
+let pb = u.q[4].y;
 let hu = u.q[5].x;
+let pm = u.q[5].z;
+let pt = u.q[5].w;
 let rs = u.q[5].y;
 let p = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
 let lw = max(1.0, u.texsize.y / 540.0);
@@ -264,7 +279,7 @@ hx = hx ^ (hx >> 16u);
 let gh = f32(hx & 0xffffu) / 65535.0;
 let gs = f32(hx >> 16u) / 65535.0;
 let twk = 0.5 + 0.5 * sin(u.time * (1.0 + 3.0 * gs) + gs * 40.0);
-col += vec3f(0.7, 0.8, 1.0) * step(0.996, gh) * (0.3 + 0.7 * twk * st) * (0.3 + gs);
+col += vec3f(0.7, 0.8, 1.0) * step(0.996, gh) * (0.3 + 0.7 * twk * (st + 0.5 * pt)) * (0.3 + gs);
 // The wind nebula: a ring round the spin equator and two faint jets.
 let sp2 = normalize(vec2f(sp.x, sp.y));
 let along = dot(p, sp2);
@@ -275,10 +290,10 @@ let er = length(vec2f(across, along / max(sp.z, 0.2))) - 0.5;
 let ring = exp(-er * er / 0.012) * (0.3 + 0.9 * n2);
 let jet = exp(-across * across / 0.0015) * exp(-abs(along) / 0.3) * (0.4 + 0.6 * n2);
 let neb = mix(vec3f(0.25, 0.35, 1.0), vec3f(0.9, 0.25, 0.9), n1);
-col += neb * (ring * 0.5 + jet * 0.35) * (0.75 + 0.5 * sb);
+col += neb * (ring * 0.5 + jet * 0.35) * (0.75 + 0.5 * sb + 0.5 * pb);
 // The field lines and their glow.
 let fl = textureSampleLevel(sampler_main, s_fc, uv, 0.0).rgb;
-col += fl * 1.8 + GetBlur1(uv) * (1.0 + 0.5 * sm) + GetBlur2(uv) * (1.0 + 0.5 * sb);
+col += fl * 1.8 + GetBlur1(uv) * (1.0 + 0.5 * sm + 0.6 * pm) + GetBlur2(uv) * (1.0 + 0.5 * sb + 0.5 * pb);
 // The beams: cones along +M and -M. For the view ray through p, the
 // closest approach to the axis, the cone's width there and the line
 // integral of a Gaussian of that width.
@@ -297,7 +312,7 @@ for (var i = 0; i < 2; i++) {
     }
 }
 let bc = mix(vec3f(0.35, 0.65, 1.0), vec3f(0.85, 0.9, 1.0), clamp(beam, 0.0, 1.0));
-col += bc * beam * (0.9 + 0.5 * sb);
+col += bc * beam * (0.9 + 0.5 * sb + 1.0 * pb);
 // The star: a small hot sphere with glowing polar caps.
 let r = length(p);
 let sd = smoothstep(rs + 1.5 * u.texsize.w, rs - 1.5 * u.texsize.w, r);
@@ -307,10 +322,10 @@ if (r < rs * 1.2) {
     let cap = pow(abs(dot(nrm, m)), 12.0);
     let limb = 0.55 + 0.45 * nrm.z;
     let sc = vec3f(0.75, 0.85, 1.0) * limb + vec3f(0.6, 0.85, 1.0) * cap * 1.5;
-    col = mix(col, sc * (1.1 + 0.5 * be), sd);
+    col = mix(col, sc * (1.1 + 0.6 * pb), sd);
 }
-col += vec3f(0.4, 0.6, 1.0) * exp(-r / 0.03) * (0.35 + 0.35 * be) * (1.0 - sd);
-col += vec3f(0.5, 0.3, 1.0) * (exp(-r / 0.12) * (0.12 + 0.08 * be) + exp(-r / 0.4) * 0.12) + vec3f(0.15, 0.1, 0.35) * exp(-r / 0.9) * 0.12;
+col += vec3f(0.4, 0.6, 1.0) * exp(-r / 0.03) * (0.35 + 0.6 * pb) * (1.0 - sd);
+col += vec3f(0.5, 0.3, 1.0) * (exp(-r / 0.12) * (0.12 + 0.15 * pb) + exp(-r / 0.4) * 0.12) + vec3f(0.15, 0.1, 0.35) * exp(-r / 0.9) * 0.12;
 let lc = dot(col, vec3f(0.3, 0.5, 0.2));
 col = max(vec3f(lc) + (col - vec3f(lc)) * 1.15, vec3f(0.0));
 return col / (1.0 + 0.3 * col);
