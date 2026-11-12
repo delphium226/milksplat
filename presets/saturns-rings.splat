@@ -25,11 +25,16 @@
 # the planet, its gentle rise and fall above the ring plane, the spokes,
 # the density waves' pattern speeds and each moon at its own Kepler
 # rate (inner faster), each wrapped on its own, a little faster with the
-# bass.
+# kicks.
 #
-# Bass brightens the rings (smoothed). Mids sharpen the spokes. Treble
-# twinkles the stars and sparkles in the A ring. Each kick makes the
-# moons flare, eased.
+# Bass brightens the rings (smoothed). Mids sharpen the spokes. Each hit
+# of the music is felt at once, through pulses of the bass, mids and
+# treble that rise in a tick or two and die away over a fraction of a
+# second (soft-limited, so a bigger hit still means more): a kick sends a
+# bright wave rippling out through the rings from the C ring to the F
+# ring (up to three at once), nudges the camera in and makes the moons
+# flare; the mids light up the spokes; the treble sparkles the A ring
+# and twinkles the stars.
 version = 1
 
 [meta]
@@ -52,9 +57,31 @@ frame = '''
 sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
 sm = sm + (min(mid_att, 2.5) - sm) * 0.03;
 st = st + (min(treb_att, 2.5) - st) * 0.1;
-bt = max(bt * 0.94, beat);
-be = be + (bt - be) * 0.08;
-k = (1 + 0.25 * min(sb, 2) / 2) / 60;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+ob = pb;
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.5, 0.08);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.12);
+// A fresh kick starts a wave at the inner edge of the C ring, in the
+// next of three slots; each runs out through the rings in under a
+// second, fading.
+kk = max(pb - ob, 0);
+cd = cd + 1;
+if(kk > 0.12 && cd > 8,
+  cd = 0; sl = (sl + 1) % 3;
+  if(sl == 0, r1 = 1.2; a1 = min(pb, 1.5), 0);
+  if(sl == 1, r2 = 1.2; a2 = min(pb, 1.5), 0);
+  if(sl == 2, r3 = 1.2; a3 = min(pb, 1.5), 0),
+  0);
+r1 = min(r1 + 0.022, 3); r2 = min(r2 + 0.022, 3); r3 = min(r3 + 0.022, 3);
+a1 = a1 * 0.965; a2 = a2 * 0.965; a3 = a3 * 0.965;
+// The clocks run a little faster with the kicks (their pulse smoothed
+// over a few seconds).
+es = es + (pb - es) * 0.01;
+k = (1 + 0.3 * es / (1 + es)) / 60;
 // The camera: once round in 8 minutes, rising and falling over 70 s.
 az = az + k * 6.2831853 / 480;
 az = az - 6.2831853 * floor(az / 6.2831853);
@@ -74,7 +101,10 @@ sn = sn + k * 0.02; sn = sn - 64 * floor(sn / 64);
 q1 = az; q2 = 0.1 + 0.035 * sin(el); q3 = sp; q4 = sn;
 q5 = m1; q6 = m2; q7 = m3; q8 = m4;
 q9 = w1; q10 = w2;
-q13 = sb; q14 = sm; q15 = st; q16 = be;
+q11 = pm; q12 = pt;
+q13 = sb; q14 = sm; q15 = st; q16 = pb;
+q17 = r1; q18 = r2; q19 = r3; q20 = a1;
+q21 = a2; q22 = a3;
 '''
 
 [shader]
@@ -83,7 +113,9 @@ let asp = u.texsize.x * u.texsize.w;
 let sb = min(u.q[3].x, 2.0) * 0.5;
 let sm = min(u.q[3].y, 2.0) * 0.5;
 let st = max(0.0, min(u.q[3].z, 2.5) - 0.3);
-let be = min(u.q[3].w, 1.0);
+let pb = u.q[3].w;
+let pm = u.q[2].z;
+let pt = min(u.q[2].w, 1.5);
 let az = u.q[0].x;
 let elv = u.q[0].y;
 let lw = max(1.0, u.texsize.y / 540.0);
@@ -97,7 +129,8 @@ let hr = normalize(cross(fp, vec3f(0.0, 1.0, 0.0)));
 let fw = normalize(fp * 0.9 + hr * 0.44 - vec3f(0.0, 0.06, 0.0));
 let rt = normalize(cross(fw, vec3f(0.0, 1.0, 0.0)));
 let up = cross(rt, fw);
-let tf = 0.5;
+// A kick nudges the camera in.
+let tf = 0.5 / (1.0 + 0.05 * pb);
 let sx = (uv.x - 0.5) * asp * 2.0 * tf;
 let sy = (0.5 - uv.y) * 2.0 * tf;
 let pa = 2.0 * tf * u.texsize.w;
@@ -127,7 +160,7 @@ let h0 = (u32(cell.x) * 1973u + u32(cell.y) * 9277u) * 747796405u + 2891336453u;
 let h1 = ((h0 >> ((h0 >> 28u) + 4u)) ^ h0) * 277803737u;
 let hh = f32((h1 >> 22u) ^ h1) / 4294967296.0;
 let tw = 0.6 + 0.4 * sin(u.time * (1.0 + 3.0 * hh) + hh * 40.0) * min(st, 1.0);
-col += vec3f(0.8, 0.85, 1.0) * step(0.9975, hh) * (0.25 + 0.5 * fract(hh * 911.0)) * tw;
+col += vec3f(0.8, 0.85, 1.0) * step(0.9975, hh) * (0.25 + 0.5 * fract(hh * 911.0)) * (tw + 0.8 * pt);
 if (tp < 1e8) {
     // The planet: a dim crescent where the sun catches it, banded, with
     // the rings' shadow across it and a faint glow on the night side.
@@ -209,10 +242,13 @@ if (abs(rd.y) > 1e-5) {
             c += mix(vec3f(1.0, 0.4, 0.55), vec3f(0.8, 0.55, 1.0), smoothstep(2.05, 2.25, r)) * aR * 0.7 * rlv * eg * kg * (1.0 + 0.6 * dw);
             c += vec3f(0.45, 0.4, 0.95) * dR * 0.08;
             c += vec3f(0.5, 0.95, 1.0) * fR;
-            c += vec3f(0.55, 0.75, 1.0) * spoke * 0.45 * bR;
+            c += vec3f(0.55, 0.75, 1.0) * spoke * (0.45 + 0.6 * pm) * bR;
             // Treble: sparkles in the A ring.
             let gl = fract(sin(dot(cell, vec2f(41.3, 289.1))) * 43758.5);
-            c += vec3f(1.0, 0.9, 1.0) * step(0.997, gl) * aR * st * 0.6;
+            c += vec3f(1.0, 0.9, 1.0) * step(0.997 - 0.006 * pt, gl) * aR * (st * 0.6 + 1.5 * pt);
+            // The kicks' waves rippling out through the rings.
+            let wv = u.q[4].w * exp(-pow((r - u.q[4].x) / 0.045, 2.0)) + u.q[5].x * exp(-pow((r - u.q[4].y) / 0.045, 2.0)) + u.q[5].y * exp(-pow((r - u.q[4].z) / 0.045, 2.0));
+            c *= 1.0 + 1.3 * wv;
             // The planet's shadow on the rings.
             let sq2 = p * sq;
             let sd2 = sun * sq;
@@ -240,7 +276,7 @@ for (var i = 0; i < 4; i++) {
     let cs = dot(vd, rd);
     if (cs > 0.99 && dist < tp) {
         let ang = sqrt(max(2.0 * (1.0 - cs), 0.0)) / (pa * lw);
-        col += vec3f(1.0, 0.97, 0.9) * (exp(-ang * ang / 1.5) * 1.6 + exp(-ang / 4.0) * 0.25 * (1.0 + 1.5 * be));
+        col += vec3f(1.0, 0.97, 0.9) * (exp(-ang * ang / 1.5) * 1.6 + exp(-ang / 4.0) * 0.25 * (1.0 + 2.0 * pb));
     }
 }
 let lm = dot(col, vec3f(0.3, 0.5, 0.2));
