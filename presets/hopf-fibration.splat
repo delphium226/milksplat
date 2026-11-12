@@ -27,8 +27,13 @@
 # and three blur levels make the glow.
 #
 # Bass thickens the glow (smoothed). Mids quicken the fibres' glide and
-# the beads. Treble twinkles sparks along the circles. Each kick swells
-# the wide glow, eased.
+# the beads. Treble twinkles sparks along the circles. Each hit of the
+# music is felt at once, through pulses of the bass, mids and treble that
+# rise in a tick or two and die away over a fraction of a second
+# (soft-limited, so a bigger hit still means more): a kick swells the
+# tori, sends the fibres gliding on round them (accumulated), brightens
+# the circles and swells the wide glow; the mids send the beads racing
+# and brighten the near glow; the treble twinkles the sparks.
 version = 1
 
 [meta]
@@ -57,8 +62,13 @@ frame = '''
 sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
 sm = sm + (min(mid_att, 2.5) - sm) * 0.03;
 st = st + (min(treb_att, 2.5) - st) * 0.1;
-bt = max(bt * 0.94, beat);
-be = be + (bt - be) * 0.08;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+kt = kt + (xt - kt) * if(xt > kt, 0.6, 0.1);
 // The turn about the axis: about a turn a minute and a half.
 ya = ya + 0.0012;
 ya = ya - 6.2831853 * floor(ya / 6.2831853);
@@ -66,18 +76,21 @@ ya = ya - 6.2831853 * floor(ya / 6.2831853);
 rk = rk + 0.0019;
 rk = rk - 6.2831853 * floor(rk / 6.2831853);
 be4 = 0.1 * sin(rk);
-// The fibres' glide (z2's phase) and the beads, quicker with the mids.
-al = al + 0.004 + 0.004 * min(sm, 2) / 2;
+// The fibres' glide (z2's phase) and the beads, quicker with the mids;
+// a kick throws the glide on, a mid hit the beads.
+al = al + 0.004 + 0.004 * min(sm, 2) / 2 + 0.03 * pb;
 al = al - 6.2831853 * floor(al / 6.2831853);
-fl = fl + 0.012 + 0.012 * min(sm, 2) / 2;
+fl = fl + 0.012 + 0.012 * min(sm, 2) / 2 + 0.06 * pm;
 fl = fl - 6.2831853 * floor(fl / 6.2831853);
 // The tilt toward the viewer, rocking gently.
 pp = pp + 0.0013;
 pp = pp - 6.2831853 * floor(pp / 6.2831853);
-pt = 0.55 + 0.25 * sin(pp);
+tl = 0.55 + 0.25 * sin(pp);
 q1 = cos(ya); q2 = sin(ya); q3 = cos(be4); q4 = sin(be4);
 q5 = al; q6 = fl; q7 = sb; q8 = st;
-q9 = be; q10 = cos(pt); q11 = sin(pt);
+q9 = pb; q10 = cos(tl); q11 = sin(tl);
+// A kick swells the tori.
+q12 = 1 + 0.08 * pb; q13 = pm; q14 = kt;
 '''
 
 # The four tori: one wave each.
@@ -114,7 +127,7 @@ loop(t4,
 );
 '''
 frame = '''
-t1 = (0.75 + 0.25 * min(q7, 2) / 2) * (0.6 + 0.15 * t2);
+t1 = (0.75 + 0.25 * min(q7, 2) / 2 + 0.3 * q9) * (0.6 + 0.15 * t2);
 c5 = cos(q5); s5 = sin(q5);
 ce = megabuf(t6 + 390); se = megabuf(t6 + 391);
 // Each fibre is a circle in S^3, so its projection is a circle in space:
@@ -148,7 +161,7 @@ loop(t4,
   vx = wy * uz - wz * uy; vy = wz * ux - wx * uz; vz = wx * uy - wy * ux;
   // To the view: the turn about the axis, then the tilt.
   yb = cx * q2 + cy * q1; sc = cz * q11 - yb * q10; dc = cz * q10 + yb * q11;
-  pr = 0.2 / (1 + dc * 0.06);
+  pr = 0.2 * q12 / (1 + dc * 0.06);
   megabuf(o + 2) = 0.5 + (cx * q1 - cy * q2) * pr * aspecty;
   megabuf(o + 5) = 0.5 + sc * pr;
   megabuf(o + 8) = dc;
@@ -213,7 +226,7 @@ loop(t4,
 );
 '''
 frame = '''
-t1 = (0.75 + 0.25 * min(q7, 2) / 2) * (0.6 + 0.15 * t2);
+t1 = (0.75 + 0.25 * min(q7, 2) / 2 + 0.3 * q9) * (0.6 + 0.15 * t2);
 c5 = cos(q5); s5 = sin(q5);
 ce = megabuf(t6 + 390); se = megabuf(t6 + 391);
 // Each fibre is a circle in S^3, so its projection is a circle in space:
@@ -247,7 +260,7 @@ loop(t4,
   vx = wy * uz - wz * uy; vy = wz * ux - wx * uz; vz = wx * uy - wy * ux;
   // To the view: the turn about the axis, then the tilt.
   yb = cx * q2 + cy * q1; sc = cz * q11 - yb * q10; dc = cz * q10 + yb * q11;
-  pr = 0.2 / (1 + dc * 0.06);
+  pr = 0.2 * q12 / (1 + dc * 0.06);
   megabuf(o + 2) = 0.5 + (cx * q1 - cy * q2) * pr * aspecty;
   megabuf(o + 5) = 0.5 + sc * pr;
   megabuf(o + 8) = dc;
@@ -312,7 +325,7 @@ loop(t4,
 );
 '''
 frame = '''
-t1 = (0.75 + 0.25 * min(q7, 2) / 2) * (0.6 + 0.15 * t2);
+t1 = (0.75 + 0.25 * min(q7, 2) / 2 + 0.3 * q9) * (0.6 + 0.15 * t2);
 c5 = cos(q5); s5 = sin(q5);
 ce = megabuf(t6 + 390); se = megabuf(t6 + 391);
 // Each fibre is a circle in S^3, so its projection is a circle in space:
@@ -346,7 +359,7 @@ loop(t4,
   vx = wy * uz - wz * uy; vy = wz * ux - wx * uz; vz = wx * uy - wy * ux;
   // To the view: the turn about the axis, then the tilt.
   yb = cx * q2 + cy * q1; sc = cz * q11 - yb * q10; dc = cz * q10 + yb * q11;
-  pr = 0.2 / (1 + dc * 0.06);
+  pr = 0.2 * q12 / (1 + dc * 0.06);
   megabuf(o + 2) = 0.5 + (cx * q1 - cy * q2) * pr * aspecty;
   megabuf(o + 5) = 0.5 + sc * pr;
   megabuf(o + 8) = dc;
@@ -411,7 +424,7 @@ loop(t4,
 );
 '''
 frame = '''
-t1 = (0.75 + 0.25 * min(q7, 2) / 2) * (0.6 + 0.15 * t2);
+t1 = (0.75 + 0.25 * min(q7, 2) / 2 + 0.3 * q9) * (0.6 + 0.15 * t2);
 c5 = cos(q5); s5 = sin(q5);
 ce = megabuf(t6 + 390); se = megabuf(t6 + 391);
 // Each fibre is a circle in S^3, so its projection is a circle in space:
@@ -445,7 +458,7 @@ loop(t4,
   vx = wy * uz - wz * uy; vy = wz * ux - wx * uz; vz = wx * uy - wy * ux;
   // To the view: the turn about the axis, then the tilt.
   yb = cx * q2 + cy * q1; sc = cz * q11 - yb * q10; dc = cz * q10 + yb * q11;
-  pr = 0.2 / (1 + dc * 0.06);
+  pr = 0.2 * q12 / (1 + dc * 0.06);
   megabuf(o + 2) = 0.5 + (cx * q1 - cy * q2) * pr * aspecty;
   megabuf(o + 5) = 0.5 + sc * pr;
   megabuf(o + 8) = dc;
@@ -486,7 +499,9 @@ comp = '''
 let asp = u.texsize.x * u.texsize.w;
 let sb = min(u.q[1].z, 2.0) * 0.5;
 let st = max(0.0, min(u.q[1].w, 2.5) - 0.3);
-let be = min(u.q[2].x, 1.0);
+let pb = u.q[2].x;
+let pm = u.q[3].x;
+let kt = u.q[3].y;
 let p = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
 // Deep night with a faint indigo haze behind the tori.
 let r = length(p * vec2f(0.75, 1.0));
@@ -496,12 +511,12 @@ var col = vec3f(0.006, 0.006, 0.022) + vec3f(0.05, 0.05, 0.16) * exp(-r * r / 0.
 let gr = clamp(u.texsize.y / 540.0, 0.35, 1.5);
 let fl = textureSampleLevel(sampler_main, s_fc, uv, 0.0).rgb;
 col += fl * (1.3 + 0.5 * sb);
-col += (GetBlur1(uv) * (1.8 + 1.0 * sb) + GetBlur2(uv) * (1.6 + 1.0 * sb) + GetBlur3(uv) * (2.4 + 1.4 * sb + 1.2 * be)) * gr;
+col += (GetBlur1(uv) * (1.8 + 1.0 * sb + 0.8 * pm) + GetBlur2(uv) * (1.6 + 1.0 * sb) + GetBlur3(uv) * (2.4 + 1.4 * sb + 0.8 * pb)) * gr;
 // Treble: sparks on the brightest circles.
 let cell = floor(uv * u.texsize.xy / max(1.0, u.texsize.y / 540.0));
 let hh = fract(sin(dot(cell, vec2f(12.9898, 78.233))) * 43758.5453);
 let tw = pow(max(0.0, sin(u.time * (2.0 + 5.0 * hh) + hh * 60.0)), 20.0) * step(0.75, hh);
-col += vec3f(1.0, 0.95, 0.9) * tw * st * min(dot(fl, vec3f(0.33)), 1.0) * 1.2;
+col += vec3f(1.0, 0.95, 0.9) * tw * (st + 0.8 * kt) * min(dot(fl, vec3f(0.33)), 1.0) * 1.2;
 let lc = dot(col, vec3f(0.3, 0.5, 0.2));
 col = max(vec3f(lc) + (col - vec3f(lc)) * 1.2, vec3f(0.0));
 return col / (1.0 + 0.45 * col);
