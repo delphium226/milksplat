@@ -17,9 +17,15 @@
 # lobes; the line fades with age and runs white-hot at the head. A short
 # feedback trail and two blur levels make the glow.
 #
-# Bass thickens and brightens the glow (smoothed). Mids quicken the turn
-# a little. Treble twinkles sparks along the newest part of the ribbon.
-# Each kick swells the wide glow, eased.
+# The kicks thicken and brighten the glow, and the mids quicken the
+# turn a little (both smoothed over a few seconds, resting lower in
+# silence). Each hit of the music is felt at once, through pulses of the
+# bass, mids and treble that rise in a tick or two and die away over a
+# fraction of a second (soft-limited, so a bigger hit still means more):
+# a kick pushes the butterfly toward the viewer, brightens the ribbon,
+# blooms the wide glow and stretches the white-hot head back along the
+# newest loops; the mids jolt the turn forward; the treble flares the
+# latest loops' colours toward white and twinkles sparks along them.
 version = 1
 
 [meta]
@@ -77,11 +83,17 @@ loop(2048,
 ya = 0.6; pp = 0;
 '''
 frame = '''
-sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
-sm = sm + (min(mid_att, 2.5) - sm) * 0.03;
-st = st + (min(treb_att, 2.5) - st) * 0.1;
-bt = max(bt * 0.94, beat);
-be = be + (bt - be) * 0.08;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.5, 0.08);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pk = pk + (xt - pk) * if(xt > pk, 0.6, 0.12);
+// The kicks' and the mids' pulses smoothed over a few seconds (0 in
+// silence).
+es = es + (pb - es) * 0.01;
+em = em + (pm - em) * 0.01;
 // Two fixed RK4 steps per tick; the parameters never change.
 loop(2,
   k1x = 10 * (y - x); k1y = x * (28 - z) - y; k1z = x * y - 2.6666667 * z;
@@ -98,7 +110,7 @@ loop(2,
 hd = (hd + 1) % 2048;
 megabuf(hd * 3) = x; megabuf(hd * 3 + 1) = y; megabuf(hd * 3 + 2) = z;
 // The turn (accumulated, wrapped): about a turn a minute.
-ya = ya + 0.0017 + 0.0012 * min(sm, 2) / 2;
+ya = ya + 0.0017 + 0.0012 * em / (1 + em) + 0.005 * pm;
 ya = ya - 6.2831853 * floor(ya / 6.2831853);
 // The rocking tilt.
 pp = pp + 0.0011;
@@ -108,8 +120,11 @@ pt = 0.22 + 0.2 * sin(pp);
 sk = sk + 0.002;
 sk = sk - floor(sk);
 q1 = hd; q2 = cos(ya); q3 = sin(ya); q4 = cos(pt);
-q5 = sin(pt); q6 = sb; q7 = st; q8 = be;
+q5 = sin(pt); q6 = 0.6 + 1.6 * es / (1 + es); q7 = 0.3 + 2 * pk; q8 = pb;
 q9 = sk;
+// A kick pushes the butterfly toward the viewer.
+q10 = 1 + 0.06 * pb;
+q11 = pb; q12 = min(pk, 1.5);
 '''
 
 # The ribbon: four waves of 512 points draw ring entries 0..2044 (newest
@@ -124,7 +139,8 @@ init = '''
 t2 = 0;
 '''
 frame = '''
-t1 = 0.7 + 0.3 * min(q6, 2) / 2;
+t1 = 0.7 + 0.3 * min(q6, 2) / 2 + 0.2 * q11;
+t3 = 0.35 * min(q12, 1);
 '''
 point = '''
 n = t2 * 511 + floor(sample * 511 + 0.5);
@@ -132,14 +148,16 @@ s = (q1 - n + 2048) % 2048;
 cx = megabuf(s * 3); cy = megabuf(s * 3 + 1); cz = megabuf(s * 3 + 2) - 25;
 xx = cx * q2 - cy * q3; dd = cx * q3 + cy * q2;
 yv = cz * q4 + dd * q5; dv = -cz * q5 + dd * q4;
-pr = 0.0195 / (1 + dv * 0.006);
+pr = 0.0195 * q10 / (1 + dv * 0.006);
 x = 0.5 + xx * pr * aspecty;
 y = 0.49 + yv * pr;
 ag = n / 2044;
 w = min(1, max(0, 0.5 + cx / 16));
 hi = min(1, max(0, (cz - 6) / 16));
 r = 0.15 + 0.85 * w; g = 0.75 - 0.5 * w + 0.25 * hi; b = 1.0 - 0.3 * w - 0.4 * hi;
-hot = max(0, 1 - n / 60);
+fl = t3 * max(0, 1 - n / 700);
+r = r + (1 - r) * fl; g = g + (1 - g) * fl; b = b + (1 - b) * fl;
+hot = max(0, 1 - n / (60 + 240 * min(q11, 1.5)));
 r = r + (1 - r) * hot; g = g + (1 - g) * hot; b = b + (1 - b) * hot;
 a = t1 * (0.12 + 0.88 * pow(1 - ag, 2.2)) * (0.8 - 0.2 * dv / 30);
 '''
@@ -154,7 +172,8 @@ init = '''
 t2 = 1;
 '''
 frame = '''
-t1 = 0.7 + 0.3 * min(q6, 2) / 2;
+t1 = 0.7 + 0.3 * min(q6, 2) / 2 + 0.2 * q11;
+t3 = 0.35 * min(q12, 1);
 '''
 point = '''
 n = t2 * 511 + floor(sample * 511 + 0.5);
@@ -162,13 +181,15 @@ s = (q1 - n + 2048) % 2048;
 cx = megabuf(s * 3); cy = megabuf(s * 3 + 1); cz = megabuf(s * 3 + 2) - 25;
 xx = cx * q2 - cy * q3; dd = cx * q3 + cy * q2;
 yv = cz * q4 + dd * q5; dv = -cz * q5 + dd * q4;
-pr = 0.0195 / (1 + dv * 0.006);
+pr = 0.0195 * q10 / (1 + dv * 0.006);
 x = 0.5 + xx * pr * aspecty;
 y = 0.49 + yv * pr;
 ag = n / 2044;
 w = min(1, max(0, 0.5 + cx / 16));
 hi = min(1, max(0, (cz - 6) / 16));
 r = 0.15 + 0.85 * w; g = 0.75 - 0.5 * w + 0.25 * hi; b = 1.0 - 0.3 * w - 0.4 * hi;
+fl = t3 * max(0, 1 - n / 700);
+r = r + (1 - r) * fl; g = g + (1 - g) * fl; b = b + (1 - b) * fl;
 a = t1 * (0.12 + 0.88 * pow(1 - ag, 2.2)) * (0.8 - 0.2 * dv / 30);
 '''
 
@@ -182,7 +203,8 @@ init = '''
 t2 = 2;
 '''
 frame = '''
-t1 = 0.7 + 0.3 * min(q6, 2) / 2;
+t1 = 0.7 + 0.3 * min(q6, 2) / 2 + 0.2 * q11;
+t3 = 0.35 * min(q12, 1);
 '''
 point = '''
 n = t2 * 511 + floor(sample * 511 + 0.5);
@@ -190,13 +212,15 @@ s = (q1 - n + 2048) % 2048;
 cx = megabuf(s * 3); cy = megabuf(s * 3 + 1); cz = megabuf(s * 3 + 2) - 25;
 xx = cx * q2 - cy * q3; dd = cx * q3 + cy * q2;
 yv = cz * q4 + dd * q5; dv = -cz * q5 + dd * q4;
-pr = 0.0195 / (1 + dv * 0.006);
+pr = 0.0195 * q10 / (1 + dv * 0.006);
 x = 0.5 + xx * pr * aspecty;
 y = 0.49 + yv * pr;
 ag = n / 2044;
 w = min(1, max(0, 0.5 + cx / 16));
 hi = min(1, max(0, (cz - 6) / 16));
 r = 0.15 + 0.85 * w; g = 0.75 - 0.5 * w + 0.25 * hi; b = 1.0 - 0.3 * w - 0.4 * hi;
+fl = t3 * max(0, 1 - n / 700);
+r = r + (1 - r) * fl; g = g + (1 - g) * fl; b = b + (1 - b) * fl;
 a = t1 * (0.12 + 0.88 * pow(1 - ag, 2.2)) * (0.8 - 0.2 * dv / 30);
 '''
 
@@ -210,7 +234,8 @@ init = '''
 t2 = 3;
 '''
 frame = '''
-t1 = 0.7 + 0.3 * min(q6, 2) / 2;
+t1 = 0.7 + 0.3 * min(q6, 2) / 2 + 0.2 * q11;
+t3 = 0.35 * min(q12, 1);
 '''
 point = '''
 n = t2 * 511 + floor(sample * 511 + 0.5);
@@ -218,13 +243,15 @@ s = (q1 - n + 2048) % 2048;
 cx = megabuf(s * 3); cy = megabuf(s * 3 + 1); cz = megabuf(s * 3 + 2) - 25;
 xx = cx * q2 - cy * q3; dd = cx * q3 + cy * q2;
 yv = cz * q4 + dd * q5; dv = -cz * q5 + dd * q4;
-pr = 0.0195 / (1 + dv * 0.006);
+pr = 0.0195 * q10 / (1 + dv * 0.006);
 x = 0.5 + xx * pr * aspecty;
 y = 0.49 + yv * pr;
 ag = n / 2044;
 w = min(1, max(0, 0.5 + cx / 16));
 hi = min(1, max(0, (cz - 6) / 16));
 r = 0.15 + 0.85 * w; g = 0.75 - 0.5 * w + 0.25 * hi; b = 1.0 - 0.3 * w - 0.4 * hi;
+fl = t3 * max(0, 1 - n / 700);
+r = r + (1 - r) * fl; g = g + (1 - g) * fl; b = b + (1 - b) * fl;
 a = t1 * (0.12 + 0.88 * pow(1 - ag, 2.2)) * (0.8 - 0.2 * dv / 30);
 '''
 
@@ -236,8 +263,8 @@ return textureSampleLevel(sampler_main, s_pc, uv_orig, 0.0).rgb * 0.45;
 comp = '''
 let asp = u.texsize.x * u.texsize.w;
 let sb = min(u.q[1].y, 2.0) * 0.5;
-let st = max(0.0, min(u.q[1].z, 2.5) - 0.3);
-let be = min(u.q[1].w, 1.0);
+let st = max(0.0, min(u.q[1].z, 4.0) - 0.3);
+let be = min(u.q[1].w, 1.5);
 let p = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
 // Deep night with a faint violet haze behind the attractor.
 let r = length(p * vec2f(0.8, 1.0));
@@ -247,7 +274,7 @@ var col = vec3f(0.006, 0.006, 0.02) + vec3f(0.09, 0.04, 0.15) * exp(-r * r / 0.2
 let gr = clamp(u.texsize.y / 540.0, 0.35, 1.5);
 let fl = textureSampleLevel(sampler_main, s_fc, uv, 0.0).rgb;
 col += fl * (2.0 + 0.6 * sb);
-col += (GetBlur1(uv) * (2.8 + 1.6 * sb) + GetBlur2(uv) * (2.6 + 1.6 * sb) + GetBlur3(uv) * (4.0 + 2.0 * sb + 1.5 * be)) * gr;
+col += (GetBlur1(uv) * (2.8 + 1.6 * sb) + GetBlur2(uv) * (2.6 + 1.6 * sb) + GetBlur3(uv) * (4.0 + 2.0 * sb + 1.2 * be)) * gr;
 // Treble: sparks on the brightest strands.
 let cell = floor(uv * u.texsize.xy / max(1.0, u.texsize.y / 540.0));
 let hh = fract(sin(dot(cell, vec2f(12.9898, 78.233))) * 43758.5453);
