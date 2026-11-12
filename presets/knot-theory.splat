@@ -25,8 +25,13 @@
 #
 # The frame code holds each knot about 9 s and morphs over 5 s, and turns
 # the knot on accumulated phases. Bass quickens the turn a little and
-# swells the glow (smoothed). Mids sharpen and brighten the highlight.
-# Treble twinkles the stars. Each kick swells the glow, eased.
+# swells the glow (smoothed). Each hit of the music is felt at once,
+# through pulses of the bass, mids and treble that rise in a tick or two
+# and die away over a fraction of a second (soft-limited, so a bigger
+# hit still means more): on a kick the tube swells, the knot pushes
+# toward the viewer, its glow blooms and the turn jolts forward; the
+# mids sharpen and brighten the highlight and give the spin a shove; the
+# treble flares the tube's rim toward white and twinkles the stars.
 version = 1
 
 [meta]
@@ -56,8 +61,13 @@ frame = '''
 sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
 sm = sm + (min(mid_att, 2.5) - sm) * 0.03;
 st = st + (min(treb_att, 2.5) - st) * 0.1;
-bt = max(bt * 0.94, beat);
-be = be + (bt - be) * 0.08;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 0.7, 0); xb = xb / (1 + 0.5 * xb);
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 0.7, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.5, 0.08);
+xt = max(treb - 0.7, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.12);
 // Each knot holds 9 s, then morphs into the next over 5 s.
 kc = kc + 1 / 60;
 ki = (ki + (kc >= 14)) % 5;
@@ -65,9 +75,9 @@ kc = kc - 14 * (kc >= 14);
 u1 = min(1, max(0, (kc - 9) / 5));
 // The turns (accumulated, wrapped): about a turn every 40 s round the
 // vertical, a slow spin about the knot's own axis and a gentle rocking.
-ya = ya + 0.0026 + 0.0012 * min(sb, 2) / 2;
+ya = ya + 0.0026 + 0.0012 * min(sb, 2) / 2 + 0.006 * pb;
 ya = ya - 6.2831853 * floor(ya / 6.2831853);
-sp = sp + 0.0019;
+sp = sp + 0.0019 + 0.006 * pm;
 sp = sp - 6.2831853 * floor(sp / 6.2831853);
 rk = rk + 0.0013;
 rk = rk - 6.2831853 * floor(rk / 6.2831853);
@@ -75,7 +85,8 @@ q1 = megabuf(ki * 2); q2 = megabuf(ki * 2 + 1);
 q3 = megabuf(((ki + 1) % 5) * 2); q4 = megabuf(((ki + 1) % 5) * 2 + 1);
 q5 = u1 * u1 * (3 - 2 * u1);
 q6 = ya; q7 = sp; q8 = 0.75 + 0.3 * sin(rk);
-q9 = sb; q10 = sm; q11 = st; q12 = be;
+q9 = sb; q10 = sm; q11 = st; q12 = pb;
+q13 = pm; q14 = pt;
 '''
 
 [shader]
@@ -111,9 +122,11 @@ let s3 = sin(u.q[1].y);
 let c3 = cos(u.q[1].y);
 c = vec3f(c3 * c.x + s3 * c.z, c.y, -s3 * c.x + c3 * c.z);
 // Perspective: the viewer at depth -5.5.
+// A kick pushes the knot toward the viewer.
 let f = 5.5 / (5.5 + c.z);
-let x = c.x * 0.33 * f;
-let y = c.y * 0.33 * f;
+let zs = 0.33 * (1.0 + 0.05 * u.q[2].w);
+let x = c.x * zs * f;
+let y = c.y * zs * f;
 // Coarse parts (multiples of 1/256, exact in half floats) and fine parts.
 let xh = floor(x * 256.0 + 0.5) / 256.0;
 let yh = floor(y * 256.0 + 0.5) / 256.0;
@@ -128,9 +141,12 @@ let p = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
 let sb = min(u.q[2].x, 2.0) * 0.5;
 let sm = min(u.q[2].y, 2.0) * 0.5;
 let st = max(0.0, min(u.q[2].z, 2.5) - 0.3);
-let be = min(u.q[2].w, 1.0);
+let pb = u.q[2].w;
+let pm = u.q[3].x;
+let pt = min(u.q[3].y, 1.5);
 let w = u32(textureDimensions(sampler_main).x);
-let tube = 0.04;
+// The tube swells on a kick.
+let tube = 0.04 * (1.0 + 0.25 * pb);
 // Sample 0, then walk the segments.
 var a0 = textureLoad(sampler_main, vec2i(0, 0), 0).rgb;
 var a1 = textureLoad(sampler_main, vec2i(0, 1), 0).rgb;
@@ -201,11 +217,11 @@ let lw = max(1.0, u.texsize.y / 540.0);
 let cell = floor(uv * u.texsize.xy / lw);
 let hh = fract(sin(dot(cell, vec2f(12.9898, 78.233))) * 43758.5453);
 let tw = 0.5 + 0.5 * sin(u.time * (1.0 + 3.0 * hh) + hh * 40.0);
-col += vec3f(0.7, 0.8, 1.0) * step(0.997, hh) * (0.2 + 0.5 * tw * st);
+col += vec3f(0.7, 0.8, 1.0) * step(0.997, hh) * (0.2 + 0.5 * tw * st + 0.6 * pt);
 // The glow round the tube, in the colour of the nearest part.
 let hg = atan2(gv.y, gv.x) + 6.2831853 * u.time * 0.02;
 let gc = 0.5 + 0.5 * cos(vec3f(hg, hg - 2.0943951, hg - 4.1887902));
-col += gc * (1.0 - exp(-0.5 * gw)) * (0.42 + 0.15 * sb + 0.15 * be);
+col += gc * (1.0 - exp(-0.5 * gw)) * (0.42 + 0.15 * sb + 0.12 * pb);
 if (best < 1e8) {
     let hu = 6.2831853 * (tb * 2.0 + u.time * 0.02);
     let base = 0.5 + 0.5 * cos(vec3f(hu, hu - 2.0943951, hu - 4.1887902));
@@ -215,11 +231,11 @@ if (best < 1e8) {
     let l = normalize(vec3f(-0.45, 0.6, 0.65));
     let hv = normalize(l + vec3f(0.0, 0.0, 1.0));
     let dif = max(dot(n, l), 0.0);
-    let spec = pow(max(dot(n, hv), 0.0), 50.0 + 40.0 * sm) * (1.2 + 0.8 * sm);
+    let spec = pow(max(dot(n, hv), 0.0), 50.0 + 40.0 * sm + 30.0 * pm) * (1.2 + 0.8 * sm + 0.8 * pm);
     let rim = pow(1.0 - n.z, 3.0);
     // Farther parts a little dimmer.
     let dk = clamp(1.25 - (best - 0.5) * 2.5, 0.55, 1.2);
-    col = bc * (0.2 + 1.05 * dif) * dk + vec3f(1.0) * spec + bc * rim * 0.6;
+    col = bc * (0.2 + 1.05 * dif) * dk + vec3f(1.0) * spec + mix(bc, vec3f(1.0), 0.5 * min(pt, 1.0)) * rim * (0.6 + 0.9 * pt);
 }
 let lm = dot(col, vec3f(0.3, 0.5, 0.2));
 col = max(vec3f(lm) + (col - vec3f(lm)) * 1.15, vec3f(0.0));
