@@ -1,0 +1,207 @@
+# Starling Murmuration: thousands of starlings swirl over a reed bed at
+# dusk, one vast shape-shifting cloud. It stretches into ribbons, folds
+# over on itself in dark bands where the sheet of birds turns edge-on,
+# splits into lobes and pours back together, every bird a tiny flicker of
+# wings. High up the birds still catch the last gold light against the
+# deep blue; lower down they are black against the glowing horizon. A
+# hawk cruises through the flock, and the birds part round it.
+#
+# Everything is in the composite. The flock is a density field: four
+# stretched, turning lobes on looping paths, the plane under them swirled
+# by a flowing domain warp, with fold bands running through it. The birds
+# are hashed one to a cell in two layers (near and far), the cells laid
+# in the warped plane so the birds ride the flow; a bird is there where
+# the density beats its own hash, so the cloud's edges thin out bird by
+# bird rather than cutting off. Each bird is a small ellipse along its
+# heading, its wings beating at its own pace. The hawk is a dark
+# silhouette with a void round it.
+#
+# The flow, the lobes' loops and the hawk's path are accumulated (never
+# time times the music). Bass quickens the swirl (smoothed). Mids sweep
+# the fold bands through the flock. Each hit of the music is felt at
+# once, through pulses of the bass, mids and treble that rise in a tick or
+# two and die away over a fraction of a second (soft-limited, so a bigger
+# hit still means more): a kick is a strike, the void round the hawk
+# flaring open while a ripple of agitation runs out through the flock
+# from it, birds flinching outward and bunching dark (up to three at
+# once), and the whole flock jolts on along its flow; the mids darken the
+# fold bands; the treble glints on the sunlit birds and twinkles the
+# first stars.
+version = 1
+
+[meta]
+name = "Starling Murmuration"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+f1 = 0; f2 = 0; f3 = 0; f4 = 0; hk = 0; r1 = 9; r2 = 9; r3 = 9;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+sm = sm + (min(mid_att, 2.5) - sm) * 0.03;
+st = st + (min(treb_att, 2.5) - st) * 0.1;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+ob = pb;
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+// The hawk's path through the flock.
+hk = hk + 0.3 / 60;
+hk = hk - 6.2831853 * floor(hk / 6.2831853);
+// (Round the flock's middle: the mean of its lobes' centres.)
+mx = 0.5 * (sin(f1 + 0) + sin(2 * f1 + 1.7) + sin(3 * f1 + 3.4) + sin(4 * f1 + 5.1)) / 4;
+my = 0.1 + 0.18 * (sin(2 * f1 + 0) + sin(3 * f1 + 2.9) + sin(4 * f1 + 5.8) + sin(5 * f1 + 8.7)) / 4;
+hx = mx + 0.3 * sin(hk); hy = my + 0.1 * sin(2 * hk + 1);
+// A fresh kick is a strike: a ripple runs out from the hawk, in the next
+// of three slots; each spreads and fades.
+kk = max(pb - ob, 0);
+cd = cd + 1;
+if(kk > 0.1 && cd > 8,
+  cd = 0; sl = (sl + 1) % 3;
+  if(sl == 0, r1 = 0; a1 = min(pb + 0.3, 1.5); x1 = hx; y1 = hy, 0);
+  if(sl == 1, r2 = 0; a2 = min(pb + 0.3, 1.5); x2 = hx; y2 = hy, 0);
+  if(sl == 2, r3 = 0; a3 = min(pb + 0.3, 1.5); x3 = hx; y3 = hy, 0),
+  0);
+r1 = min(r1 + 0.012, 9); r2 = min(r2 + 0.012, 9); r3 = min(r3 + 0.012, 9);
+a1 = a1 * 0.975; a2 = a2 * 0.975; a3 = a3 * 0.975;
+// The lobes' loops, the swirling flow (quicker with the bass, jolted on
+// by each kick) and the fold bands (swept by the mids).
+f1 = f1 + (0.1 + 0.05 * min(sb, 2) / 2) / 60 + 0.004 * pb;
+f1 = f1 - 6.2831853 * floor(f1 / 6.2831853);
+f2 = f2 + (0.35 + 0.25 * min(sb, 2) / 2) / 60 + 0.03 * pb;
+f2 = f2 - 6.2831853 * floor(f2 / 6.2831853);
+f3 = f3 + (0.5 + 0.3 * min(sb, 2) / 2) / 60 + 0.04 * pb;
+f3 = f3 - 6.2831853 * floor(f3 / 6.2831853);
+f4 = f4 + (0.25 + 0.4 * min(sm, 2) / 2) / 60 + 0.02 * pm;
+f4 = f4 - 6.2831853 * floor(f4 / 6.2831853);
+q1 = f1; q2 = f2; q3 = f3; q4 = f4;
+q5 = hx; q6 = hy; q7 = pb; q8 = pm;
+q9 = r1; q10 = r2; q11 = r3; q12 = pt;
+q13 = a1; q14 = a2; q15 = a3; q16 = st;
+q17 = x1; q18 = y1; q19 = x2; q20 = y2;
+q21 = x3; q22 = y3;
+'''
+
+[shader]
+comp = '''
+let sz = u.texsize.xy;
+let asp = sz.x / sz.y;
+let lw = max(1.0, sz.y / 540.0);
+let f1 = u.q[0].x;
+let f2 = u.q[0].y;
+let f3 = u.q[0].z;
+let f4 = u.q[0].w;
+let hw = vec2f(u.q[1].x, u.q[1].y);
+let pb = u.q[1].z;
+let pm = u.q[1].w;
+let pt = u.q[2].w;
+let st = max(0.0, min(u.q[3].w, 2.0) - 0.4);
+let sp = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
+// The dusk sky: deep blue overhead, violet, then a glowing band of
+// orange and rose along the horizon.
+let hz = -0.42;
+let sy = sp.y - hz;
+var col = mix(vec3f(0.95, 0.42, 0.22), vec3f(0.62, 0.2, 0.42), smoothstep(0.0, 0.14, sy));
+col = mix(col, vec3f(0.2, 0.08, 0.32), smoothstep(0.1, 0.42, sy));
+col = mix(col, vec3f(0.025, 0.03, 0.11), smoothstep(0.35, 0.86, sy));
+col += vec3f(1.0, 0.55, 0.25) * exp(-sy * 9.0) * exp(-sp.x * sp.x * 1.5) * 0.4;
+// The first stars.
+let sq = sp * min(55.0, sz.y / 8.0);
+let sc = floor(sq);
+let sh = fract(sin(vec2f(dot(sc, vec2f(127.1, 311.7)), dot(sc, vec2f(269.5, 183.3)))) * 43758.5453);
+let sdd = length(sq - sc - vec2f(0.2) - sh * 0.6) / min(55.0, sz.y / 8.0) * sz.y / lw;
+let tw = (0.6 + 0.4 * sin(u.time * (1.3 + 2.0 * sh.y) + sh.x * 40.0)) * (0.7 + 0.5 * st + 1.2 * min(pt, 1.5));
+col += vec3f(0.8, 0.85, 1.0) * step(0.9, fract(sh.x * 7.31 + sh.y * 3.17)) * exp(-sdd * sdd / 2.0) * tw * smoothstep(0.45, 0.8, sy) * 0.7;
+// The ripples of a strike: rings spreading from where the hawk was.
+var W = 0.0;
+var Wd = vec2f(0.0);
+for (var k = 0; k < 3; k++) {
+    let rk = u.q[2][k];
+    let ak = u.q[3][k];
+    let ck = vec2f(u.q[4 + k / 2][(k % 2) * 2], u.q[4 + k / 2][(k % 2) * 2 + 1]);
+    let dv = sp - ck;
+    let dl = length(dv);
+    let ring = ak * exp(-pow((dl - rk) / 0.045, 2.0));
+    W += ring;
+    Wd += normalize(dv + vec2f(1e-5)) * ring;
+}
+// The flowing warp: the birds ride it, flinching outward in a ripple.
+let fw = sp + 0.07 * vec2f(sin(sp.y * 5.0 + f2), sin(sp.x * 4.0 - f2 + 1.3))
+    + 0.035 * vec2f(sin(sp.y * 11.0 - f3 + 2.0), cos(sp.x * 9.0 + f3))
+    - Wd * 0.045;
+// The flock: four stretched, turning lobes.
+var D = 0.0;
+for (var j = 0; j < 4; j++) {
+    let fj = f32(j);
+    let c = vec2f(0.0, 0.1) + vec2f(0.5 * sin(f1 * (1.0 + fj) + fj * 1.7), 0.18 * sin(f1 * (2.0 + fj) + fj * 2.9));
+    let a = 0.7 * sin(f1 * 2.0 + fj * 1.3);
+    let dv = fw - c;
+    let dr = vec2f(dv.x * cos(a) + dv.y * sin(a), -dv.x * sin(a) + dv.y * cos(a));
+    let sx = (0.32 + 0.09 * sin(f1 * 3.0 + fj)) * (1.0 - 0.08 * pb);
+    let syy = (0.12 + 0.04 * cos(f1 * 2.0 + fj * 2.0)) * (1.0 - 0.08 * pb);
+    D += exp(-(dr.x * dr.x / (sx * sx) + dr.y * dr.y / (syy * syy)));
+}
+var dens = smoothstep(0.25, 0.9, D);
+// Fold bands where the sheet of birds turns edge-on.
+let fb = sin(dot(fw, vec2f(0.8, 0.6)) * 13.0 + f4 * 2.0 + 2.5 * D);
+let band = exp(-fb * fb * 3.0);
+dens = dens * (0.55 + 0.45 * band * (1.0 + 0.6 * pm)) * (1.0 + 0.9 * W);
+// The void round the hawk, flaring open on a strike.
+let hd = length(sp - hw);
+dens *= smoothstep(0.03, 0.1 + 0.08 * pb, hd);
+// How the birds are lit: gold high in the dark sky, black against the
+// glow below.
+let lit = smoothstep(0.22, 0.55, sy);
+let bcol = mix(vec3f(0.015, 0.008, 0.03), vec3f(1.0, 0.68, 0.4) * 0.85, lit);
+// The flock's mass, a haze of birds too far to tell apart.
+col = mix(col, bcol, min(dens, 1.0) * mix(0.35, 0.12, lit));
+// The birds, two layers, one to a cell of the warped plane.
+let hdir = normalize(vec2f(cos(sp.y * 5.0 + f2) * 0.35 + 1.0, cos(sp.x * 4.0 - f2 + 1.3) * 0.28 + 0.2 * sin(f1)));
+for (var l = 0; l < 2; l++) {
+    let fl = f32(l);
+    let nc = min(140.0, sz.y / 4.0) * (1.0 - 0.4 * fl);
+    let bq = (fw + vec2f(fl * 0.37, fl * 0.21)) * nc;
+    let cl = floor(bq);
+    let bh = fract(sin(vec3f(dot(cl, vec2f(127.1, 311.7)), dot(cl, vec2f(269.5, 183.3)), dot(cl, vec2f(419.2, 371.9))) + fl * 3.1) * 43758.5453);
+    let bp = cl + vec2f(0.2) + bh.xy * 0.6;
+    let thr = 0.06 + 0.9 * bh.z;
+    let pres = smoothstep(thr - 0.05, thr + 0.05, dens);
+    let dp = (bq - bp) / nc * sz.y / lw;
+    let along = dot(dp, hdir);
+    let across = dp.x * hdir.y - dp.y * hdir.x;
+    let flap = 0.55 + 0.45 * abs(sin(u.time * (11.0 + 5.0 * bh.x) + bh.y * 6.2831853));
+    let bl = (1.5 + 0.8 * fl) * flap + 0.3;
+    let bw = (0.75 + 0.35 * fl) * (1.6 - flap * 0.6);
+    let bird = exp(-(along * along / (bl * bl) + across * across / (bw * bw))) * pres;
+    let glint = (1.0 + (0.4 + 1.2 * min(pt, 1.5)) * step(0.85, bh.x) * lit) * (1.0 + (2.0 * min(W, 1.2) + 0.6 * pb) * lit);
+    col = mix(col, bcol * glint, min(bird, 1.0));
+}
+// The hawk: a dark, sharp-winged silhouette, rimmed with the light.
+let hv = sp - hw;
+let ha = vec2f(abs(hv.x), hv.y);
+let wing = abs(ha.y - ha.x * 0.35 + 0.004) - 0.006 * (1.0 - smoothstep(0.0, 0.045, ha.x));
+let hawk = max(wing, ha.x - 0.045);
+let body = length(hv * vec2f(2.2, 1.0)) - 0.012;
+let hsd = min(hawk, body) / lw * sz.y;
+col = mix(col, vec3f(0.01, 0.005, 0.015), smoothstep(1.0, -1.0, hsd));
+// The reed bed, black along the foot of the sky.
+let rx = sp.x * 60.0;
+let reed = hz + 0.008 + 0.01 * abs(sin(rx * 1.3)) * fract(sin(floor(rx) * 12.9898) * 43758.5453) + 0.01 * sin(sp.x * 7.0);
+let rd = (sp.y - reed) * sz.y / lw;
+col = mix(col, vec3f(0.012, 0.006, 0.02), smoothstep(1.0, -1.0, rd));
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.15, vec3f(0.0));
+return col / (1.0 + 0.4 * col);
+'''
