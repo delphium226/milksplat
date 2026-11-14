@@ -1,0 +1,281 @@
+# Circuit City: a low flight over an endless circuit-board metropolis.
+# Chips rise from the board like tower blocks, their walls studded with
+# rows of tiny LEDs and their tops glowing with the heat of their dies;
+# copper traces run between them in lanes, ending in vias, and packets of
+# data race along them in cyan, magenta and gold. The board fades into a
+# violet haze at the horizon.
+#
+# Everything is in the composite. Each ray is tested against the chips of
+# the blocks it crosses at four heights (exact box intersections), and
+# otherwise meets the board, whose traces are hashed lanes in both
+# directions: each lane is cut into segments with a via at each end and
+# carries packets moving at its own speed. Detail fades out before it is
+# too fine for the pixels. The world repeats every 256 units, and the
+# flight is wrapped with it, so it never loses precision.
+#
+# The flight and the packets are accumulated. Bass warms the chips (smoothed).
+# Each hit of the music is felt at once, through pulses of the bass, mids
+# and treble that rise in a tick or two and die away over a fraction of a
+# second (soft-limited, so a bigger hit still means more): a fresh kick
+# sends a pulse wave racing out through the grid from a point ahead (in
+# the next of four slots, ramping in), lighting every trace it crosses,
+# boosts the flight and the packets, and flares the dies; the mids swing
+# the packets' colours; the treble sets the LEDs twinkling.
+version = 1
+
+[meta]
+name = "Circuit City"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+fz = 0; ph = 0; sw = 0; hu = 0; cd = 0; sl = 0;
+r1 = 99; r2 = 99; r3 = 99; r4 = 99;
+'''
+frame = '''
+xs = max(bass_att - 1, 0); xs = xs / (1 + 0.5 * xs);
+sb = sb + (xs - sb) * 0.05;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+ob = pb;
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+// The flight, boosted by each kick; the world repeats every 256 units,
+// and the pulse waves' centres are wrapped with it.
+fz = fz + (0.7 + 0.3 * sb) / 60 + 0.06 * pb;
+if(fz > 256, fz = fz - 256; c1 = c1 - 256; c2 = c2 - 256; c3 = c3 - 256; c4 = c4 - 256, 0);
+// The packets (their pattern repeats every 6).
+ph = ph + 0.45 / 60 + 0.05 * pb;
+ph = ph - 6 * floor(ph / 6);
+// A slow weave from side to side.
+sw = sw + 6.2831853 / 40 / 60;
+sw = sw - 6.2831853 * floor(sw / 6.2831853);
+hu = hu + (0.003 + 0.08 * pm) / 60;
+hu = hu - floor(hu);
+// A fresh kick sends a pulse wave out from a point ahead, in the next of
+// four slots (each wave is gone before its slot comes round again).
+kk = pb - ob;
+cd = cd + 1;
+if(kk > 0.08 && cd > 16,
+  cd = 0; sl = (sl + 1) % 4; na = 0.5 + min(pb, 1.3);
+  nx = 1.6 * sin(sw) + 3 * (rand(1000) / 1000 - 0.5); nz = fz + 6 + 3 * rand(1000) / 1000;
+  if(sl == 0, r1 = 0; a1 = na; x1 = nx; c1 = nz, 0);
+  if(sl == 1, r2 = 0; a2 = na; x2 = nx; c2 = nz, 0);
+  if(sl == 2, r3 = 0; a3 = na; x3 = nx; c3 = nz, 0);
+  if(sl == 3, r4 = 0; a4 = na; x4 = nx; c4 = nz, 0),
+  0);
+r1 = min(r1 + 1 / 60, 99); r2 = min(r2 + 1 / 60, 99); r3 = min(r3 + 1 / 60, 99); r4 = min(r4 + 1 / 60, 99);
+q1 = fz; q2 = ph; q3 = sw; q4 = hu;
+q5 = pb; q6 = pm; q7 = pt; q8 = sb;
+q9 = r1; q10 = r2; q11 = r3; q12 = r4;
+q13 = a1; q14 = a2; q15 = a3; q16 = a4;
+q17 = x1; q18 = x2; q19 = x3; q20 = x4;
+q21 = c1; q22 = c2; q23 = c3; q24 = c4;
+'''
+
+[shader]
+comp = '''
+let sz = u.texsize.xy;
+let asp = sz.x / sz.y;
+let fz = u.q[0].x;
+let ph = u.q[0].y;
+let sw = u.q[0].z;
+let hu = u.q[0].w;
+let pb = u.q[1].x;
+let pm = u.q[1].y;
+let pt = u.q[1].z;
+let sb = u.q[1].w;
+let px = 1.0 / sz.y;
+// On a tiny picture the twinkling is held back (a speck is a large share).
+let rs = clamp(sz.y / 200.0, 0.0, 1.0);
+let p = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
+// The camera: low over the board, weaving and banking a little.
+let yaw = 0.12 * cos(sw);
+let pitch = 0.36;
+let ro = vec3f(1.6 * sin(sw), 1.5, fz);
+let fw = vec3f(sin(yaw) * cos(pitch), -sin(pitch), cos(yaw) * cos(pitch));
+let rt0 = normalize(cross(vec3f(0.0, 1.0, 0.0), fw));
+let bank = -0.08 * sin(sw);
+let up0 = cross(fw, rt0);
+let rt = rt0 * cos(bank) + up0 * sin(bank);
+let up = up0 * cos(bank) - rt0 * sin(bank);
+let rd = normalize(fw * 1.4 + rt * p.x + up * p.y);
+// The packets' colours, swung by the mids.
+let h0 = 6.2831853 * hu;
+let pc0 = vec3f(0.1, 0.85, 1.0);
+let pc1 = vec3f(1.0, 0.2, 0.8);
+let pc2 = vec3f(1.0, 0.75, 0.2);
+let fogc = vec3f(0.22, 0.075, 0.33);
+var col = fogc;
+if (rd.y < -0.004) {
+    let tg = -ro.y / rd.y;
+    // The chips: exact box tests in the blocks the ray crosses at four
+    // heights.
+    var th = 1e9;
+    var hn = vec3f(0.0);
+    var hb = vec2f(0.0);
+    var hh = 0u;
+    var hc = vec2f(0.0);
+    var hs = vec2f(0.0);
+    var hht = 0.0;
+    let inv = 1.0 / vec3f(select(rd.x, 1e-6, abs(rd.x) < 1e-6), rd.y, rd.z);
+    for (var l = 0; l < 4; l++) {
+        let yy = 0.75 * (1.0 - f32(l) / 3.0);
+        let P = ro + rd * ((ro.y - yy) / -rd.y);
+        let b = floor(P.xz * 0.5);
+        let bi = vec2i(b);
+        let bu = vec2u(bitcast<u32>(bi.x & 127), bitcast<u32>(bi.y & 127));
+        let h0u = (bu.x * 1973u + bu.y * 9277u + 26699u) * 747796405u + 2891336453u;
+        let h = ((h0u >> ((h0u >> 28u) + 4u)) ^ h0u) * 277803737u;
+        let hx = f32(h & 255u) / 255.0;
+        let hz = f32((h >> 8u) & 255u) / 255.0;
+        let hy = f32((h >> 16u) & 255u) / 255.0;
+        let ha = f32((h >> 24u) & 255u) / 255.0;
+        if (ha < 0.55) {
+            let half = vec2f(0.35 + 0.45 * hx, 0.35 + 0.45 * hz);
+            let cen = b * 2.0 + vec2f(1.0) + (vec2f(0.85) - half) * (vec2f(hz, hx) - vec2f(0.5));
+            let ht = 0.1 + 0.62 * hy * sqrt(hy);
+            let bmin = vec3f(cen.x - half.x, 0.0, cen.y - half.y);
+            let bmax = vec3f(cen.x + half.x, ht, cen.y + half.y);
+            let t1 = (bmin - ro) * inv;
+            let t2 = (bmax - ro) * inv;
+            let tn = min(t1, t2);
+            let tf = max(t1, t2);
+            let tN = max(max(tn.x, tn.y), tn.z);
+            let tF = min(min(tf.x, tf.y), tf.z);
+            if (tN < tF && tN > 0.0 && tN < th) {
+                th = tN;
+                hn = select(select(vec3f(0.0, 0.0, -sign(rd.z)), vec3f(0.0, 1.0, 0.0), tn.y >= tN), vec3f(-sign(rd.x), 0.0, 0.0), tn.x >= tN);
+                hb = b;
+                hh = h;
+                hc = cen;
+                hs = half;
+                hht = ht;
+            }
+        }
+    }
+    // The kick's pulse waves: rings racing out over the board.
+    let tt = min(th, tg);
+    let P = ro + rd * tt;
+    var ring = 0.0;
+    for (var k = 0; k < 4; k++) {
+        let ra = u.q[2][k];
+        if (ra < 1.0) {
+            let am = u.q[3][k];
+            let cx = u.q[4][k];
+            let cz = u.q[5][k];
+            let rr = ra * 6.0;
+            let dd = length(P.xz - vec2f(cx, cz)) - rr;
+            ring += am * exp(-dd * dd / (0.08 + 0.05 * ra)) * smoothstep(0.0, 0.12, ra) * (1.0 - smoothstep(0.45, 0.95, ra));
+        }
+    }
+    let ringc = vec3f(0.6, 0.95, 1.0);
+    // How big a pixel is here, for fading fine detail.
+    let fp = tt * px / 1.4;
+    if (th < tg) {
+        // A chip.
+        let lp = P - vec3f(hc.x, 0.0, hc.y);
+        let hy = f32((hh >> 16u) & 255u) / 255.0;
+        let hx = f32(hh & 255u) / 255.0;
+        if (hn.y > 0.5) {
+            // Its top: a dark package, the die glowing with heat, a rim.
+            let q = abs(lp.xz) / hs;
+            let die = exp(-dot(lp.xz / (hs * 0.45), lp.xz / (hs * 0.45)));
+            let heat = mix(vec3f(1.0, 0.35, 0.1), vec3f(1.0, 0.15, 0.6), hx);
+            col = vec3f(0.03, 0.032, 0.045) + heat * die * (0.25 + 0.3 * sb + 1.0 * pb) * (0.4 + 0.6 * hy);
+            let gl = abs(fract(lp.xz * 6.0) - vec2f(0.5));
+            let gr = smoothstep(0.47, 0.5, max(gl.x, gl.y)) * (1.0 - smoothstep(0.02, 0.05, fp));
+            col += vec3f(0.05, 0.08, 0.12) * gr;
+            let rim = smoothstep(0.9, 0.98, max(q.x, q.y));
+            col += pc0 * rim * 0.5 + ringc * ring * 0.4;
+        } else {
+            // A wall: rows of tiny LEDs, like lit windows.
+            let along = select(lp.x, lp.z, abs(hn.x) > 0.5);
+            let wy = P.y;
+            let gq = vec2f(along / 0.07, wy / 0.06);
+            let gc = floor(gq);
+            let hbw = hb - floor(hb / 128.0) * 128.0;
+            let gh = fract(sin(dot(gc + hbw * 13.0, vec2f(12.9898, 78.233))) * 43758.5453);
+            let gd = length(fract(gq) - vec2f(0.5));
+            let on = step(0.55, gh) * step(0.5, wy / 0.06 - 0.0) * step(wy, hht - 0.03);
+            let lc = select(select(pc2, pc1, gh > 0.85), pc0, gh > 0.7);
+            let tw = 0.6 + 0.4 * sin(u.time * (1.0 + 3.0 * gh) + gh * 40.0) + 1.5 * rs * pt * step(0.5, fract(gh * 17.0 + u.time * 3.0));
+            let led = on * smoothstep(0.35, 0.15, gd) * tw * (1.0 + 0.8 * pb);
+            let shade = select(0.6, 1.0, abs(hn.x) > 0.5);
+            let dl = 1.0 - smoothstep(0.02, 0.06, fp);
+            col = vec3f(0.02, 0.022, 0.035) * shade + lc * led * 0.9 * dl + lc * on * 0.12 * (1.0 - dl) + ringc * ring * 0.25;
+        }
+    } else {
+        // The board.
+        let G = P.xz;
+        col = vec3f(0.024, 0.048, 0.06);
+        let s = 0.2;
+        let det = 1.0 - smoothstep(0.012, 0.05, fp);
+        var tr = vec3f(0.0);
+        for (var dir = 0; dir < 2; dir++) {
+            // Lanes along x (dir 0) and along z (dir 1).
+            let ua = select(G.x, G.y, dir == 1);
+            let va = select(G.y, G.x, dir == 1);
+            let j = floor(va / s);
+            let v = va - (j + 0.5) * s;
+            let jj = u32(i32(j) & 1279) + u32(dir) * 1280u;
+            let hj = fract(sin(f32(jj) * 12.9898 + 7.0) * 43758.5453);
+            // Segment lengths divide the world's 256, so it repeats seamlessly.
+            let L = 256.0 / floor(256.0 / (1.0 + 3.0 * hj));
+            let ux = ua + hj * 7.0;
+            let sg = floor(ux / L);
+            let ns = round(256.0 / L);
+            let hs2 = fract(sin(((sg - floor(sg / ns) * ns) + f32(jj) * 1.618) * 78.233) * 43758.5453);
+            let lu = ux - sg * L;
+            let on = step(0.35, hs2) * step(0.1, lu) * step(lu, L - 0.1) * step(0.3, fract(hj * 5.3));
+            let w = 0.022;
+            let ln = smoothstep(w + fp, w - fp * 0.5, abs(v)) * on;
+            // Vias at the segment's ends.
+            let de = min(length(vec2f(lu - 0.1, v)), length(vec2f(lu - L + 0.1, v)));
+            let via = smoothstep(0.012 + fp, 0.012, abs(de - 0.045)) * step(0.35, hs2) * step(0.3, fract(hj * 5.3));
+            // Packets along the lane, each lane at its own speed and way.
+            let spd = (1.0 + floor(hj * 3.0) * 0.5) * select(-1.0, 1.0, fract(hj * 11.0) > 0.5);
+            let pu = fract((ua * select(1.0, -1.0, spd < 0.0) - ph * abs(spd) + hj * 3.0) / 3.0) * 3.0;
+            let pk = exp(-pu * 5.0) * smoothstep(0.0, 0.03, pu) + exp(-(3.0 - pu) * 60.0);
+            let ci = floor(fract(hj * 23.0 + hu) * 3.0);
+            let pcl = select(select(pc2, pc1, ci > 0.5), pc0, ci > 1.5);
+            tr += (vec3f(0.28, 0.16, 0.06) * (0.8 + 0.8 * pb) + pcl * pk * (2.2 + 2.0 * pb) + ringc * ring * 2.5) * ln * det;
+            tr += (vec3f(0.6, 0.45, 0.15) * 0.5 + pcl * pk * 1.0 + ringc * ring * 1.5) * via * det;
+        }
+        col += tr;
+        // Faint copper fill where the detail is too fine to draw.
+        col += vec3f(0.05, 0.04, 0.03) * (1.0 - det) + ringc * ring * 0.15 * (1.0 - det);
+        // Tiny LEDs scattered on the board.
+        let lq = G * 4.0;
+        let lc2 = floor(lq);
+        let lh = fract(sin(dot(lc2 - floor(lc2 / 1024.0) * 1024.0, vec2f(127.1, 311.7))) * 43758.5453);
+        let ld = length(fract(lq) - vec2f(0.5)) / 4.0;
+        let lcol = select(select(pc2, pc1, lh > 0.985), pc0, lh > 0.992);
+        let tw = 0.7 + 0.3 * sin(u.time * 2.0 + lh * 90.0) + 1.5 * rs * pt * step(0.5, fract(lh * 31.0 + u.time * 4.0));
+        col += lcol * step(0.975, lh) * smoothstep(0.03 + fp, 0.01, ld) * tw * 1.2;
+        col += lcol * step(0.975, lh) * exp(-ld * 25.0) * 0.15;
+        // The chips' heat glow spilling onto the board, and their shadows.
+        col += ringc * ring * 0.06;
+    }
+    // Haze toward the horizon.
+    let fogk = 1.0 - exp(-tt * 0.075);
+    col = mix(col, fogc, fogk);
+} else {
+    // The sky above the horizon.
+    col = mix(fogc, vec3f(0.02, 0.01, 0.05), smoothstep(0.0, 0.25, rd.y));
+}
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.15, vec3f(0.0));
+return col / (1.0 + 0.4 * col);
+'''

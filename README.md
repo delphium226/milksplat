@@ -69,6 +69,12 @@ device, so just start your music and run it.
 | **Neural Storm**: layers of glowing neurons joined by arcing axons, sparks racing along them and firing cascades spreading from cell to cell | **Mycelium**: luminous cyan and violet fungal threads forking outward through dark soil, nutrient pulses racing along them as glowing fruiting bodies push up, then crumbling away to regrow |
 | ![Dyson Swarm](docs/images/dyson-swarm.png) | ![Abyssal Jellyfish](docs/images/abyssal-jellyfish.png) |
 | **Dyson Swarm**: thousands of collector panels in inclined rings round a blazing star, glinting gold and silhouetted on its face, beaming energy to a distant receiver | **Abyssal Jellyfish**: bioluminescent jellyfish pulsing up through the deep, every kick squeezing their glowing bells, among marine snow and beaded siphonophore chains |
+| ![Blazar Jet](docs/images/blazar-jet.png) | ![Fireworks Symphony](docs/images/fireworks-symphony.png) |
+| **Blazar Jet**: a black hole's relativistic jet beamed almost straight at you, wound by magnetic helices, as each kick fires a knot of plasma up it | **Fireworks Symphony**: peonies, golden willows, crossettes and ring shells bursting over a mirror-still lake, a shell launched on every kick |
+| ![Bioluminescent Surf](docs/images/bioluminescent-surf.png) | ![Circuit City](docs/images/circuit-city.png) |
+| **Bioluminescent Surf**: night waves breaking in electric-blue plankton glow, foam sheets sliding up the sand under the Milky Way, a wave breaking on each kick | **Circuit City**: a low flight over an endless circuit-board metropolis of LED-studded chip towers, data packets racing along the traces as kicks send pulse waves through the grid |
+| ![Crystal Geode](docs/images/crystal-geode.png) | |
+| **Crystal Geode**: inside a giant geode, a turning cluster of amethyst and quartz lit from within, rainbow fringes on its facets, as each kick sends a flare of light up through the crystals | |
 
 These are single frames; every preset moves and changes with the music.
 

@@ -1,0 +1,247 @@
+# Bioluminescent Surf: a beach at night, the sea alive with
+# dinoflagellates. Waves roll in out of the dark, rise as they near the
+# shore and break, and wherever the water is churned it glows electric
+# blue: the curling lips, the tumbling whitewater, the foam left in their
+# wake. Each wave runs up the sand as a glowing sheet with a lacy leading
+# edge, hangs there and slides back, the light fading as it drains away.
+# Above, the Milky Way arches over a sky full of stars.
+#
+# Everything is in the composite. The sea is a plane in perspective; four
+# waves cycle in from the horizon at staggered times (each a slot with
+# its own break state set by the frame code), each a ridge across the
+# plane whose front wanders along its length, drawn as the face between
+# its base and its crest, nearest in front. A broken wave's crest and
+# face fill with turbulent foam (noise textures streaming with the
+# water), a fading wake trails behind it, and when it reaches the shore
+# its foam runs up the beach and back.
+#
+# Each hit of the music is felt at once, through pulses of the bass, mids
+# and treble that rise in a tick or two and die away over a fraction of a
+# second (soft-limited, so a bigger hit still means more): a fresh kick
+# breaks the nearest unbroken wave (its light ramping in), surges the sea
+# shoreward and stirs every patch of foam to glow brighter, as the
+# plankton flash when the water is churned; the mids shimmer the swell;
+# the treble glitters in the foam and the stars. Waves that no kick
+# breaks break on their own near the shore.
+version = 1
+
+[meta]
+name = "Bioluminescent Surf"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+ph = 0.1; cd = 0; fl = 0;
+b1 = 99; b2 = 99; b3 = 99; b4 = 99;
+e1 = 0.8; e2 = 0.8; e3 = 0.8; e4 = 0.8;
+'''
+frame = '''
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+ob = pb;
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+// The waves' clock: a wave every 2.5 s (each lives 10 s), surged on by
+// each kick.
+ph = ph + 1 / 600 + 0.0012 * pb;
+ph = ph - floor(ph);
+// The foam's flow (accumulated).
+fl = fl + 0.05 / 60 + 0.004 * pb;
+fl = fl - 64 * floor(fl / 64);
+o1 = s1; o2 = s2; o3 = s3; o4 = s4;
+s1 = ph; s2 = ph + 0.25; s2 = s2 - floor(s2);
+s3 = ph + 0.5; s3 = s3 - floor(s3); s4 = ph + 0.75; s4 = s4 - floor(s4);
+// A wave reborn at the horizon is unbroken.
+if(s1 < o1 - 0.5, b1 = 99, 0); if(s2 < o2 - 0.5, b2 = 99, 0);
+if(s3 < o3 - 0.5, b3 = 99, 0); if(s4 < o4 - 0.5, b4 = 99, 0);
+// Unbroken waves break on their own near the shore.
+if(b1 > 50 && s1 > 0.62, b1 = 0; e1 = 0.6, 0);
+if(b2 > 50 && s2 > 0.62, b2 = 0; e2 = 0.6, 0);
+if(b3 > 50 && s3 > 0.62, b3 = 0; e3 = 0.6, 0);
+if(b4 > 50 && s4 > 0.62, b4 = 0; e4 = 0.6, 0);
+// A fresh kick breaks the nearest unbroken wave in the nearer half.
+kk = pb - ob;
+cd = cd + 1;
+if(kk > 0.08 && cd > 20,
+  cd = 0; bs = 0.36; ck = 0; ne = 0.7 + min(pb, 1.3);
+  if(b1 > 50 && s1 < 0.75 && s1 > bs, bs = s1; ck = 1, 0);
+  if(b2 > 50 && s2 < 0.75 && s2 > bs, bs = s2; ck = 2, 0);
+  if(b3 > 50 && s3 < 0.75 && s3 > bs, bs = s3; ck = 3, 0);
+  if(b4 > 50 && s4 < 0.75 && s4 > bs, bs = s4; ck = 4, 0);
+  if(ck == 1, b1 = 0; e1 = ne, 0);
+  if(ck == 2, b2 = 0; e2 = ne, 0);
+  if(ck == 3, b3 = 0; e3 = ne, 0);
+  if(ck == 4, b4 = 0; e4 = ne, 0),
+  0);
+b1 = min(b1 + 1 / 60, 99); b2 = min(b2 + 1 / 60, 99);
+b3 = min(b3 + 1 / 60, 99); b4 = min(b4 + 1 / 60, 99);
+q1 = s1; q2 = s2; q3 = s3; q4 = s4;
+q5 = b1; q6 = b2; q7 = b3; q8 = b4;
+q9 = e1; q10 = e2; q11 = e3; q12 = e4;
+q13 = pb; q14 = pm; q15 = pt; q16 = fl;
+'''
+
+[shader]
+comp = '''
+let sz = u.texsize.xy;
+let asp = sz.x / sz.y;
+let pb = u.q[3].x;
+let pm = u.q[3].y;
+let pt = u.q[3].z;
+let fl = u.q[3].w;
+let px = 1.0 / sz.y;
+let lw = max(1.0, sz.y / 540.0);
+// On a tiny picture the glitter is held back (a speck is a large share).
+let rs = clamp(sz.y / 200.0, 0.0, 1.0);
+// The kick's stir of the foam, held back a little there too.
+let kg = 0.95 * (0.5 + 0.5 * rs);
+let p = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
+let yh = 0.28;
+let ys = -0.3;
+let zs = 1.0 / (yh - ys);
+let zmax = 40.0;
+let glo = vec3f(0.1, 0.55, 1.0);
+let glo2 = vec3f(0.45, 0.9, 1.0);
+var col = vec3f(0.0);
+if (p.y >= yh) {
+    // The sky: the Milky Way arching across, stars, a glow at the horizon.
+    let hy = p.y - yh;
+    col = mix(vec3f(0.09, 0.09, 0.2), vec3f(0.02, 0.022, 0.06), smoothstep(0.0, 0.3, hy));
+    let mw = p.y - 0.25 - 0.35 * p.x + 0.2 * p.x * p.x;
+    let n1 = textureSampleLevel(sampler_noise_lq, s_fw, p * vec2f(0.9, 1.2) + vec2f(0.3, 0.1), 0.0).x;
+    let n2 = textureSampleLevel(sampler_noise_mq, s_fw, p * 3.0 + vec2f(0.7, 0.2), 0.0).x;
+    let band = exp(-mw * mw / 0.012) * (0.4 + 0.8 * n1) * (0.6 + 0.6 * n2);
+    col += mix(vec3f(0.14, 0.12, 0.26), vec3f(0.34, 0.25, 0.34), n2) * band * 0.8;
+    for (var l = 0; l < 2; l++) {
+        let ls = 60.0 + 70.0 * f32(l);
+        let q = p * ls + vec2f(f32(l) * 7.1, 3.3);
+        let c = floor(q);
+        let h = fract(sin(vec2f(dot(c, vec2f(127.1, 311.7)), dot(c, vec2f(269.5, 183.3)))) * 43758.5453);
+        let d = length(q - c - vec2f(0.2) - h * 0.6) / ls / (px * lw);
+        let on = step(0.955 - 0.05 * band, h.x);
+        let tw = (0.7 + 0.3 * sin(u.time * (1.0 + 2.0 * h.y) + h.x * 30.0) + 0.6 * pt) * rs;
+        col += mix(vec3f(0.65, 0.75, 1.0), vec3f(1.0, 0.9, 0.75), h.y) * on * exp(-d * d / 0.7) * 0.55 * tw;
+    }
+} else {
+    let z = 1.0 / (yh - p.y);
+    let xw = p.x * z;
+    if (p.y > ys) {
+        // The sea between the waves: dark, a faint sheen of the sky near
+        // the horizon, a swell shimmering with the mids.
+        let sw = textureSampleLevel(sampler_noise_lq, s_fw, vec2f(xw * 0.08, z * 0.15 - fl * 2.0), 0.0).x;
+        col = vec3f(0.012, 0.03, 0.06) + vec3f(0.06, 0.07, 0.15) * exp(-(yh - p.y) * 18.0) * (0.7 + 0.6 * sw);
+        col += glo * 0.03 * smoothstep(0.55, 0.85, sw) * (0.5 + 1.2 * pm);
+        // Plankton sparks scattered on the water, flashing as the music
+        // churns it.
+        let gq = vec2f(xw * 1.5, z * 4.0 - fl * 8.0);
+        let gc = floor(gq);
+        let gh = fract(sin(vec2f(dot(gc, vec2f(127.1, 311.7)), dot(gc, vec2f(269.5, 183.3)))) * 43758.5453);
+        let gd = length((gq - gc - vec2f(0.5)) / vec2f(1.5, 4.0)) / z / (px * lw * 1.3);
+        col += glo2 * step(0.75, gh.x) * exp(-gd * gd / 1.2) * (0.15 + 1.6 * pb) * rs * smoothstep(40.0, 8.0, z);
+    } else {
+        // Wet sand, catching the sky's glow.
+        let sn = textureSampleLevel(sampler_noise_mq, s_fw, vec2f(xw * 0.6, z * 0.6), 0.0).x;
+        col = vec3f(0.06, 0.05, 0.07) * (0.7 + 0.5 * sn) + vec3f(0.03, 0.06, 0.12) * smoothstep(-0.5, ys, p.y);
+    }
+    // The waves, drawn far to near (each face over what is behind it,
+    // its edges softened over a pixel), glowing foam added.
+    let k0 = (4 - i32(floor(u.q[0].x * 4.0))) % 4;
+    var add = vec3f(0.0);
+    var adds = vec3f(0.0);
+    for (var j = 0; j < 4; j++) {
+        let k = (k0 + j) % 4;
+        let s = u.q[0][k];
+        let b = u.q[1][k];
+        let e = u.q[2][k];
+        let broken = b < 50.0;
+        // How a break's light ramps in, then fades.
+        let env = select(0.0, smoothstep(0.0, 0.45, b) * (0.35 + 0.65 * exp(-b * 0.5)), broken);
+        let fk = f32(k) * 1.7;
+        if (s < 0.75) {
+            let d = 1.0 - s / 0.75;
+            // Its light hands over to the swash as it reaches the shore.
+            let hand = smoothstep(0.0, 0.15, d);
+            let zk0 = zs + d * d * (zmax - zs);
+            let xk = p.x * zk0;
+            let zk = zk0 * (1.0 + 0.05 * sin(xk * 0.22 + fk) + 0.025 * sin(xk * 0.61 + 2.0 * fk));
+            // The wave rises toward the shore; once broken it slumps into
+            // a tumbling bore.
+            var hw = 0.6 * pow(1.0 - d, 1.6) * smoothstep(0.0, 0.3, d) * (0.8 + 0.2 * sin(xk * 0.4 + fk));
+            hw = select(hw, hw * (0.45 + 0.55 * exp(-b * 1.2)), broken);
+            let yb = yh - 1.0 / zk;
+            let yc = yh - (1.0 - hw) / zk;
+            let foam = textureSampleLevel(sampler_noise_lq, s_fw, vec2f(xk * 0.05 + fk, (p.y - yb) * zk * 0.5 - fl * 3.0), 0.0).x;
+            let foam2 = textureSampleLevel(sampler_noise_lq, s_fw, vec2f(xk * 0.16 - fk, (p.y - yb) * zk * 1.4 - fl * 7.0), 0.0).x;
+            let fm = smoothstep(0.3, 0.75, 0.6 * foam + 0.4 * foam2);
+            let cov = clamp((p.y - yb) / px + 0.5, 0.0, 1.0) * clamp((yc - p.y) / px + 0.5, 0.0, 1.0);
+            if (cov > 0.0) {
+                let f = clamp((p.y - yb) / max(yc - yb, 1e-5), 0.0, 1.3);
+                // The face: dark water, translucent and faintly lit
+                // toward the crest.
+                var c = mix(vec3f(0.01, 0.025, 0.05), vec3f(0.03, 0.1, 0.15), f * f) * (0.6 + 0.6 * smoothstep(0.0, 0.9, 1.0 - d));
+                c += glo * 0.06 * f * f * f * (1.0 + 0.8 * pm);
+                // A broken wave: the lip and the face full of glowing foam.
+                // The lip: a fifth of the face, but never under two pixels (dimmer
+                // when widened, so a small picture keeps its light).
+                let lh = 0.18 * (yc - yb);
+                let lws = max(lh, 2.0 * px);
+                let lip = exp(-(yc - p.y) * (yc - p.y) / (lws * lws)) * lh / lws;
+                let ff = fm * smoothstep(0.1, 0.9, f) + lip * (0.6 + 0.6 * fm);
+                c += mix(glo, glo2, lip * fm) * ff * env * e * hand * 1.6 * (1.0 + kg * pb);
+                col = mix(col, c, cov);
+            }
+            // The light of the crest scattered into the air and the water
+            // round it.
+            let gd = (p.y - yc) * zk;
+            // Spray above a breaking crest.
+            let above = clamp((p.y - yc) / px + 0.5, 0.0, 1.0);
+            add += mix(glo, glo2, 0.5) * fm * exp(-max(gd, 0.0) * 25.0) * above * env * e * hand * 0.8;
+            add += glo * exp(-abs(gd) * 6.0) * (0.1 * (1.0 - d) + 0.35 * env * e) * hand * select(1.0, 0.5, gd < 0.0);
+            // The wake: foam left on the sea behind a broken wave.
+            if (broken && p.y > ys && z > zk) {
+                let wk = (z - zk) / (2.0 + 6.0 * b);
+                let wf = textureSampleLevel(sampler_noise_lq, s_fw, vec2f(xw * 0.06 + fk, z * 0.2 - fl * 2.0), 0.0).x;
+                add += glo * exp(-wk * 1.5) * (0.15 + smoothstep(0.35, 0.8, wf)) * env * e * hand * 0.6 * above;
+            }
+        } else if (p.y <= ys + 0.01 + px) {
+            // The swash: the foam runs up the sand and slides back.
+            let w = (s - 0.75) / 0.25;
+            let reach = pow(sin(3.14159265 * min(w * 1.15, 1.0)), 0.6);
+            let ze = zs - (zs - 1.12) * reach * (0.75 + 0.25 * sin(xw * 0.9 + fk) * sin(xw * 0.37 + 2.0 * fk));
+            // Soft edges, a pixel wide.
+            let edge = clamp((z - ze) / (z * z * px) + 0.5, 0.0, 1.0) * clamp((ys + 0.01 - p.y) / px + 0.5, 0.0, 1.0);
+            if (z < zs + 0.4 && edge > 0.0) {
+                let sf = textureSampleLevel(sampler_noise_lq, s_fw, vec2f(xw * 0.25 + fk, z * 0.9 + w * 0.7), 0.0).x;
+                let sf2 = textureSampleLevel(sampler_noise_lq, s_fw, vec2f(xw * 0.08 - fk, z * 0.3 - w * 0.4), 0.0).x;
+                // The lace keeps its light but is never under a few pixels wide.
+                let lz = max(0.1, 4.0 * z * z * px);
+                let lace = exp(-(z - ze) * (z - ze) / (lz * lz)) * (0.5 + sf) * 0.1 / lz;
+                let sheet = smoothstep(0.3, 0.75, 0.55 * sf + 0.45 * sf2);
+                let fade = (1.0 - smoothstep(0.35, 1.0, w)) * smoothstep(0.0, 0.2, w);
+                adds += mix(glo, glo2, lace) * (sheet * 0.5 + lace * 1.1) * fade * (0.5 + 0.5 * e) * edge;
+                // The wet sheen it leaves.
+                adds += vec3f(0.02, 0.05, 0.1) * fade * edge;
+            }
+        }
+    }
+    // Every patch of foam glows brighter as the music churns it, and
+    // glitters with the treble.
+    let gl = textureSampleLevel(sampler_noise_hq, s_fw, vec2f(xw * 1.3, z * 3.0 + u.time * 0.7), 0.0).x;
+    let sp = 1.5 * rs * pt * smoothstep(0.7, 0.9, gl);
+    col += add * (1.0 + kg * pb + sp) + adds * (1.0 + 0.5 * pb + sp);
+}
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.15, vec3f(0.0));
+return col / (1.0 + 0.4 * col);
+'''

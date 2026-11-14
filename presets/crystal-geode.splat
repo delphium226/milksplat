@@ -1,0 +1,293 @@
+# Crystal Geode: inside a giant geode. A cluster of amethyst and quartz
+# crystals rises from the floor of the cavity, hexagonal prisms with
+# pointed tips, violet at their roots and clear toward their points,
+# slowly turning and growing; a light burns inside the cluster and shines
+# out through them, split into rainbow fringes along their facets. The
+# cavity's walls glitter with a crust of tiny amethyst points, crossed by
+# rippling caustics thrown by the light through the crystals.
+#
+# Everything is in the composite: a ray march through a distance field.
+# The cavity is a bumpy sphere seen from inside; the cluster is nine
+# capped hexagonal prisms (each with its own lean, turn, girth and
+# length), tested only near the cluster. Each step adds a little glow by
+# how close the ray passes the crystals, so they bloom. A crystal hit is
+# shaded as glass: a Fresnel reflection of the cavity, transmitted light
+# from the inner glow, and dispersion (a spectrum running with the angle
+# of view) along the facets. The wall's crust is a grid of facets in
+# spherical coordinates, each tilted its own way and glinting when it
+# catches the light; the caustics are where two drifting noise fields
+# cross.
+#
+# The turn, the growth, the camera's orbit and the caustics' drift are
+# accumulated. Bass grows the crystals (smoothed). Each hit of the music
+# is felt at once, through pulses of the bass, mids and treble that rise
+# in a tick or two and die away over a fraction of a second
+# (soft-limited, so a bigger hit still means more): a kick flares the
+# light inside the cluster, so it blazes out through the crystals and
+# brightens the caustics, and throws the turn on; the mids swing the
+# rainbow fringes; the treble makes the crust sparkle.
+version = 1
+
+[meta]
+name = "Crystal Geode"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+rt = 0; gr = 0; ca = 0.6; cs = 0; hu = 0; fa = 9; fb = 0; ga = 9; gb = 0; cd = 0; fs = 0;
+'''
+frame = '''
+xs = max(bass_att - 1, 0); xs = xs / (1 + 0.5 * xs);
+sb = sb + (xs - sb) * 0.04;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+ob = pb;
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+// The cluster turns (a turn in 90 s), each kick throwing it on.
+rt = rt + 6.2831853 / 90 / 60 + 0.012 * pb;
+rt = rt - 6.2831853 * floor(rt / 6.2831853);
+// The crystals' growth cycle.
+gr = gr + (0.1 + 0.15 * sb) / 60;
+gr = gr - 6.2831853 * floor(gr / 6.2831853);
+// The camera's slow orbit.
+ca = ca + 6.2831853 / 150 / 60;
+ca = ca - 6.2831853 * floor(ca / 6.2831853);
+// The caustics drift (accumulated), quicker on a kick.
+cs = cs + 0.02 / 60 + 0.002 * pb;
+cs = cs - 64 * floor(cs / 64);
+hu = hu + (0.004 + 0.1 * pm) / 60;
+hu = hu - floor(hu);
+q1 = rt; q2 = gr; q3 = ca; q4 = cs;
+q5 = pb; q6 = pm; q7 = pt; q8 = sb;
+// A fresh kick sends a flare of light rising up through the crystals.
+kk = pb - ob;
+cd = cd + 1;
+// Two slots in turn, so a new flare never cuts off the last.
+if(kk > 0.08 && cd > 10,
+  cd = 0; fs = 1 - fs;
+  if(fs == 0, fa = 0; fb = 0.5 + min(pb, 1.3), ga = 0; gb = 0.5 + min(pb, 1.3)),
+  0);
+fa = min(fa + 1 / 60, 9); ga = min(ga + 1 / 60, 9);
+q9 = hu; q10 = fa; q11 = fb; q12 = ga; q13 = gb;
+'''
+
+[shader]
+comp = '''
+let sz = u.texsize.xy;
+let asp = sz.x / sz.y;
+let rt = u.q[0].x;
+let gr = u.q[0].y;
+let ca = u.q[0].z;
+let cs = u.q[0].w;
+let pb = u.q[1].x;
+let pm = u.q[1].y;
+let pt = u.q[1].z;
+let sb = u.q[1].w;
+let hu = u.q[2].x;
+let fa = u.q[2].y;
+let fb = u.q[2].z;
+let ga = u.q[2].w;
+let gb = u.q[3].x;
+let px = 1.0 / sz.y;
+// On a tiny picture the sparkle is held back (a speck is a large share).
+let rs = clamp(sz.y / 200.0, 0.0, 1.0);
+let sp = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
+// The camera: orbiting inside the cavity, looking at the cluster.
+let cam = vec3f(4.3 * cos(ca), -0.6 + 0.4 * sin(ca * 2.0), 4.3 * sin(ca));
+let tgt = vec3f(0.0, -1.6, 0.0);
+let fw = normalize(tgt - cam);
+let rgt = normalize(cross(vec3f(0.0, 1.0, 0.0), fw));
+let up = cross(fw, rgt);
+let rd = normalize(fw * 1.5 + rgt * sp.x + up * sp.y);
+// The light inside the cluster, flared by each kick.
+let lpos = vec3f(0.0, -2.2, 0.0);
+let li = 0.8 + 0.35 * sb + 0.35 * pb;
+// The walls see less of the flare than the crystals do.
+let lw2 = 0.6 + 0.3 * sb + 0.12 * pb;
+// The crystals: base, axis and a basis across it, girth and length.
+let c0 = vec3f(0.0, -3.4, 0.0);
+var cb: array<vec3f, 9>;
+var cx: array<vec3f, 9>;
+var cy: array<vec3f, 9>;
+var cz: array<vec3f, 9>;
+var cr: array<f32, 9>;
+var cl: array<f32, 9>;
+for (var i = 0; i < 9; i++) {
+    let fi = f32(i);
+    let h1 = fract(sin(fi * 12.9898 + 1.3) * 43758.5453);
+    let h2 = fract(sin(fi * 78.233 + 2.1) * 43758.5453);
+    let h3 = fract(sin(fi * 39.425 + 0.7) * 43758.5453);
+    let ph = fi * 2.39996 + rt;
+    let th = select(0.12 + 0.62 * h1, 0.0, i == 0);
+    let a = vec3f(sin(th) * cos(ph), cos(th), sin(th) * sin(ph));
+    let ex = normalize(cross(a, vec3f(0.0, 0.0, 1.0) + vec3f(0.3, 0.0, 0.0)));
+    let ey = cross(a, ex);
+    // Each crystal twists slowly about its own axis.
+    let tw = rt * (1.0 + h3) + h2 * 6.0;
+    cx[i] = ex * cos(tw) + ey * sin(tw);
+    cy[i] = ey * cos(tw) - ex * sin(tw);
+    cz[i] = a;
+    cb[i] = c0 + vec3f(cos(ph), 0.0, sin(ph)) * (0.15 + 0.45 * h2) * select(1.0, 0.0, i == 0);
+    cr[i] = select(0.2 + 0.18 * h2, 0.42, i == 0);
+    cl[i] = select(1.0 + 1.5 * h3, 2.6, i == 0) * (0.85 + 0.1 * sin(gr + fi * 1.7) + 0.08 * sb);
+}
+// March.
+var t = 0.05;
+var hit = 0;
+var glow = 0.0;
+var hp = cam;
+for (var s = 0; s < 72; s++) {
+    let P = cam + rd * t;
+    // The cavity wall: a bumpy sphere, from inside.
+    let bump = textureSampleLevel(sampler_noisevol_lq, s_fw, P * 0.12 + vec3f(0.3), 0.0).x;
+    var d = 6.5 - length(P) + 0.9 * (bump - 0.5);
+    var dc = 1e9;
+    let dcl = length(P - vec3f(0.0, -2.2, 0.0)) - 2.6;
+    if (dcl < 0.4) {
+        for (var i = 0; i < 9; i++) {
+            let q = P - cb[i];
+            let lz = dot(q, cz[i]);
+            let lx = abs(dot(q, cx[i]));
+            let ly = abs(dot(q, cy[i]));
+            let r = cr[i];
+            let L = cl[i];
+            // A hexagonal prism from the base to the tip.
+            let hx = max(lx * 0.8660254 + ly * 0.5, ly);
+            let dside = hx - r;
+            let apex = L + r * 1.6;
+            let dlen = max(-lz, lz - apex);
+            // The pyramid tip.
+            let dtip = (hx * 1.6 + lz - apex) / 1.8868;
+            let dd = max(max(dside, dlen), dtip);
+            dc = min(dc, dd);
+        }
+    } else {
+        dc = dcl;
+    }
+    glow += exp(-max(dc, 0.0) * 6.0) * 0.04;
+    d = min(d, dc);
+    if (d < 0.002 * t) {
+        hit = select(1, 2, dc <= d + 1e-4);
+        hp = P;
+        break;
+    }
+    t += d * 0.85;
+    if (t > 20.0) {
+        break;
+    }
+}
+let hu6 = 6.2831853 * hu;
+var col = vec3f(0.02, 0.01, 0.04);
+if (hit == 1) {
+    // The wall: dark rock under a crust of amethyst points.
+    let P = hp;
+    let r = length(P);
+    let dv = P / r;
+    let e = 0.02;
+    let b0 = textureSampleLevel(sampler_noisevol_lq, s_fw, P * 0.12 + vec3f(0.3), 0.0).x;
+    let bx = textureSampleLevel(sampler_noisevol_lq, s_fw, (P + vec3f(e, 0.0, 0.0)) * 0.12 + vec3f(0.3), 0.0).x;
+    let by = textureSampleLevel(sampler_noisevol_lq, s_fw, (P + vec3f(0.0, e, 0.0)) * 0.12 + vec3f(0.3), 0.0).x;
+    let bz = textureSampleLevel(sampler_noisevol_lq, s_fw, (P + vec3f(0.0, 0.0, e)) * 0.12 + vec3f(0.3), 0.0).x;
+    var n = normalize(-dv + 0.9 * (vec3f(bx, by, bz) - vec3f(b0)) / e);
+    // The crust: facets on a grid in spherical coordinates.
+    let sc = vec2f(atan2(dv.z, dv.x) * 14.0, acos(clamp(dv.y, -1.0, 1.0)) * 14.0);
+    let cc = floor(sc);
+    let hc = fract(sin(vec3f(dot(cc, vec2f(127.1, 311.7)), dot(cc, vec2f(269.5, 183.3)), dot(cc, vec2f(419.2, 371.9)))) * 43758.5453);
+    let fq = fract(sc) - vec2f(0.5);
+    // Each point is a little pyramid: its facet's tilt by which quarter.
+    let fd = select(vec2f(0.0, sign(fq.y)), vec2f(sign(fq.x), 0.0), abs(fq.x) > abs(fq.y));
+    n = normalize(n + 0.5 * (hc - vec3f(0.5)) + 0.2 * (rgt * fd.x + up * fd.y));
+    let ld = lpos - P;
+    let ldist = length(ld);
+    let l = ld / ldist;
+    let att = lw2 / (1.0 + 0.08 * ldist * ldist);
+    let attc = (0.5 + 0.35 * pb) / (1.0 + 0.08 * ldist * ldist);
+    let df = max(dot(n, l), 0.0);
+    let hv = normalize(l - rd);
+    let spec = pow(max(dot(n, hv), 0.0), 60.0);
+    let tint = mix(vec3f(0.45, 0.12, 0.75), vec3f(0.85, 0.5, 1.0), hc.x);
+    col = vec3f(0.025, 0.012, 0.04) + tint * (0.07 + 0.35 * df * att) + vec3f(1.0, 0.9, 1.0) * spec * att * 1.2;
+    // Sparkles on the crust.
+    let tw0 = 0.5 + 0.5 * sin(u.time * (1.5 + 3.0 * hc.z) + hc.y * 40.0);
+    let tw2 = tw0 * tw0;
+    let tw = tw2 * tw2 * tw2 * step(0.6, hc.y);
+    col += vec3f(0.9, 0.85, 1.0) * tw * spec * 6.0 * (0.25 + 0.8 * pt) * rs;
+    // Caustics: bright where two drifting noise fields cross mid-level.
+    let n1 = textureSampleLevel(sampler_noisevol_lq, s_fw, P * 0.2 + vec3f(cs * 3.0, 0.0, cs * 2.0), 0.0).x;
+    let n2 = textureSampleLevel(sampler_noisevol_lq, s_fw, P * 0.16 + vec3f(0.5, cs * 2.5, -cs * 1.5), 0.0).x;
+    let ca1 = 1.0 - smoothstep(0.0, 0.05, abs(n1 - 0.5));
+    let ca2 = 1.0 - smoothstep(0.0, 0.05, abs(n2 - 0.5));
+    let csp = 0.5 + 0.5 * vec3f(cos(hu6 + n1 * 9.0), cos(hu6 + n1 * 9.0 - 2.094), cos(hu6 + n1 * 9.0 + 2.094));
+    col += mix(vec3f(0.9, 0.8, 1.0), csp, 0.6) * (ca1 + ca2 + 2.0 * ca1 * ca2) * attc * 0.7;
+} else if (hit == 2) {
+    // A crystal: glass, lit from inside.
+    let P = hp;
+    let e = 0.003;
+    var nn = vec3f(0.0);
+    for (var j = 0; j < 4; j++) {
+        let o = select(select(vec3f(-e, -e, e), vec3f(-e, e, -e), j == 2), select(vec3f(e, -e, -e), vec3f(e, e, e), j == 0), j < 2);
+        let Q = P + o;
+        var dc = 1e9;
+        for (var i = 0; i < 9; i++) {
+            let q = Q - cb[i];
+            let lz = dot(q, cz[i]);
+            let lx = abs(dot(q, cx[i]));
+            let ly = abs(dot(q, cy[i]));
+            let hx = max(lx * 0.8660254 + ly * 0.5, ly);
+            let apex = cl[i] + cr[i] * 1.6;
+            dc = min(dc, max(max(hx - cr[i], max(-lz, lz - apex)), (hx * 1.6 + lz - apex) / 1.8868));
+        }
+        nn += o * dc;
+    }
+    let n = normalize(nn);
+    let cv = abs(dot(n, rd));
+    let fr = 0.08 + 0.92 * pow(1.0 - cv, 4.0);
+    // Height within the cluster: violet roots, clear tips.
+    let hgt = clamp((P.y + 3.4) / 3.2, 0.0, 1.0);
+    let tint = mix(vec3f(0.5, 0.08, 0.95), vec3f(0.7, 0.85, 1.0), smoothstep(0.1, 0.95, hgt));
+    // The inner light, transmitted.
+    let ld = length(P - lpos);
+    // The kick's flare: a band of light rising from root to tip, eased
+    // in, fading as it goes.
+    let fh = fa * 1.6 - 0.15;
+    let gh = ga * 1.6 - 0.15;
+    let flare = fb * exp(-(hgt - fh) * (hgt - fh) / 0.03) * smoothstep(0.0, 0.08, fa) * exp(-fa * 1.5)
+        + gb * exp(-(hgt - gh) * (hgt - gh) / 0.03) * smoothstep(0.0, 0.08, ga) * exp(-ga * 1.5);
+    // The light seen through the facet: where the refracted ray passes
+    // nearest the light, a bright spot that shifts as the view turns.
+    let rr = refract(rd, n, 0.65);
+    let dl = length(cross(lpos - P, rr));
+    let thru = exp(-dl * 2.0) * select(1.0, 0.0, dot(lpos - P, rr) < 0.0);
+    let tr = tint * (li * (0.25 + 0.6 * exp(-ld * 0.7) + 1.2 * thru) + flare * 1.6);
+    // Dispersion: a spectrum running with the angle of view.
+    let dsp = 6.2831853 * (cv * 2.2 + hgt * 0.7) + hu6;
+    let spc = 0.5 + 0.5 * vec3f(cos(dsp), cos(dsp - 2.094), cos(dsp + 2.094));
+    // The cavity reflected: a purple glow, brighter below.
+    let rf = reflect(rd, n);
+    let env = mix(vec3f(0.08, 0.03, 0.14), vec3f(0.3, 0.12, 0.45), 0.5 - 0.5 * rf.y);
+    let hv = normalize(normalize(lpos - P) - rd);
+    let spec = pow(max(dot(n, hv), 0.0), 80.0) + pow(max(dot(rf, normalize(vec3f(0.3, 1.0, 0.2))), 0.0), 40.0) * 0.5;
+    col = tr * (1.0 - fr) * 0.75 + spc * (1.0 - cv) * (0.4 + 0.3 * pm + 0.15 * pb + 0.5 * flare) + env * fr + vec3f(1.0) * spec * (0.6 + 0.3 * pb);
+} else {
+    col = vec3f(0.05, 0.02, 0.08);
+}
+// The crystals' bloom, flaring with the light.
+col += vec3f(0.55, 0.35, 1.0) * glow * (0.35 + 0.35 * pb);
+// A faint haze in the cavity.
+col = mix(col, vec3f(0.12, 0.05, 0.18), 1.0 - exp(-t * 0.03));
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.15, vec3f(0.0));
+return col / (1.0 + 0.45 * col);
+'''
