@@ -1,0 +1,258 @@
+# Synthwave Drive: a night drive along an endless neon wireframe grid
+# toward a striped retro sunset. A huge sun, hot pink below and gold
+# above, sits on the horizon with its lower half cut into widening bands
+# that slide slowly down; low-poly wireframe mountains in two ranges stand
+# in front of it, their faceted ridges traced in cyan. Above, the sky
+# deepens from magenta to indigo and the stars come out. The grid of
+# glowing magenta lines rushes toward the camera, the sun's reflection a
+# hot streak along it, and palm trees pass by on both sides, black
+# silhouettes edged in neon.
+#
+# Everything is in the composite. The floor is the plane under the camera:
+# each pixel's depth comes from its height under the horizon, and the grid
+# lines are drawn from the distance to the nearest line in world units
+# over what one pixel covers there, faded out to a glow where they get too
+# dense to draw. The mountains are piecewise-linear ridges (sums of
+# triangle waves), meshed with contour and vertical lines. The palms are
+# distance fields (a curved trunk and seven serrated, drooping fronds),
+# six on each side at their perspective scale, drawn far to near.
+#
+# The drive is accumulated (never time times the music). Bass quickens
+# it a little (smoothed). Mids drift the grid's colour. Each hit of the
+# music is felt at once, through pulses of the bass, mids and treble
+# that rise in a tick or two and die away over a fraction of a second
+# (soft-limited, so a bigger hit still means more): a kick surges the
+# car forward along the grid, dips the camera, flares the grid lines and
+# swells the sun and its corona; the mids brighten the mountains'
+# wireframe; the treble shimmers the horizon in a heat haze, brightens
+# the horizon line and twinkles the stars.
+version = 1
+
+[meta]
+name = "Synthwave Drive"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+zz = 0; ca = 0; ss = 0; sh = 0; hu = 0;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+sm = sm + (min(mid_att, 2.5) - sm) * 0.03;
+st = st + (min(treb_att, 2.5) - st) * 0.1;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+// The drive: 3 units a second, a little more with the bass, each kick
+// throwing the car forward. Wrapped at 48 (the grid's 1 and the palms' 8).
+zz = zz + (3 + 1.2 * min(sb, 2) / 2) / 60 + 0.2 * pb;
+zz = zz - 48 * floor(zz / 48);
+// The camera sways gently from side to side.
+ca = ca + 6.2831853 / 23 / 60;
+ca = ca - 6.2831853 * floor(ca / 6.2831853);
+// The sun's bands slide down; the heat haze ripples with the treble.
+ss = ss + 0.3 / 60 + 0.02 * pb;
+ss = ss - floor(ss);
+sh = sh + 0.12 + 0.5 * pt;
+sh = sh - 6.2831853 * floor(sh / 6.2831853);
+hu = hu + (0.004 + 0.2 * pm) / 60;
+hu = hu - floor(hu);
+q1 = zz; q2 = ca; q3 = pb; q4 = pm;
+q5 = pt; q6 = sb; q7 = st; q8 = hu;
+q9 = ss; q10 = sh;
+'''
+
+[shader]
+comp = '''
+let sz = u.texsize.xy;
+let asp = sz.x / sz.y;
+let px = 1.0 / sz.y;
+let lw = max(1.0, sz.y / 540.0);
+let zz = u.q[0].x;
+let ca = u.q[0].y;
+// The flares, held back where the lines are a large share of a small
+// picture (they keep at least a pixel), so they never throb the frame.
+let rf = clamp(sz.y / 300.0, 0.15, 1.0);
+let pb = u.q[0].z;
+let pbf = pb * rf;
+let pm = u.q[0].w * rf;
+let pt = u.q[1].x * rf;
+let sb = min(u.q[1].y, 2.0) * 0.5;
+let st = max(0.0, min(u.q[1].z, 2.0) - 0.4);
+let hu = u.q[1].w;
+let ss = u.q[2].x;
+let sh = u.q[2].y;
+let spy = 0.5 - uv.y;
+let sx0 = (uv.x - 0.5) * asp + 0.05 * sin(ca);
+// The horizon dips as the camera pitches on a kick.
+let hy = 0.04 - 0.015 * pbf;
+// The heat haze over the horizon, stirred by the treble.
+let hz = exp(-abs(spy - hy) * 22.0);
+let spx = sx0 + (0.0015 + 0.006 * min(pt, 1.5) + 0.002 * st) * hz * sin(spy * 240.0 + sh);
+// The sky: magenta at the horizon deepening to indigo.
+let skyT = clamp((spy - hy) / 0.5, 0.0, 1.0);
+var col = mix(vec3f(0.62, 0.07, 0.5), vec3f(0.035, 0.012, 0.11), pow(skyT, 0.55));
+// Stars.
+let ns = min(60.0, sz.y / 8.0);
+let sq = vec2f(spx, spy) * ns;
+let cell = floor(sq);
+let hp = fract(sin(vec2f(dot(cell, vec2f(127.1, 311.7)), dot(cell, vec2f(269.5, 183.3)))) * 43758.5453);
+let spos = cell + vec2f(0.2) + hp * 0.6;
+let sd = length(sq - spos) / ns * sz.y / lw;
+let son = step(0.87, fract(hp.x * 7.31 + hp.y * 3.17)) * smoothstep(0.05, 0.25, spy - hy);
+let tw = (0.55 + 0.45 * sin(u.time * (1.5 + 3.0 * hp.y) + hp.x * 50.0)) * (0.7 + 0.5 * st + 1.2 * min(pt, 1.5));
+col += vec3f(0.8, 0.85, 1.0) * son * exp(-sd * sd / 2.2) * tw * 0.8;
+// The sun: gold above, hot pink below, its lower half cut into bands that
+// widen toward the horizon and slide down; a corona that flares on a kick.
+let R = 0.27 * (1.0 + 0.07 * pb);
+let sc = vec2f(0.0, hy + 0.15);
+let dv = vec2f(spx, spy) - sc;
+let r = length(dv);
+let v = dv.y / R;
+let sunc = mix(vec3f(1.0, 0.12, 0.55), vec3f(1.0, 0.86, 0.25), smoothstep(-0.8, 0.75, v));
+let gw = clamp((0.4 - v) * 0.32, 0.0, 0.62);
+let g = fract(v * 6.0 + ss);
+let aa = px * lw * 6.0 / R;
+let gap = smoothstep(gw * 0.5 + aa, gw * 0.5 - aa, abs(g - 0.5)) * step(0.0, gw - 0.001);
+let disk = smoothstep(R + px * lw, R - px * lw, r);
+let skyl = col;
+col = mix(col, sunc * 1.5, disk * (1.0 - gap));
+let cor = exp(-max(r - R, 0.0) / (0.06 + 0.035 * pbf));
+col += vec3f(1.0, 0.3, 0.45) * cor * (0.32 + 0.4 * pbf) * (1.0 - disk * (1.0 - gap));
+// The mountains: two ranges of piecewise-linear ridges, the far one first,
+// meshed in wire. They sit on the horizon in front of the sun.
+for (var m = 0; m < 2; m++) {
+    let fm = f32(m);
+    let mx = spx * (1.0 + 0.4 * fm) + 3.7 * fm + 0.4;
+    let mx2 = mx + 0.002;
+    let t1 = 1.0 - abs(fract(mx * 2.1 + 0.3) * 2.0 - 1.0);
+    let t2 = 1.0 - abs(fract(mx * 4.7 + 0.7) * 2.0 - 1.0);
+    let t3 = 1.0 - abs(fract(mx * 9.3 + 0.1) * 2.0 - 1.0);
+    let u1 = 1.0 - abs(fract(mx2 * 2.1 + 0.3) * 2.0 - 1.0);
+    let u2 = 1.0 - abs(fract(mx2 * 4.7 + 0.7) * 2.0 - 1.0);
+    let u3 = 1.0 - abs(fract(mx2 * 9.3 + 0.1) * 2.0 - 1.0);
+    let env = (0.025 + 0.2 * smoothstep(0.12, 0.9, abs(spx))) * (1.0 - 0.35 * fm);
+    let hm = env * (0.25 + 0.5 * t1 + 0.18 * t2 + 0.07 * t3);
+    let hm2 = env * (0.25 + 0.5 * u1 + 0.18 * u2 + 0.07 * u3);
+    let slope = (hm2 - hm) / 0.002 / (1.0 + 0.4 * fm);
+    let top = hy + hm;
+    let dr = (spy - top) / sqrt(1.0 + slope * slope) / px / lw;
+    let inside = smoothstep(0.5, -0.5, dr) * step(hy, spy);
+    let u = (spy - hy) / max(hm, 1e-4);
+    let dc = abs(fract(u * 4.0 + 0.5) - 0.5) / 4.0 * hm / px / lw;
+    let dvl = abs(fract(mx * 14.0) - 0.5) / 14.0 / (1.0 + 0.4 * fm) / px / lw;
+    let dg = abs(fract(mx * 14.0 + u * 2.0) - 0.5) / 14.0 / (1.0 + 0.4 * fm) / px / lw * 0.7;
+    let wire = max(max(exp(-dc * dc / 1.5), exp(-dvl * dvl / 1.5)), exp(-dg * dg / 1.5) * 0.6);
+    let wc = mix(vec3f(0.6, 0.15, 1.0), vec3f(0.15, 0.85, 1.0), 0.5 + 0.5 * fm);
+    let fillc = mix(vec3f(0.06, 0.0, 0.12), vec3f(0.02, 0.0, 0.06), clamp(u, 0.0, 1.0)) * (1.0 - 0.3 * fm);
+    let mcol = fillc + wc * wire * (0.35 + 0.35 * u) * (0.8 + 1.2 * pm + 0.3 * sb);
+    col = mix(col, mcol, inside);
+    // The ridge line glows.
+    col += wc * exp(-dr * dr / 2.0) * (0.9 + 0.6 * pm) + wc * exp(-abs(dr) / 6.0) * 0.12 * step(hy, spy);
+}
+// The floor: the grid rushing toward the camera.
+if (spy < hy) {
+    let dy = hy - spy;
+    let z = 0.8 / dy;
+    let X = spx * z;
+    let Z = z + zz;
+    let fX = (z * px + abs(spx) * z * z * px / 0.8) * lw;
+    let fZ = z * z * px / 0.8 * lw;
+    let wX = abs(fract(X + 0.5) - 0.5);
+    let wZ = abs(fract(Z + 0.5) - 0.5);
+    let fadeX = smoothstep(0.5, 0.15, fX);
+    let fadeZ = smoothstep(0.5, 0.15, fZ);
+    let cw = 1.2 + 1.6 * (1.0 - rf);
+    let lX = exp(-(wX / fX) * (wX / fX) / cw) / sqrt(cw / 1.2) * fadeX + exp(-wX * 9.0) * 0.25 * fadeX;
+    let lZ = exp(-(wZ / fZ) * (wZ / fZ) / cw) / sqrt(cw / 1.2) * fadeZ + exp(-wZ * 9.0) * 0.25 * fadeZ;
+    let hh = 6.2831853 * hu;
+    let gx = mix(vec3f(1.0, 0.15, 0.85), vec3f(0.2, 0.6, 1.0), 0.35 + 0.3 * sin(hh));
+    let gz = mix(vec3f(1.0, 0.2, 0.7), vec3f(0.6, 0.2, 1.0), 0.5 + 0.4 * cos(hh));
+    let fog = exp(-z * 0.045);
+    // The nearest lines fade out at the foot of the picture, so one leaving
+    // the frame never steps the brightness.
+    let ft = 0.25 + 0.75 * smoothstep(-0.5, -0.37, spy);
+    var fl = vec3f(0.03, 0.0, 0.07) + (gx * lX + gz * lZ * ft) * (0.9 + 0.7 * pbf + 0.3 * sb);
+    fl += (gx + gz) * 0.12 * (2.0 - fadeX - fadeZ);
+    // The sun's reflection, a hot streak along the floor.
+    fl += vec3f(1.0, 0.3, 0.6) * exp(-abs(spx) / (0.06 + 0.25 * dy)) * exp(-dy * 5.0) * (0.35 + 0.4 * pbf);
+    col = mix(vec3f(0.75, 0.12, 0.55), fl, fog);
+}
+// The horizon line, brightened by the treble.
+let hd = (spy - hy) / px / lw;
+col += vec3f(1.0, 0.55, 0.85) * exp(-hd * hd / 2.0) * (0.6 + 0.4 * st + 0.9 * min(pt, 1.5));
+// The palms: six on each side, far to near, black silhouettes rimmed in
+// neon, swaying.
+for (var k = 0; k < 6; k++) {
+    for (var s = 0; s < 2; s++) {
+        let side = f32(s) * 2.0 - 1.0;
+        let off = f32(s) * 4.0;
+        let zi = 8.0 * f32(6 - k) - fract((zz - off) / 8.0) * 8.0;
+        if (zi < 0.6) {
+            continue;
+        }
+        let scl = 1.0 / zi;
+        let base = vec2f(side * 4.6 * scl, hy - 0.8 * scl);
+        let lp = (vec2f(spx, spy) - base) / scl;
+        if (lp.x < -3.2 || lp.x > 3.2 || lp.y < -0.2 || lp.y > 6.3) {
+            continue;
+        }
+        let pid = floor((zz - off) / 8.0) - f32(6 - k);
+        let hs = fract(sin(pid * 17.13 + side * 3.1) * 43758.5453);
+        let lean = side * (0.5 + 0.6 * hs) + 0.12 * sin(u.time * 0.9 + hs * 6.0);
+        let ht = 4.4 + 0.8 * hs;
+        let tp = vec2f(lean, ht);
+        // The trunk: a curve in three segments, tapering.
+        var dmin = 1e9;
+        var pa = vec2f(0.0, 0.0);
+        for (var j = 1; j < 4; j++) {
+            let tt = f32(j) / 3.0;
+            let pbz = vec2f(lean * tt * tt, ht * tt);
+            let ab = pbz - pa;
+            let h = clamp(dot(lp - pa, ab) / dot(ab, ab), 0.0, 1.0);
+            let th = mix(0.17, 0.09, (f32(j) - 1.0 + h) / 3.0);
+            dmin = min(dmin, length(lp - pa - ab * h) - th);
+            pa = pbz;
+        }
+        // Seven drooping fronds, serrated.
+        for (var f = 0; f < 7; f++) {
+            let a = -0.25 + f32(f) * 0.6 + 0.08 * sin(u.time * 1.3 + f32(f) + hs * 9.0);
+            let dir = vec2f(cos(a), sin(a));
+            let L = 2.1 + 0.4 * fract(hs * 7.0 + f32(f) * 0.37);
+            let dro = 0.35 + 0.45 * abs(dir.x);
+            let p1 = tp + dir * L * 0.55 + vec2f(0.0, 0.12);
+            let p2 = tp + dir * L - vec2f(0.0, dro * L * 0.6);
+            let ab1 = p1 - tp;
+            let h1 = clamp(dot(lp - tp, ab1) / dot(ab1, ab1), 0.0, 1.0);
+            let ab2 = p2 - p1;
+            let h2 = clamp(dot(lp - p1, ab2) / dot(ab2, ab2), 0.0, 1.0);
+            let d1 = length(lp - tp - ab1 * h1);
+            let d2 = length(lp - p1 - ab2 * h2);
+            let tf = select(0.5 + 0.5 * h2, 0.5 * h1, d1 < d2);
+            let th = (0.2 * (1.0 - tf) + 0.025) * (0.25 + 1.0 * fract(tf * 12.0 + 0.3));
+            dmin = min(dmin, min(d1, d2) - th);
+        }
+        let pw = px * zi * lw;
+        let fade = smoothstep(40.0, 24.0, zi);
+        let alpha = clamp(0.5 - dmin / pw, 0.0, 1.0) * fade;
+        let rim = exp(-max(dmin, 0.0) / (pw * 2.5)) * (1.0 - alpha) * fade;
+        col += vec3f(1.0, 0.25, 0.75) * rim * (0.35 + 0.4 * pbf);
+        col = mix(col, vec3f(0.012, 0.0, 0.03), alpha);
+    }
+}
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.15, vec3f(0.0));
+return col / (1.0 + 0.4 * col);
+'''

@@ -59,6 +59,8 @@ device, so just start your music and run it.
 | **Double Helix**: a ray-marched strand of DNA turning and receding into blue fog, its cyan and violet backbones bridged by base pairs in four colours, among drifting motes and bokeh | **Quantum Tunnel**: exact Gaussian wave packets in four lanes hit potential barriers, part reflecting in rippling interference and part tunnelling through, phase as rainbow hue and probability as glow |
 | ![Kuramoto Fireflies](docs/images/kuramoto-fireflies.png) | ![Voronoi Crystals](docs/images/voronoi-crystals.png) |
 | **Kuramoto Fireflies**: hundreds of fireflies in a moonlit clearing, each nudging its rhythm toward its neighbours', so patches fall into step, drift apart and sync again, the total light held steady | **Voronoi Crystals**: a polycrystal recrystallising under a polarising microscope, new grains nucleating and growing into a Johnson-Mehl tessellation of glowing boundaries and iridescent striations, then coarsening |
+| ![Synthwave Drive](docs/images/synthwave-drive.png) | |
+| **Synthwave Drive**: a night drive down an endless neon grid toward a striped retro sun, past wireframe mountains and palm silhouettes | |
 
 These are single frames; every preset moves and changes with the music.
 
