@@ -72,7 +72,7 @@ hu = hu - floor(hu);
 // now and then one goes on its own, so the jet is never empty).
 kk = pb - ob;
 cd = cd + 1; at = at + 1;
-if((kk > 0.08 && cd > 10) || at > 300,
+if((kk > 0.08 && cd > 14) || at > 300,
   cd = 0; at = 0; sl = (sl + 1) % 8; na = 0.45 + min(pb, 1.4);
   if(sl == 0, z1 = 0.3; a1 = na, 0);
   if(sl == 1, z2 = 0.3; a2 = na, 0);
@@ -83,7 +83,8 @@ if((kk > 0.08 && cd > 10) || at > 300,
   if(sl == 6, z7 = 0.3; a7 = na, 0);
   if(sl == 7, z8 = 0.3; a8 = na, 0),
   0);
-// The knots accelerate up the jet and are gone past z = 34.
+// The knots accelerate up the jet and are gone past z = 26 (before
+// their slot comes round again).
 z1 = min(z1 + 0.1 + 0.012 * z1, 99); z2 = min(z2 + 0.1 + 0.012 * z2, 99);
 z3 = min(z3 + 0.1 + 0.012 * z3, 99); z4 = min(z4 + 0.1 + 0.012 * z4, 99);
 z5 = min(z5 + 0.1 + 0.012 * z5, 99); z6 = min(z6 + 0.1 + 0.012 * z6, 99);
@@ -221,7 +222,7 @@ if (disc > 0.0) {
                     let ka = u.q[4 + k / 4][k % 4];
                     let wz = 0.5 + 0.06 * kz;
                     let dz = (z - kz) / wz;
-                    kn += ka * exp(-dz * dz) * smoothstep(0.3, 3.5, kz) * (1.0 - smoothstep(18.0, 34.0, kz));
+                    kn += ka * exp(-dz * dz) * smoothstep(0.3, 3.5, kz) * (1.0 - smoothstep(12.0, 26.0, kz));
                 }
                 let knot = kn * exp(-rr * rr * 3.0);
                 let shell = exp(-(rr - 0.75) * (rr - 0.75) * 12.0);

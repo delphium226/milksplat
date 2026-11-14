@@ -65,7 +65,7 @@ sm0 = sm0 - 64 * floor(sm0 / 64);
 // strength in the fraction.
 kk = pb - ob;
 cd = cd + 1; at = at + 1;
-if((kk > 0.08 && cd > 16) || at > 150,
+if((kk > 0.08 && cd > 22) || at > 150,
   cd = 0; at = 0; sl = (sl + 1) % 10; nn = nn + 1; nn = nn - 4096 * floor(nn / 4096);
   ns = nn + 0.2 + 0.35 * min(pb, 1.5);
   if(sl == 0, a1 = 0; s1 = ns, 0);
@@ -186,7 +186,7 @@ for (var k = 0; k < 10; k++) {
     var ns = 36.0;
     var tl0 = 0.16;
     if (ty == 1.0) {
-        kd = 2.2; rinf = 0.3; gr = 0.15; life = 3.8; ns = 26.0; tl0 = 0.7;
+        kd = 2.2; rinf = 0.3; gr = 0.15; life = 3.2; ns = 26.0; tl0 = 0.7;
     } else if (ty == 2.0) {
         kd = 1.6; rinf = 0.22; gr = 0.09; life = 2.6; ns = 16.0; tl0 = 0.14;
     } else if (ty == 3.0) {
