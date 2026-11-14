@@ -77,7 +77,7 @@ tt = tt + (0.02 + 0.1 * hs) / 60 + 0.015 * pb;
 tt = tt - 64 * floor(tt / 64);
 sw = sw + (0.05 + 0.25 * pm) / 60;
 sw = sw - 64 * floor(sw / 64);
-rl = rl + (0.01 + 0.05 * hs) / 60;
+rl = rl + (0.005 + 0.02 * hs) / 60 + 0.002 * pm;
 rl = rl - 6.2831853 * floor(rl / 6.2831853);
 // A fresh kick sends a ring rushing down the tunnel.
 kk = max(pb - ob, 0);
@@ -146,7 +146,7 @@ let nc1a = 0.5 + 0.5 * vec3f(cos(nh), cos(nh - 2.094), cos(nh + 2.094));
 let nc2a = 0.5 + 0.5 * vec3f(cos(nh + 0.9), cos(nh - 1.194), cos(nh + 2.994));
 let nc1 = nc1a * nc1a * 1.5;
 let nc2 = nc2a * nc2a * 1.5;
-var col = vec3f(0.015, 0.018, 0.045) + (nc1 * (0.2 * cloud + 0.45 * wisp * (0.4 + cloud) * (0.7 + 0.8 * pb)) + nc2 * 0.28 * wisp2 * (0.3 + 0.7 * cloud)) * (0.8 + 0.4 * sb) * (1.0 - 0.6 * str);
+var col = vec3f(0.015, 0.018, 0.045) + (nc1 * (0.2 * cloud + 0.45 * wisp * (0.4 + cloud) * (0.65 + 1.1 * pb)) + nc2 * 0.28 * wisp2 * (0.3 + 0.7 * cloud)) * (0.8 + 0.4 * sb) * (1.0 - 0.6 * str);
 // Distant stars, fixed on the sky.
 let dcell = floor(uv * sz / (2.0 * lw));
 let dh0 = (u32(dcell.x) * 1973u + u32(dcell.y) * 9277u + u32(sd) * 26699u) * 747796405u + 2891336453u;
@@ -168,7 +168,7 @@ if (hs > 0.001) {
     let deep = mix(vec3f(0.05, 0.25, 0.95), vec3f(0.55, 0.15, 1.0), min(pm, 1.0) * 0.7);
     let fog = exp(-r / 0.025);
     var tc = deep * (0.08 + 0.9 * t3 * t3 + 0.3 * rib * t3) * (0.5 + 0.5 * smoothstep(0.0, 0.6, r));
-    tc += vec3f(0.6, 0.85, 1.0) * fil * (1.0 + 0.5 * pt + 0.6 * pb);
+    tc += vec3f(0.6, 0.85, 1.0) * fil * (1.0 + 0.5 * pt + 0.7 * pb);
     tc += vec3f(0.85, 0.75, 1.0) * fil2 * 1.2;
     tc = mix(tc, vec3f(0.9, 0.95, 1.0), fog);
     // Treble sparks in the filaments.
@@ -209,10 +209,11 @@ for (var l = 0; l < 6; l++) {
         let dp = r * abs(da);
         let dr = max(max(rt - r, r - rh), 0.0);
         let dd = sqrt(dp * dp + dr * dr) * pxs;
-        let wdt = 0.7 + 2.5 * min(f / z, 1.0);
+        let wdt = 0.7 + 2.5 * min(f / z, 1.0) * min(1.0, sz.y / 540.0);
         let along = clamp((r - rt) / max(rh - rt, 1e-4), 0.0, 1.0);
-        let fade = smoothstep(4.0, 1.6, z) * (0.35 + 0.65 * hb);
-        let br = fade * (0.35 + 0.65 * along * along) * (0.8 + 0.5 * min(f / z, 2.0));
+        // Faded in from the far distance and out as it rushes past.
+        let fade = smoothstep(4.0, 1.6, z) * smoothstep(0.04, 0.4, z) * (0.35 + 0.65 * hb);
+        let br = fade * (0.35 + 0.65 * along * along);
         let tw = 1.0 + 0.6 * pt * sin(u.time * 9.0 + hc * 50.0);
         let sc = mix(vec3f(0.65, 0.8, 1.0), vec3f(1.0, 0.85, 0.65), step(0.8, hc));
         stars += mix(sc, vec3f(0.75, 0.9, 1.0), str) * br * tw * (exp(-dd * dd / (wdt * wdt)) * 1.1 + exp(-dd / (wdt * 1.5)) * 0.05);

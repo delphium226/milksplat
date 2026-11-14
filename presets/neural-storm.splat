@@ -97,7 +97,8 @@ let spk = u.q[0].w;
 let pb = u.q[1].x;
 // Flares held back on a small picture, where the lines (at least a pixel
 // wide) are a large share of it.
-let pbs = pb * min(1.0, sz.y / 270.0);
+let rsf = min(1.0, sz.y / 270.0);
+let pbs = pb * rsf;
 let pm = u.q[1].y;
 let pt = min(u.q[1].z, 1.5);
 let sb = min(u.q[1].w, 2.0) * 0.5;
@@ -138,7 +139,10 @@ for (var l = 0; l < nly; l++) {
     let pu = sz.y / (s * lw);
     let dim = select(select(1.0, 0.6, l == 1), 0.32, l == 0);
     let tint = mix(vec3f(0.35, 0.55, 1.0), vec3f(1.0), dim);
-    let wd = 0.6 + 0.5 * fl;
+    // Line widths in pixels, held to a share of a cell on a small picture
+    // so the network never fills it.
+    let wd = min(0.6 + 0.5 * fl, max(0.06 * pu, 0.3));
+    let hw = min(wd * 5.0, 0.05 * pu);
     // The cascades' origins in this layer's coordinates.
     let c1 = vec2f(o1x * cr - o1y * sr, o1x * sr + o1y * cr) * s + off;
     let c2 = vec2f(o2x * cr - o2y * sr, o2x * sr + o2y * cr) * s + off;
@@ -192,7 +196,7 @@ for (var l = 0; l < nly; l++) {
                 continue;
             }
             let core = exp(-dd * dd / (wd * wd));
-            let halo = exp(-dd / (wd * 5.0));
+            let halo = exp(-dd / hw);
             lc += axc * (core * 0.6 + halo * 0.075);
             // The cascades' sparks, where the front crosses the axon.
             if (nearA) {
@@ -206,7 +210,7 @@ for (var l = 0; l < nly; l++) {
             if (hk < 0.18) {
                 let sph = fract(spk * (0.6 + 0.8 * hk / 0.18) + hk * 13.7);
                 let ds = (tc - sph) * ln * pu / (2.0 * lw);
-                lc += vec3f(0.6, 0.95, 1.0) * exp(-ds * ds / 6.0) * (0.5 + 1.8 * pt) * (core * 1.5 + halo * 0.3);
+                lc += vec3f(0.6, 0.95, 1.0) * exp(-ds * ds / 6.0) * (0.5 + 1.8 * pt * rsf) * (core * 1.5 + halo * 0.3);
             }
         }
         // The soma and its dendrites, flaring as a cascade reaches it.
