@@ -67,6 +67,8 @@ device, so just start your music and run it.
 | **Starling Murmuration**: thousands of starlings swirling in a shape-shifting cloud over a dusk reed bed, rippling round a striking hawk | **Blazar Jet**: a black hole's relativistic jet beamed almost straight at you, wound by magnetic helices, as each kick fires a knot of plasma up it |
 | ![Fireworks Symphony](docs/images/fireworks-symphony.png) | ![Bioluminescent Surf](docs/images/bioluminescent-surf.png) |
 | **Fireworks Symphony**: peonies, golden willows, crossettes and ring shells bursting over a mirror-still lake, a shell launched on every kick | **Bioluminescent Surf**: night waves breaking in electric-blue plankton glow, foam sheets sliding up the sand under the Milky Way, a wave breaking on each kick |
+| ![Circuit City](docs/images/circuit-city.png) | |
+| **Circuit City**: a low flight over an endless circuit-board metropolis of LED-studded chip towers, data packets racing along the traces as kicks send pulse waves through the grid | |
 
 These are single frames; every preset moves and changes with the music.
 
