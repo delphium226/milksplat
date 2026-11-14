@@ -61,8 +61,8 @@ device, so just start your music and run it.
 | **Kuramoto Fireflies**: hundreds of fireflies in a moonlit clearing, each nudging its rhythm toward its neighbours', so patches fall into step, drift apart and sync again, the total light held steady | **Voronoi Crystals**: a polycrystal recrystallising under a polarising microscope, new grains nucleating and growing into a Johnson-Mehl tessellation of glowing boundaries and iridescent striations, then coarsening |
 | ![Synthwave Drive](docs/images/synthwave-drive.png) | ![Mercury Metaballs](docs/images/mercury-metaballs.png) |
 | **Synthwave Drive**: a night drive down an endless neon grid toward a striped retro sun, past wireframe mountains and palm silhouettes | **Mercury Metaballs**: liquid chrome drops mirroring a neon studio, flung apart by every kick and flowing back together |
-| ![Lava Lamp](docs/images/lava-lamp.png) | |
-| **Lava Lamp**: a giant lava lamp, glowing wax rising, stretching, pinching off and sinking through deep violet as the bass heats the bulb | |
+| ![Lava Lamp](docs/images/lava-lamp.png) | ![Girih Lattice](docs/images/girih-lattice.png) |
+| **Lava Lamp**: a giant lava lamp, glowing wax rising, stretching, pinching off and sinking through deep violet as the bass heats the bulb | **Girih Lattice**: an Islamic star-and-polygon pattern in gold strapwork and turquoise inlay, its stars unfolding and refolding as light races along the bands |
 
 These are single frames; every preset moves and changes with the music.
 

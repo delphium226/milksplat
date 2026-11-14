@@ -1,0 +1,190 @@
+# Girih Lattice: an Islamic star-and-polygon pattern in glowing gold
+# strapwork, inlaid with turquoise and lapis, turning slowly and breathing
+# in and out. Eight-pointed stars sit in a lattice of octagons, with small
+# four-pointed stars in the squares between them; every band of gold
+# runs straight on through the crossings from one star to the next, and
+# a second, finer star is set inside each large one. Slowly the stars
+# unfold, their points opening wide into rosettes, then fold back into
+# sharp spikes, and the shapes between them change with them.
+#
+# Everything is in the composite, by Hankin's method of polygons in
+# contact: the plane is tiled with octagons and squares (4.8.8), and from
+# the midpoint of every edge two rays leave at the contact angle to the
+# edge, running on until they meet their neighbours' rays. Each pixel
+# finds its tile, folds itself into one mirror sector of it (by its
+# symmetry) and measures its distance to the one ray left there, which
+# gives the band, the outline of the inner star and which side of the
+# band is the star. The contact angle sets the whole pattern; changing it
+# unfolds the stars. Bands and lines are measured in pixels at any zoom.
+#
+# The turn, the breathing zoom and the folding are accumulated (never
+# time times the music). Bass deepens the zoom's breath (smoothed). Mids
+# turn the inlays' colours. Each hit of the music is felt at once,
+# through pulses of the bass, mids and treble that rise in a tick or two
+# and die away over a fraction of a second (soft-limited, so a bigger hit
+# still means more): a kick sends light racing out along the strapwork
+# from every crossing to the star points, in a wave spreading from the
+# centre (up to three at once), pushes the view in, turns it on and opens
+# the stars a little; the mids light the inlays; the treble glints in the
+# jewels at the stars' hearts.
+version = 1
+
+[meta]
+name = "Girih Lattice"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+ro = 0; zp = 0; fp = 0; hu = 0; s1 = 9; s2 = 9; s3 = 9;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+sm = sm + (min(mid_att, 2.5) - sm) * 0.03;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+ob = pb;
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+// A fresh kick sends light out along the strapwork, in the next of three
+// slots; each runs on and fades.
+kk = max(pb - ob, 0);
+cd = cd + 1;
+if(kk > 0.1 && cd > 8,
+  cd = 0; sl = (sl + 1) % 3;
+  if(sl == 0, s1 = 0; a1 = min(pb + 0.3, 1.5), 0);
+  if(sl == 1, s2 = 0; a2 = min(pb + 0.3, 1.5), 0);
+  if(sl == 2, s3 = 0; a3 = min(pb + 0.3, 1.5), 0),
+  0);
+s1 = min(s1 + 0.045, 9); s2 = min(s2 + 0.045, 9); s3 = min(s3 + 0.045, 9);
+a1 = a1 * 0.97; a2 = a2 * 0.97; a3 = a3 * 0.97;
+// The turn, the breathing zoom (deeper with the bass) and the folding of
+// the stars, each kick turning the view on and opening the stars.
+ro = ro + 0.035 / 60 + 0.006 * pb;
+ro = ro - 6.2831853 * floor(ro / 6.2831853);
+zp = zp + (0.1 + 0.08 * min(sb, 2) / 2) / 60;
+zp = zp - 6.2831853 * floor(zp / 6.2831853);
+fp = fp + 0.13 / 60 + 0.006 * pb;
+fp = fp - 6.2831853 * floor(fp / 6.2831853);
+hu = hu + (0.004 + 0.2 * pm) / 60;
+hu = hu - floor(hu);
+q1 = ro; q2 = zp; q3 = fp; q4 = hu;
+q5 = pb; q6 = pm; q7 = pt; q8 = sb;
+q9 = s1; q10 = s2; q11 = s3;
+q13 = a1; q14 = a2; q15 = a3;
+'''
+
+[shader]
+comp = '''
+let sz = u.texsize.xy;
+let asp = sz.x / sz.y;
+let lw = max(1.0, sz.y / 540.0);
+let ro = u.q[0].x;
+let zp = u.q[0].y;
+let fp = u.q[0].z;
+let hu = u.q[0].w;
+let pb = u.q[1].x;
+let pm = u.q[1].y;
+// The flares, held back where the lines are a large share of a small
+// picture (they keep at least a pixel), so they never throb the frame.
+let rf = clamp(sz.y / 300.0, 0.2, 1.0);
+let pt = u.q[1].z * rf;
+let sb = min(u.q[1].w, 2.0) * 0.5;
+let sp = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
+// The view: turning, breathing in and out, pushed in on a kick.
+let sc = 2.1 * exp((0.3 + 0.12 * sb) * sin(zp)) * (1.0 - 0.07 * pb);
+let cr = cos(ro);
+let sr = sin(ro);
+let p = vec2f(sp.x * cr - sp.y * sr, sp.x * sr + sp.y * cr) * sc + vec2f(0.5, 0.5);
+// One pixel in pattern units.
+let pw = sc / sz.y * lw;
+// The tile: an octagon round each cell centre, a square at each corner.
+let q = fract(p) - vec2f(0.5);
+let oc = max(max(abs(q.x), abs(q.y)), (abs(q.x) + abs(q.y)) * 0.70710678);
+let isOct = oc <= 0.5;
+let sq = q - sign(q) * 0.5;
+// In the square, turn by 45 degrees so its edge midpoints lie on the axes.
+let sq2 = vec2f(sq.x + sq.y, sq.y - sq.x) * 0.70710678;
+let l = select(sq2, q, isOct);
+let n = select(4.0, 8.0, isOct);
+let ap = select(0.20710678, 0.5, isOct);
+// Fold into the mirror sector round an edge midpoint.
+let sec = 6.2831853 / n;
+let an = atan2(l.y, l.x);
+let fa = abs(an - sec * round(an / sec));
+let rl = length(l);
+let pf = vec2f(cos(fa), sin(fa)) * rl;
+// The contact angle: the stars fold and unfold.
+let th = 0.96 + 0.36 * sin(fp) + 0.1 * pb;
+let d = vec2f(-sin(th), cos(th));
+let hs = 3.14159265 / n;
+let tl = ap * sin(hs) / max(cos(th - hs), 0.05);
+let M = vec2f(ap, 0.0);
+let rel = pf - M;
+let hh = clamp(dot(rel, d) / tl, 0.0, 1.0);
+let ds = length(rel - d * tl * hh);
+let side = rel.x * d.y - rel.y * d.x;
+let inStar = side < 0.0;
+// The inner star: the same ray, scaled toward the centre.
+let M2 = M * 0.55;
+let rel2 = pf - M2;
+let h2 = clamp(dot(rel2, d) / (tl * 0.55), 0.0, 1.0);
+let ds2 = length(rel2 - d * tl * 0.55 * h2);
+// The inlays.
+let hc = 6.2831853 * hu;
+let tq = vec3f(0.05, 0.75, 0.75) + vec3f(0.1, 0.15, -0.15) * sin(hc) + vec3f(0.0, -0.1, 0.2) * cos(hc);
+let lap = vec3f(0.05, 0.1, 0.42);
+let rr = rl / ap;
+var col = vec3f(0.0);
+if (inStar) {
+    if (isOct) {
+        col = mix(tq * 0.85, tq * 0.3 + lap * 0.3, smoothstep(0.0, 0.9, rr));
+    } else {
+        col = mix(vec3f(0.95, 0.42, 0.1), vec3f(0.55, 0.12, 0.2), smoothstep(0.2, 1.0, rr));
+    }
+} else {
+    col = lap * (0.22 + 0.3 * smoothstep(0.3, 1.0, rr)) + vec3f(0.015, 0.0, 0.04);
+}
+col *= 0.85 + 0.5 * pm;
+// The strapwork: a gold band with dark edges and a bright core, glowing.
+let bw = 0.03;
+let band = smoothstep(bw + pw, bw - pw, ds);
+let edge = exp(-pow((ds - bw) / (pw * 1.2), 2.0));
+let core = exp(-pow(ds / (pw * 1.3), 2.0));
+let gold = vec3f(1.0, 0.72, 0.22);
+col += gold * exp(-max(ds - bw, 0.0) / (0.05 + 3.0 * pw)) * 0.3;
+col = mix(col, gold * (0.75 + 0.2 * (1.0 - ds / bw)), band);
+col = mix(col, vec3f(0.12, 0.05, 0.02), edge * 0.85);
+col += vec3f(1.0, 0.95, 0.75) * core * 0.35;
+// The inner star's fine gold line.
+col += gold * exp(-pow(ds2 / (pw * 1.2), 2.0)) * 0.9 * select(0.0, 1.0, inStar);
+// Light racing out along the bands from each crossing to the star
+// points, in a wave spreading from the centre (three slots).
+let s = hh * tl;
+let delay = length(sp) * 0.9;
+var race = 0.0;
+for (var k = 0; k < 3; k++) {
+    let sk = u.q[2][k] - delay;
+    let ak = u.q[3][k] * rf;
+    race += ak * exp(-pow((s - sk * 0.6) / 0.05, 2.0)) * smoothstep(0.0, 0.2, sk);
+}
+col += vec3f(1.0, 0.92, 0.6) * race * (band * 1.2 + exp(-max(ds - bw, 0.0) / (0.03 + 2.0 * pw)) * 0.4);
+// A jewel at the heart of each large star, glinting with the treble.
+let jd = rl / pw;
+col += vec3f(0.7, 1.0, 0.95) * exp(-jd * jd / 9.0) * (0.5 + 1.6 * min(pt, 1.5)) * select(0.0, 1.0, isOct);
+// A soft vignette.
+col *= 1.0 - 0.35 * smoothstep(0.4, 1.1, length(sp));
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.15, vec3f(0.0));
+return col / (1.0 + 0.4 * col);
+'''
