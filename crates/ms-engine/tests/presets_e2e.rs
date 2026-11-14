@@ -54,7 +54,7 @@ const HAT_SEED: u64 = 0x4A75_6E6B_4861_7473;
 const RGBA8: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 
 /// The bundled presets, by file stem. `presets/` must hold exactly these.
-const BUNDLED: [&str; 71] = [
+const BUNDLED: [&str; 72] = [
     "default",
     "ink-bloom",
     "bass-tunnel",
@@ -126,6 +126,7 @@ const BUNDLED: [&str; 71] = [
     "mycelium",
     "dyson-swarm",
     "abyssal-jellyfish",
+    "klein-bottle",
 ];
 
 // ------------------------------------------------------------ synthetic audio
@@ -575,6 +576,7 @@ preset_tests! {
     preset_mycelium => "mycelium",
     preset_dyson_swarm => "dyson-swarm",
     preset_abyssal_jellyfish => "abyssal-jellyfish",
+    preset_klein_bottle => "klein-bottle",
 }
 
 /// `presets/` holds exactly the bundled set (so every file has a test
@@ -607,7 +609,7 @@ fn bundled_set_is_complete() {
 /// runs: a minute for those with long-running state (accumulated phases,
 /// state machines), twenty seconds for the rest (enough for their feedback
 /// to settle; every bundled preset but the gentle default is covered).
-const LONG_RUN: [(&str, usize); 70] = [
+const LONG_RUN: [(&str, usize); 71] = [
     ("ink-bloom", 1200),
     ("bass-tunnel", 1200),
     ("prism-drift", 1200),
@@ -678,6 +680,7 @@ const LONG_RUN: [(&str, usize); 70] = [
     ("mycelium", 3600),
     ("dyson-swarm", 3600),
     ("abyssal-jellyfish", 3600),
+    ("klein-bottle", 3600),
 ];
 
 /// A cheap guard against flashing that only develops over time (for
