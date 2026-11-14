@@ -1,0 +1,219 @@
+# Mercury Metaballs: seven drops of liquid chrome hang in a dark neon
+# studio, flowing round each other, merging into one quivering mass and
+# pulling apart again. Their mirror skins carry the whole room: magenta
+# and cyan neon rings round the walls, tall coloured light tubes, a white
+# softbox overhead and a glowing grid floor, all bent and stretched over
+# the curves and pinched into bright seams where two drops join.
+#
+# Everything is in the composite. Each ray is clipped to a sphere round
+# the drops and marched through a smooth union of seven spheres (a
+# polynomial smooth minimum, so they merge with a liquid neck); the hit is
+# shaded by its reflection alone, the reflected ray looking up the same
+# procedural studio the camera sees behind the drops (rings, tubes,
+# softbox, a grid on the floor plane), with a Fresnel rise at the rims
+# and a darker seam where the surface folds.
+#
+# The frame code moves the drops on looping paths (accumulated), turns
+# the cluster and the room (the room faster with the mids), and runs a
+# spring on the cluster's spread. Bass quickens the flow (smoothed). Each
+# hit of the music is felt at once, through pulses of the bass, mids and
+# treble that rise in a tick or two and die away over a fraction of a
+# second (soft-limited, so a bigger hit still means more): a kick kicks
+# the spring, flinging the drops apart so they fly out, wobble and flow
+# back together, spins the cluster on, pushes the camera in and flares the
+# neon in their skins; the mids swing the room round; the treble glitters
+# the small lights in the reflections.
+version = 1
+
+[meta]
+name = "Mercury Metaballs"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+ph = 0; ry = 0; er = 0; hu = 0; sS = 1; sv = 0;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+sm = sm + (min(mid_att, 2.5) - sm) * 0.03;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+ob = pb;
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+// The spread: a spring at 1, kicked outward by each rise of the bass
+// pulse, so the drops fly apart and flow back together.
+kk = max(pb - ob, 0);
+sv = sv + 0.45 * kk + (1 - sS) * 0.03 - sv * 0.12;
+sS = min(max(sS + sv, 0.6), 2.4);
+// The flow along the drops' looping paths (whole-number frequencies, so
+// the wrap is seamless), quicker with the bass.
+ph = ph + (0.22 + 0.15 * min(sb, 2) / 2) / 60 + 0.01 * pb;
+ph = ph - 6.2831853 * floor(ph / 6.2831853);
+ry = ry + 0.12 / 60 + 0.03 * pb;
+ry = ry - 6.2831853 * floor(ry / 6.2831853);
+er = er + (0.04 + 0.2 * min(sm, 2) / 2) / 60 + 0.012 * pm;
+er = er - 6.2831853 * floor(er / 6.2831853);
+hu = hu + (0.003 + 0.15 * pm) / 60;
+hu = hu - floor(hu);
+cr = cos(ry) * 0.72; sr = sin(ry) * 0.72;
+// Each drop: a looping path, flung out by the spread (some further).
+bx = sin(ph + 0.3) * 1.0; by = sin(2 * ph + 1.1) * 0.5; bz = cos(ph + 0.3) * 0.8; bs = 1 + (sS - 1) * 0.8;
+q1 = (bx * cr + bz * sr) * bs; q2 = by * bs * 0.72; q3 = (bz * cr - bx * sr) * bs;
+bx = sin(2 * ph + 2.4) * 1.1; by = cos(ph + 0.4) * 0.7; bz = sin(3 * ph + 0.9) * 0.6; bs = 1 + (sS - 1) * 1.1;
+q4 = (bx * cr + bz * sr) * bs; q5 = by * bs * 0.72; q6 = (bz * cr - bx * sr) * bs;
+bx = cos(ph + 4.0) * 1.2; by = sin(3 * ph + 2.0) * 0.6; bz = sin(2 * ph + 3.3) * 0.7; bs = 1 + (sS - 1) * 1.0;
+q7 = (bx * cr + bz * sr) * bs; q8 = by * bs * 0.72; q9 = (bz * cr - bx * sr) * bs;
+bx = sin(3 * ph + 5.1) * 0.9; by = sin(ph + 3.0) * 0.8; bz = cos(2 * ph + 0.2) * 0.9; bs = 1 + (sS - 1) * 1.3;
+q10 = (bx * cr + bz * sr) * bs; q11 = by * bs * 0.72; q12 = (bz * cr - bx * sr) * bs;
+bx = cos(2 * ph + 1.7) * 1.3; by = cos(2 * ph + 4.4) * 0.5; bz = sin(ph + 5.5) * 0.8; bs = 1 + (sS - 1) * 1.2;
+q13 = (bx * cr + bz * sr) * bs; q14 = by * bs * 0.72; q15 = (bz * cr - bx * sr) * bs;
+bx = sin(ph + 2.2) * 1.4; by = sin(3 * ph + 0.5) * 0.9; bz = cos(3 * ph + 1.4) * 0.6; bs = 1 + (sS - 1) * 1.5;
+q16 = (bx * cr + bz * sr) * bs; q17 = by * bs * 0.72; q18 = (bz * cr - bx * sr) * bs;
+bx = cos(3 * ph + 2.9) * 1.0; by = cos(ph + 1.9) * 1.0; bz = sin(ph + 4.6) * 1.1; bs = 1 + (sS - 1) * 1.6;
+q19 = (bx * cr + bz * sr) * bs; q20 = by * bs * 0.72; q21 = (bz * cr - bx * sr) * bs;
+q22 = pb; q23 = pm; q24 = pt; q25 = er;
+q26 = hu; q27 = sS; q28 = sb;
+'''
+
+[shader]
+comp = '''
+let sz = u.texsize.xy;
+let asp = sz.x / sz.y;
+let pb = u.q[5].y;
+let pm = u.q[5].z;
+let pt = u.q[5].w;
+let er = u.q[6].x;
+let hu = u.q[6].y;
+let sS = u.q[6].z;
+let sb = min(u.q[6].w, 2.0) * 0.5;
+var cs: array<vec4f, 7>;
+for (var i = 0; i < 7; i++) {
+    let b = 3 * i;
+    cs[i] = vec4f(u.q[b / 4][b % 4], u.q[(b + 1) / 4][(b + 1) % 4], u.q[(b + 2) / 4][(b + 2) % 4], 0.68 - 0.055 * f32(i));
+}
+let sp = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
+// The camera, pushed in on a kick.
+let ro = vec3f(0.0, 0.8, -6.3 + 0.45 * pb);
+let fw = normalize(vec3f(0.0, 0.0, 0.0) - ro);
+let rt = normalize(cross(vec3f(0.0, 1.0, 0.0), fw));
+let up = cross(fw, rt);
+let rd = normalize(fw * 1.75 + rt * sp.x + up * sp.y);
+// March the smooth union of the drops inside their bounding sphere.
+let Rb = 1.2 * max(sS, 1.0) + 0.9;
+let bb = dot(ro, rd);
+let cc = dot(ro, ro) - Rb * Rb;
+let disc = bb * bb - cc;
+var hit = false;
+var hp = vec3f(0.0);
+var steps = 0.0;
+if (disc > 0.0) {
+    var t = max(-bb - sqrt(disc), 0.0);
+    let t1 = -bb + sqrt(disc);
+    for (var k = 0; k < 72; k++) {
+        let p = ro + rd * t;
+        var d = 1e9;
+        for (var i = 0; i < 7; i++) {
+            let di = length(p - cs[i].xyz) - cs[i].w;
+            let h = clamp(0.5 + 0.5 * (di - d) / 0.42, 0.0, 1.0);
+            d = mix(di, d, h) - 0.42 * h * (1.0 - h);
+        }
+        if (d < 0.002) {
+            hit = true;
+            hp = p;
+            break;
+        }
+        t += d * 0.9;
+        steps += 1.0;
+        if (t > t1) {
+            break;
+        }
+    }
+}
+// The normal (tetrahedral differences) and the reflected ray.
+var nn = vec3f(0.0, 1.0, 0.0);
+var rf = rd;
+if (hit) {
+    var g = vec3f(0.0);
+    for (var e = 0; e < 4; e++) {
+        let o = select(select(vec3f(-1.0, -1.0, 1.0), vec3f(-1.0, 1.0, -1.0), e == 2), select(vec3f(1.0, -1.0, -1.0), vec3f(1.0, 1.0, 1.0), e == 0), e < 2);
+        let p = hp + o * 0.003;
+        var d = 1e9;
+        for (var i = 0; i < 7; i++) {
+            let di = length(p - cs[i].xyz) - cs[i].w;
+            let h = clamp(0.5 + 0.5 * (di - d) / 0.42, 0.0, 1.0);
+            d = mix(di, d, h) - 0.42 * h * (1.0 - h);
+        }
+        g += o * d;
+    }
+    nn = normalize(g);
+    rf = reflect(rd, nn);
+}
+// The studio, looked up twice: along the camera ray (the backdrop) and
+// along the reflection (the skin).
+let hh = 6.2831853 * hu;
+let c1 = vec3f(1.0, 0.12, 0.7) * (0.85 + 0.15 * cos(hh)) + vec3f(0.0, 0.0, 0.25) * sin(hh);
+let c2 = vec3f(0.1, 0.85, 1.0);
+let c3 = vec3f(1.0, 0.55, 0.1);
+var envs: array<vec3f, 2>;
+for (var e = 0; e < 2; e++) {
+    let d = select(rd, rf, e == 1);
+    let fl = select(0.0, 1.0, e == 1);
+    var c = mix(vec3f(0.07, 0.03, 0.12), vec3f(0.1, 0.05, 0.2), smoothstep(-0.3, 0.6, d.y));
+    c += c1 * exp(-abs(d.y - 0.05) * 7.0) * 0.22;
+    // Neon rings round the walls.
+    c += c1 * exp(-pow((d.y - 0.28) / 0.022, 2.0)) * (1.4 + 0.9 * pb * fl);
+    c += c2 * exp(-pow((d.y + 0.06) / 0.016, 2.0)) * (1.2 + 0.8 * pb * fl);
+    // Tall tubes standing round the room, turning with it.
+    let az = atan2(d.x, d.z) + er;
+    let fa = fract(az * 9.0 / 6.2831853);
+    let ti = floor(az * 9.0 / 6.2831853);
+    let tc = select(select(c3, c2, fract(ti * 0.5) > 0.4), c1, fract(ti / 3.0) < 0.3);
+    let tub = exp(-pow((fa - 0.5) / 0.018, 2.0)) * smoothstep(-0.15, -0.05, d.y) * smoothstep(0.7, 0.5, d.y);
+    c += tc * tub * (1.1 + 0.7 * pb * fl);
+    // A great neon hoop on the far wall, behind the drops.
+    let ha = acos(clamp(dot(d, normalize(vec3f(0.0, 0.12, 1.0))), -1.0, 1.0));
+    c += mix(c1, c3, 0.5 + 0.5 * sin(az * 2.0 + hh)) * (exp(-pow((ha - 0.5) / 0.03, 2.0)) * 1.6 + exp(-abs(ha - 0.5) * 9.0) * 0.25) * (1.0 + 0.6 * pb * fl);
+    // The softbox overhead.
+    let bars = smoothstep(0.3, 0.22, abs(fract(d.x / max(d.y, 0.1) * 1.6) - 0.5));
+    c += vec3f(1.0, 0.95, 1.0) * smoothstep(0.58, 0.68, d.y) * (0.25 + 0.75 * bars) * (1.5 + 0.3 * pb * fl);
+    // Small lights, glittering with the treble.
+    let gq = vec2f(az * 9.0, d.y * 14.0);
+    let gc = floor(gq);
+    let gh = fract(sin(dot(gc, vec2f(127.1, 311.7))) * 43758.5453);
+    let gd = length(fract(gq) - vec2f(0.5));
+    c += vec3f(1.0, 0.9, 0.8) * step(0.88, gh) * exp(-gd * gd * 60.0) * (0.5 + 1.8 * min(pt, 1.5)) * fl;
+    // The grid floor.
+    if (d.y < -0.02) {
+        let fp = d.xz * (3.0 / -d.y);
+        let ga = vec2f(cos(er), sin(er));
+        let gp = vec2f(dot(fp, ga), dot(fp, vec2f(-ga.y, ga.x))) * 0.5;
+        let gw = abs(fract(gp + vec2f(0.5)) - vec2f(0.5));
+        let ln = exp(-min(gw.x, gw.y) * 22.0) * exp(-length(fp) * 0.05) * 1.3;
+        c += mix(c1, c2, 0.5 + 0.5 * sin(gp.x * 0.7)) * ln * (0.9 + 0.6 * pb * fl) * smoothstep(-0.02, -0.08, d.y);
+    }
+    envs[e] = c;
+}
+// The backdrop, dimmed so the drops stand out.
+var col = envs[0] * 0.7;
+if (hit) {
+    let fr = pow(1.0 - max(dot(-rd, nn), 0.0), 4.0);
+    // Folds where drops join sit in shadow.
+    let seam = clamp(steps / 30.0, 0.0, 1.0);
+    col = envs[1] * (0.7 + 0.3 * fr) * vec3f(0.94, 0.96, 1.0) * (1.0 - 0.3 * seam) + vec3f(0.03, 0.03, 0.04);
+}
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.15, vec3f(0.0));
+return col / (1.0 + 0.4 * col);
+'''
