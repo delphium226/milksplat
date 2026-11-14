@@ -1,0 +1,240 @@
+# Neural Storm: a deep, dark tangle of living neurons seen through a
+# microscope, three layers of them one behind another. Each cell body is a
+# bright cyan-white soma with a burst of fine branching dendrites, and
+# glowing magenta and violet axons arc from cell to cell. Small action
+# potentials race along the axons as travelling sparks, and every kick
+# sets off a firing cascade: a front of fire that spreads out from one
+# cell through the whole network, every soma it reaches flaring and a
+# golden spark racing down every axon it crosses.
+#
+# Everything is in the composite. Each layer is a jittered grid of cells
+# (seven, four and a half and three cells down the screen, far to near),
+# one neuron per cell, joined to some of its eight neighbours by an axon:
+# a segment bowed into a gentle arc. Every pixel looks at the nine nearest
+# neurons in each layer and the axons leaving them. A cascade fires each
+# neuron when its front reaches it; its spark crosses each axon at the
+# point where the front's travel time along the network (the distance from
+# where the cascade started, a little longer for some cells) equals the
+# front's age, so the sparks always run outward from the cell that fired
+# first. The spontaneous sparks run along a third of the axons, each at
+# its own pace. The far layers are dimmer and bluer, in a faint haze.
+#
+# The frame code accumulates the slow drift and turn of the view and the
+# sparks' travel, and runs three cascade slots. Bass brightens the network
+# (smoothed). Each hit of the music is felt at once, through pulses of the
+# bass, mids and treble that rise in a tick or two and die away over a
+# fraction of a second (soft-limited, so a bigger hit still means more):
+# a kick starts a cascade from a random cell (up to three at once), flares
+# the somas and pushes the view in; the mids light the dendrites and swing
+# the axons' colour toward pink; the treble speeds the spontaneous sparks
+# and makes them brighter and more numerous.
+version = 1
+
+[meta]
+name = "Neural Storm"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+fr1 = 9; fr2 = 9; fr3 = 9; vx = 3.1; vy = 7.4; va = 0; spk = 0; hu = 0;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+sm = sm + (min(mid_att, 2.5) - sm) * 0.03;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+ob = pb;
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+// A fresh kick starts a cascade at a random place, in the next of three
+// slots; each front spreads across the screen in about two seconds.
+kk = max(pb - ob, 0);
+cd = cd + 1;
+if(kk > 0.1 && cd > 7,
+  cd = 0; sl = (sl + 1) % 3;
+  nx = (rand(1000) / 1000 - 0.5) * 1.4; ny = (rand(1000) / 1000 - 0.5) * 0.8;
+  if(sl == 0, fr1 = 0; fa1 = min(0.5 + pb, 1.6); ox1 = nx; oy1 = ny, 0);
+  if(sl == 1, fr2 = 0; fa2 = min(0.5 + pb, 1.6); ox2 = nx; oy2 = ny, 0);
+  if(sl == 2, fr3 = 0; fa3 = min(0.5 + pb, 1.6); ox3 = nx; oy3 = ny, 0),
+  0);
+fr1 = min(fr1 + 0.014, 9); fr2 = min(fr2 + 0.014, 9); fr3 = min(fr3 + 0.014, 9);
+fa1 = fa1 * 0.975; fa2 = fa2 * 0.975; fa3 = fa3 * 0.975;
+// The view drifts and turns slowly; the spontaneous sparks run faster
+// with the treble.
+vx = vx + 0.012 / 60; vx = vx - 64 * floor(vx / 64);
+vy = vy + 0.005 / 60; vy = vy - 64 * floor(vy / 64);
+va = va + 6.2831853 / 300 / 60; va = va - 6.2831853 * floor(va / 6.2831853);
+spk = spk + (0.25 + 1.2 * pt) / 60; spk = spk - 64 * floor(spk / 64);
+hu = hu + (0.003 + 0.01 * min(sm, 2) / 2) / 60; hu = hu - floor(hu);
+q1 = vx; q2 = vy; q3 = va; q4 = spk;
+q5 = pb; q6 = pm; q7 = pt; q8 = sb;
+q9 = fr1; q10 = fr2; q11 = fr3; q12 = fa1;
+q13 = fa2; q14 = fa3; q15 = ox1; q16 = oy1;
+q17 = ox2; q18 = oy2; q19 = ox3; q20 = oy3;
+q21 = hu; q22 = 3; q23 = 9; q24 = 3;
+'''
+
+[shader]
+comp = '''
+let sz = u.texsize.xy;
+let asp = sz.x / sz.y;
+let lw = max(1.0, sz.y / 540.0);
+let vx = u.q[0].x;
+let vy = u.q[0].y;
+let va = u.q[0].z;
+let spk = u.q[0].w;
+let pb = u.q[1].x;
+// Flares held back on a small picture, where the lines (at least a pixel
+// wide) are a large share of it.
+let pbs = pb * min(1.0, sz.y / 270.0);
+let pm = u.q[1].y;
+let pt = min(u.q[1].z, 1.5);
+let sb = min(u.q[1].w, 2.0) * 0.5;
+let fr = vec3f(u.q[2].x, u.q[2].y, u.q[2].z);
+let fa = vec3f(u.q[2].w, u.q[3].x, u.q[3].y) * min(1.0, sz.y / 270.0);
+let o1x = u.q[3].z;
+let o1y = u.q[3].w;
+let o2x = u.q[4].x;
+let o2y = u.q[4].y;
+let o3x = u.q[4].z;
+let o3y = u.q[4].w;
+let hu = u.q[5].x;
+// Loop counts from the frame code (3 layers, 9 cells, 3 links), so the
+// loops stay loops and the shader keeps few registers.
+let nly = i32(u.q[5].y);
+let ncl = i32(u.q[5].z);
+let nlk = i32(u.q[5].w);
+// The view, pushed in by a kick.
+let p = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y) / (1.0 + 0.05 * pb);
+// The haze: a soft violet-blue fog, smooth value noise.
+let hq = (p * 0.09 + vec2f(vx * 0.05, vy * 0.05)) * 32.0;
+let hf = fract(hq);
+let hm = (floor(hq) + hf * hf * (3.0 - 2.0 * hf) + 0.5) / 32.0;
+let hz = textureSampleLevel(sampler_noise_lq, s_fw, hm, 0.0).rgb;
+var col = vec3f(0.012, 0.01, 0.035) + vec3f(0.08, 0.04, 0.18) * hz.r * (0.7 + 0.5 * sb) + vec3f(0.0, 0.065, 0.12) * hz.g * hz.g;
+// The axons' colour, swung toward pink by the mids.
+let ah = 6.2831853 * (hu + 0.8);
+let axc = mix(vec3f(0.85, 0.2, 1.0), vec3f(1.0, 0.25, 0.6), min(pm, 1.0) * 0.8) * (0.85 + 0.15 * vec3f(cos(ah), cos(ah - 2.094), cos(ah + 2.094)));
+for (var l = 0; l < nly; l++) {
+    let fl = f32(l);
+    let s = select(select(3.0, 4.5, l == 1), 7.0, l == 0);
+    let cr = cos(va * (0.6 + 0.3 * fl));
+    let sr = sin(va * (0.6 + 0.3 * fl));
+    let off = vec2f(vx, vy) * (0.5 + 0.6 * fl) * s + vec2f(fl * 17.3, fl * 9.1);
+    let q = vec2f(p.x * cr - p.y * sr, p.x * sr + p.y * cr) * s + off;
+    let ip = floor(q);
+    // Pixels per layer unit, and the depth's dimming and tint.
+    let pu = sz.y / (s * lw);
+    let dim = select(select(1.0, 0.6, l == 1), 0.32, l == 0);
+    let tint = mix(vec3f(0.35, 0.55, 1.0), vec3f(1.0), dim);
+    let wd = 0.6 + 0.5 * fl;
+    // The cascades' origins in this layer's coordinates.
+    let c1 = vec2f(o1x * cr - o1y * sr, o1x * sr + o1y * cr) * s + off;
+    let c2 = vec2f(o2x * cr - o2y * sr, o2x * sr + o2y * cr) * s + off;
+    let c3 = vec2f(o3x * cr - o3y * sr, o3x * sr + o3y * cr) * s + off;
+    var lc = vec3f(0.0);
+    for (var k = 0; k < ncl; k++) {
+        let ca = ip + vec2f(f32(k % 3) - 1.0, f32(k / 3) - 1.0);
+        let ha0 = (u32(ca.x + 4096.0) * 1973u + u32(ca.y + 4096.0) * 9277u + u32(l) * 26699u) * 747796405u + 2891336453u;
+        let ha = ((ha0 >> ((ha0 >> 28u) + 4u)) ^ ha0) * 277803737u;
+        let A = ca + vec2f(0.5) + (vec2f(f32(ha & 1023u), f32((ha >> 10u) & 1023u)) / 1023.0 - 0.5) * 0.7;
+        let haj = f32((ha >> 20u) & 255u) / 255.0;
+        // The front's arrival at A (in screen units, a little later for
+        // some cells).
+        let dA = vec3f(length(A - c1), length(A - c2), length(A - c3)) / s * (1.0 + 0.25 * haj);
+        // Whether any front is near enough to cross A's axons.
+        let nearA = any(abs(dA - fr) < vec3f(0.62)) && (fa.x + fa.y + fa.z > 0.01);
+        // The axons from A to three of its neighbours (each pair once): right,
+        // down and one diagonal (none in the far layer).
+        for (var e = 0; e < nlk - select(0, 1, l == 0); e++) {
+            // The diagonal goes one way or the other, by the hash.
+            let dg = select(-1.0, 1.0, (ha & 4096u) == 0u);
+            let ob = select(select(vec2f(1.0, dg), vec2f(0.0, 1.0), e == 1), vec2f(1.0, 0.0), e == 0);
+            let he = ha * 2654435761u + u32(e) * 40503u + 977u;
+            let he2 = (he ^ (he >> 15u)) * 2246822519u;
+            let hk = f32((he2 >> 8u) & 1023u) / 1023.0;
+            // Diagonals are rarer; about half of the straight links exist.
+            if (hk > select(0.6, 0.45, e > 1)) {
+                continue;
+            }
+            let cb = ca + ob;
+            let hb0 = (u32(cb.x + 4096.0) * 1973u + u32(cb.y + 4096.0) * 9277u + u32(l) * 26699u) * 747796405u + 2891336453u;
+            let hb = ((hb0 >> ((hb0 >> 28u) + 4u)) ^ hb0) * 277803737u;
+            let B = cb + vec2f(0.5) + (vec2f(f32(hb & 1023u), f32((hb >> 10u) & 1023u)) / 1023.0 - 0.5) * 0.7;
+            let hbj = f32((hb >> 20u) & 255u) / 255.0;
+            let ab = B - A;
+            let ln = length(ab);
+            if (length(q - (A + B) * 0.5) > ln * 0.62 + 25.0 * lw / pu) {
+                continue;
+            }
+            let dir = ab / ln;
+            let nr = vec2f(-dir.y, dir.x);
+            let rq = q - A;
+            let t = dot(rq, dir) / ln;
+            let tc = clamp(t, 0.0, 1.0);
+            // The arc: bowed to one side by up to a sixth of its length.
+            let bow = (hk * 2.0 - 0.5) * 0.18 * ln * 4.0 * tc * (1.0 - tc);
+            let dpp = dot(rq, nr) - bow;
+            let dal = (t - tc) * ln;
+            let dd = sqrt(dpp * dpp + dal * dal) * pu;
+            if (dd > 25.0 * lw) {
+                continue;
+            }
+            let core = exp(-dd * dd / (wd * wd));
+            let halo = exp(-dd / (wd * 5.0));
+            lc += axc * (core * 0.6 + halo * 0.075);
+            // The cascades' sparks, where the front crosses the axon.
+            if (nearA) {
+                let dB = vec3f(length(B - c1), length(B - c2), length(B - c3)) / s * (1.0 + 0.25 * hbj);
+                let de = mix(dA, dB, tc) - fr;
+                let sp3 = fa * exp(-de * de / 0.0018);
+                let spc = sp3.x + sp3.y + sp3.z;
+                lc += vec3f(1.0, 0.82, 0.45) * spc * (core * 2.2 + halo * 0.5);
+            }
+            // The spontaneous sparks, on a third of the axons.
+            if (hk < 0.18) {
+                let sph = fract(spk * (0.6 + 0.8 * hk / 0.18) + hk * 13.7);
+                let ds = (tc - sph) * ln * pu / (2.0 * lw);
+                lc += vec3f(0.6, 0.95, 1.0) * exp(-ds * ds / 6.0) * (0.5 + 1.8 * pt) * (core * 1.5 + halo * 0.3);
+            }
+        }
+        // The soma and its dendrites, flaring as a cascade reaches it.
+        let rv = q - A;
+        let rr = length(rv);
+        if (rr > 0.45) {
+            continue;
+        }
+        let sd = rr * pu;
+        let dsom = dA - fr;
+        let fl3 = fa * exp(-dsom * dsom / 0.003);
+        let fire = fl3.x + fl3.y + fl3.z;
+        let rs = 0.045;
+        lc += vec3f(0.55, 0.95, 1.0) * (exp(-sd * sd / pow(rs * pu, 2.0)) * (0.9 + 2.0 * fire) + exp(-sd / (rs * pu * 2.5)) * (0.12 + 0.6 * fire + 0.25 * pbs));
+        // The dendrites (too fine to see in the far layer).
+        if (l == 0 || rr > 0.32) {
+            continue;
+        }
+        let th = atan2(rv.y, rv.x);
+        let nb = 5.0 + floor(haj * 3.0);
+        let bd = (fract(th * nb / 6.2831853 + haj * 7.0 + 0.6 * rr) - 0.5) * 6.2831853 / nb;
+        let dx0 = rr * sin(bd) * pu / (0.7 * lw);
+        let dend = exp(-dx0 * dx0) * exp(-rr / 0.16) * step(abs(bd), 1.2);
+        lc += mix(vec3f(0.45, 0.6, 1.0), vec3f(1.0, 0.85, 0.5), min(fire, 1.0)) * dend * (0.35 + 0.8 * pm + 1.2 * fire);
+    }
+    col += lc * tint * dim * (0.75 + 0.35 * sb);
+}
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.2, vec3f(0.0));
+return col / (1.0 + 0.4 * col);
+'''
