@@ -1,0 +1,295 @@
+# Dyson Swarm: a star wrapped in the machinery of a civilisation that
+# harvests all its light. Thousands of collector panels orbit the blazing
+# star in eight inclined rings, each ring at its own tilt and its own pace
+# (the inner ones faster). The far side's panels face the star and the
+# camera and shine gold with its light; the near side's show their dark
+# backs, a lattice of silhouettes across the star's face, picked out with
+# blue running lights. Panels tilt as they trim to the light, and where
+# one catches it just so it glints. Three energy beams lance from the
+# swarm to a distant receiver station, the energy streaming along them.
+#
+# Everything is in the composite. Each ray is tested against the star (a
+# sphere with boiling granulation from the 3D noise and a darkened limb,
+# in a corona of streamers) and against the eight ring planes; in each
+# plane the hit's radius and orbit angle pick a panel cell (two rows of
+# 120 to 246 panels), and the nearest panel hit wins. A panel's normal
+# points at the star, tilted by its own hash and a slow wobble; it is lit
+# by how squarely it faces the star, seen by which side faces the camera,
+# and glints as the mirror direction of the star's light comes near the
+# camera. The beams are drawn in the picture plane between the projected
+# emitters (panels that ride round with their rings) and the receiver,
+# which sits up and to the right in the distance.
+#
+# The frame code accumulates each ring's orbit (at Kepler rates), the
+# panels' wobble, the camera's slow drift round the star and the beams'
+# flow. Bass brightens the star (smoothed). Each hit of the music is felt
+# at once, through pulses of the bass, mids and treble that rise in a
+# tick or two and die away over a fraction of a second (soft-limited, so
+# a bigger hit still means more): a kick surges the star and its corona,
+# sends a ripple out through the swarm (up to three at once) that tilts
+# the panels it passes so they flash, flares the beams and the receiver
+# and pushes the view in; the mids speed and brighten the beams' flow; the
+# treble sets panels glinting all over the swarm.
+version = 1
+
+[meta]
+name = "Dyson Swarm"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+o1 = 0.3; o2 = 1.7; o3 = 4.1; o4 = 2.2; o5 = 5.0; o6 = 0.9; o7 = 3.3; o8 = 5.7; az = 0.4; wb = 0; bf = 0; gr = 0;
+w1 = 9; w2 = 9; w3 = 9;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+ob = pb;
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+// The orbits: once round in 70 s at radius 1.5, as r^-1.5.
+k = 6.2831853 / 70 / 60;
+o1 = o1 + k * pow(1.5 / 1.1, 1.5); o1 = o1 - 6.2831853 * floor(o1 / 6.2831853);
+o2 = o2 - k * pow(1.5 / 1.3, 1.5); o2 = o2 - 6.2831853 * floor(o2 / 6.2831853);
+o3 = o3 + k * pow(1.5 / 1.5, 1.5); o3 = o3 - 6.2831853 * floor(o3 / 6.2831853);
+o4 = o4 + k * pow(1.5 / 1.7, 1.5); o4 = o4 - 6.2831853 * floor(o4 / 6.2831853);
+o5 = o5 - k * pow(1.5 / 1.9, 1.5); o5 = o5 - 6.2831853 * floor(o5 / 6.2831853);
+o6 = o6 + k * pow(1.5 / 2.1, 1.5); o6 = o6 - 6.2831853 * floor(o6 / 6.2831853);
+o7 = o7 - k * pow(1.5 / 2.3, 1.5); o7 = o7 - 6.2831853 * floor(o7 / 6.2831853);
+o8 = o8 + k * pow(1.5 / 2.5, 1.5); o8 = o8 - 6.2831853 * floor(o8 / 6.2831853);
+// The camera drifts once round in 6 minutes.
+az = az + 6.2831853 / 360 / 60; az = az - 6.2831853 * floor(az / 6.2831853);
+// The panels' wobble, the beams' flow (faster with the mids), the star's
+// boiling.
+wb = wb + 0.4 / 60; wb = wb - 6.2831853 * 16 * floor(wb / (6.2831853 * 16));
+bf = bf + (0.6 + 2.0 * pm) / 60; bf = bf - 64 * floor(bf / 64);
+gr = gr + 0.02 / 60; gr = gr - 64 * floor(gr / 64);
+// A fresh kick sends a ripple out through the swarm.
+kk = max(pb - ob, 0);
+cd = cd + 1;
+if(kk > 0.1 && cd > 7,
+  cd = 0; sl = (sl + 1) % 3;
+  if(sl == 0, w1 = 0.6; wa1 = min(0.4 + pb, 1.6), 0);
+  if(sl == 1, w2 = 0.6; wa2 = min(0.4 + pb, 1.6), 0);
+  if(sl == 2, w3 = 0.6; wa3 = min(0.4 + pb, 1.6), 0),
+  0);
+w1 = min(w1 + 0.04, 9); w2 = min(w2 + 0.04, 9); w3 = min(w3 + 0.04, 9);
+wa1 = wa1 * 0.97; wa2 = wa2 * 0.97; wa3 = wa3 * 0.97;
+q1 = o1; q2 = o2; q3 = o3; q4 = o4;
+q5 = o5; q6 = o6; q7 = o7; q8 = o8;
+q9 = bf; q10 = gr; q11 = pb; q12 = pm;
+q13 = pt; q14 = sb; q15 = w1; q16 = w2;
+q17 = w3; q18 = wa1; q19 = wa2; q20 = wa3;
+q21 = az; q22 = wb;
+'''
+
+[shader]
+comp = '''
+let sz = u.texsize.xy;
+let asp = sz.x / sz.y;
+let lw = max(1.0, sz.y / 540.0);
+let pxu = sz.y / lw;
+let az = u.q[5].x;
+let wb = u.q[5].y;
+let bf = u.q[2].x;
+let gr = u.q[2].y;
+let pb = u.q[2].z;
+let pbs = pb * min(1.0, sz.y / 270.0);
+let pm = u.q[2].w;
+let pt = min(u.q[3].x, 1.5);
+let sb = min(u.q[3].y, 2.0) * 0.5;
+let wr = vec3f(u.q[3].z, u.q[3].w, u.q[4].x);
+let wa = vec3f(u.q[4].y, u.q[4].z, u.q[4].w) * min(1.0, sz.y / 270.0);
+// The camera: 5.2 out, a little above, the star left of centre.
+let el = 0.3;
+let ro = vec3f(cos(az) * cos(el), sin(el), sin(az) * cos(el)) * 5.2;
+let f0 = normalize(-ro);
+let r0 = normalize(cross(f0, vec3f(0.0, 1.0, 0.0)));
+let fw = normalize(f0 + r0 * 0.28 + vec3f(0.0, 0.04, 0.0));
+let rt = normalize(cross(fw, vec3f(0.0, 1.0, 0.0)));
+let up = cross(rt, fw);
+let zf = 1.35 * (1.0 + 0.04 * pb);
+let sp = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
+let rd = normalize(fw * zf + rt * sp.x + up * sp.y);
+let pa = 1.0 / (zf * pxu);
+// Space: faint stars and a dim band of the galaxy.
+let cell = floor(uv * sz / (2.0 * lw));
+let h0 = (u32(cell.x) * 1973u + u32(cell.y) * 9277u) * 747796405u + 2891336453u;
+let h1 = ((h0 >> ((h0 >> 28u) + 4u)) ^ h0) * 277803737u;
+let hh = f32((h1 >> 22u) ^ h1) / 4294967296.0;
+var col = vec3f(0.008, 0.008, 0.02) + vec3f(0.06, 0.035, 0.09) * exp(-pow((sp.y + 0.35 * sp.x - 0.1) / 0.25, 2.0));
+col += vec3f(0.8, 0.85, 1.0) * step(0.993, hh) * (0.2 + 0.5 * fract(hh * 911.0));
+// The star.
+let Rs = 0.55;
+let bb = dot(ro, rd);
+let cc = dot(ro, ro) - Rs * Rs;
+let disc = bb * bb - cc;
+var ts = 1e9;
+if (disc > 0.0) {
+    ts = -bb - sqrt(disc);
+}
+// The ray's closest approach to the star's centre.
+let dmin = length(ro - rd * bb);
+let surge = 1.0 + 0.35 * pbs + 0.2 * sb;
+// The corona: streamers in angle round the star, outside its disc.
+let ca = atan2(dot(ro - rd * bb, up), dot(ro - rd * bb, rt));
+let cn = textureSampleLevel(sampler_noise_lq, s_fw, vec2f(ca / 6.2831853 * 2.0, gr * 0.5), 0.0).r;
+let ex = max(dmin - Rs, 0.0);
+col += vec3f(1.0, 0.55, 0.2) * (exp(-ex / (0.08 * surge)) * 0.9 + exp(-ex / (0.35 * surge)) * 0.35 * (0.6 + 0.8 * cn)) * surge;
+col += vec3f(1.0, 0.75, 0.45) * exp(-ex / 1.2) * 0.12;
+// The rings: the nearest panel hit.
+var tb = ts;
+var pc = vec3f(0.0);
+var hitp = false;
+let sunc = vec3f(1.0, 0.86, 0.6);
+for (var i = 0; i < 8; i++) {
+    let fi = f32(i);
+    let R = 1.1 + 0.2 * fi;
+    let inc = 0.12 + 0.42 * fract(fi * 0.618 + 0.2);
+    let nd = fi * 1.31 + 0.4;
+    let n = vec3f(sin(inc) * cos(nd), cos(inc), sin(inc) * sin(nd));
+    let e1 = normalize(cross(n, vec3f(0.0, 0.0, 1.0)));
+    let e2 = cross(n, e1);
+    let dn = dot(rd, n);
+    if (abs(dn) < 1e-4) {
+        continue;
+    }
+    let t = -dot(ro, n) / dn;
+    if (t <= 0.0 || t >= tb) {
+        continue;
+    }
+    let P = ro + rd * t;
+    let rho = length(P);
+    let hw = 0.06;
+    if (abs(rho - R) > hw) {
+        continue;
+    }
+    let orb = select(select(select(select(select(select(select(u.q[1].w, u.q[1].z, i == 6), u.q[1].y, i == 5), u.q[1].x, i == 4), u.q[0].w, i == 3), u.q[0].z, i == 2), u.q[0].y, i == 1), u.q[0].x, i == 0);
+    let phi = atan2(dot(P, e2), dot(P, e1)) - orb;
+    let N = floor(120.0 + 18.0 * fi);
+    let ac = phi / 6.2831853 * N;
+    let ci = floor(ac);
+    let row = select(0.0, 1.0, rho > R);
+    let cw = (ci % N + N) % N;
+    let hp0 = (u32(cw) * 1973u + u32(row) * 9277u + u32(i) * 26699u) * 747796405u + 2891336453u;
+    let hp = ((hp0 >> ((hp0 >> 28u) + 4u)) ^ hp0) * 277803737u;
+    let hx = f32(hp & 1023u) / 1023.0;
+    let hy = f32((hp >> 10u) & 1023u) / 1023.0;
+    let hz = f32((hp >> 20u) & 1023u) / 1023.0;
+    if (hz < 0.1) {
+        continue;
+    }
+    // The panel's footprint in its cell, with a gap all round.
+    let fa = fract(ac);
+    let fr = abs(rho - R) / hw;
+    let gap = 0.12;
+    if (fa < gap || fa > 1.0 - gap || fr < 0.08 || fr > 0.92) {
+        continue;
+    }
+    tb = t;
+    hitp = true;
+    // The normal: toward the star, tilted by the hash, the wobble and a
+    // passing ripple.
+    let Ln = -P / rho;
+    let tg = normalize(cross(n, Ln));
+    let wv = (wr - vec3f(rho)) / 0.18;
+    let rip = dot(wa, exp(-wv * wv));
+    let tl = 0.25 * (hx - 0.5) + 0.12 * sin(wb + hy * 40.0) + 0.5 * rip * sin(hx * 17.0);
+    let tl2 = 0.2 * (hy - 0.5) + 0.1 * cos(wb * 0.7 + hx * 30.0);
+    let nrm = normalize(Ln + tg * tl + n * tl2);
+    let lit = max(dot(nrm, Ln), 0.0);
+    let facing = dot(nrm, -rd);
+    let refl = reflect(-Ln, nrm);
+    let gl = pow(max(dot(refl, -rd), 0.0), 60.0);
+    // Edge detail: a frame round each panel and a seam across it.
+    let edge = max(smoothstep(gap + 0.06, gap, fa) + smoothstep(1.0 - gap - 0.06, 1.0 - gap, fa), smoothstep(0.17, 0.08, fr) + smoothstep(0.83, 0.92, fr));
+    let seam = exp(-pow((fa - 0.5) / 0.03, 2.0));
+    if (facing > 0.0) {
+        // The lit face: gold cells, catching the light.
+        let gold = mix(vec3f(1.0, 0.62, 0.18), vec3f(1.0, 0.85, 0.45), hy);
+        pc = gold * lit * (0.55 + 0.4 * facing) * (1.0 - 0.4 * seam) + vec3f(1.0, 0.95, 0.85) * gl * (1.5 + 3.0 * pt) + gold * edge * 0.15;
+        pc += vec3f(1.0, 0.9, 0.6) * rip * 0.6;
+    } else {
+        // The dark back: a silhouette, with a rim of starlight and running
+        // lights.
+        pc = vec3f(0.02, 0.025, 0.045) + vec3f(0.25, 0.18, 0.12) * edge * 0.25;
+        let rl = step(0.8, hx) * exp(-pow((fa - 0.5) / 0.08, 2.0)) * exp(-pow((fr - 0.5) / 0.15, 2.0));
+        pc += vec3f(0.3, 0.6, 1.0) * rl * (0.8 + 0.6 * sin(wb * 3.0 + hy * 20.0)) + vec3f(0.4, 0.7, 1.0) * rip * 0.35;
+    }
+    // Panels at the edge of the picture's resolution fade toward the
+    // ring's average.
+    let fp = clamp(t * pa * N / (6.2831853 * R) * 3.0, 0.0, 1.0);
+    pc = mix(pc, select(vec3f(0.03, 0.03, 0.05), vec3f(0.5, 0.33, 0.12), facing > 0.0), fp * 0.5);
+}
+if (ts <= tb && ts < 1e8) {
+    // The star's surface: boiling granulation and a darkened limb.
+    let P = ro + rd * ts;
+    let nn = P / Rs;
+    let g1 = textureSampleLevel(sampler_noisevol_lq, s_fw, nn * 0.6 + vec3f(gr, gr * 0.7, -gr), 0.0).r;
+    let g2 = textureSampleLevel(sampler_noisevol_hq, s_fw, nn * 1.4 - vec3f(gr * 1.3, gr, gr * 0.5), 0.0).r;
+    let mu = max(dot(nn, -rd), 0.0);
+    let limb = pow(mu, 0.45);
+    let gran = 0.7 + 0.35 * g1 + 0.3 * g2;
+    col = mix(vec3f(1.0, 0.32, 0.05), vec3f(1.0, 0.85, 0.5), limb) * (0.9 + 0.7 * limb) * gran * (1.0 + 0.4 * (surge - 1.0));
+}
+if (hitp) {
+    col = pc + col * 0.05;
+}
+// The receiver and the beams.
+let rcv = ro + fw * 9.0 + rt * 3.6 + up * 1.7;
+let rq = rcv - ro;
+let rz = dot(rq, fw);
+let rs = vec2f(dot(rq, rt), dot(rq, up)) / rz * zf;
+var bm = 0.0;
+for (var j = 0; j < 3; j++) {
+    let fj = f32(j);
+    let ri = j * 3;
+    let R = 1.1 + 0.2 * f32(ri);
+    let inc = 0.12 + 0.42 * fract(f32(ri) * 0.618 + 0.2);
+    let nd = f32(ri) * 1.31 + 0.4;
+    let n = vec3f(sin(inc) * cos(nd), cos(inc), sin(inc) * sin(nd));
+    let e1 = normalize(cross(n, vec3f(0.0, 0.0, 1.0)));
+    let e2 = cross(n, e1);
+    let orb = select(select(u.q[1].z, u.q[0].w, j == 1), u.q[0].x, j == 0);
+    let ea = orb + 1.2 + fj * 2.1;
+    let E = (e1 * cos(ea) + e2 * sin(ea)) * R;
+    let eq = E - ro;
+    let ez = dot(eq, fw);
+    if (ez < 0.5) {
+        continue;
+    }
+    let es = vec2f(dot(eq, rt), dot(eq, up)) / ez * zf;
+    // Hidden behind the star, the beam starts where it clears the disc.
+    let ab = rs - es;
+    let ln = length(ab);
+    let dir = ab / ln;
+    let rq2 = sp - es;
+    let tt = clamp(dot(rq2, dir) / ln, 0.0, 1.0);
+    let d = length(rq2 - ab * tt) * pxu;
+    let flow = 0.6 + 0.4 * sin((tt * ln * 30.0 - bf * 6.0) * 1.0);
+    let wdt = 1.0 + 1.2 * pbs;
+    bm += (exp(-d * d / (wdt * wdt)) * 1.2 + exp(-d / (wdt * 5.0)) * 0.25) * flow * (0.6 + 0.5 * pm + 1.0 * pbs) * smoothstep(0.0, 0.05, tt);
+    // The emitter's spark.
+    let de = length(sp - es) * pxu;
+    col += vec3f(0.6, 0.9, 1.0) * exp(-de * de / 8.0) * (0.8 + pbs);
+}
+col += vec3f(0.35, 0.75, 1.0) * bm;
+let dr = length(sp - rs) * pxu;
+col += vec3f(0.6, 0.85, 1.0) * (exp(-dr * dr / 12.0) * 1.5 + exp(-dr / 18.0) * (0.25 + 0.4 * pbs));
+col += vec3f(0.4, 0.7, 1.0) * exp(-pow((dr - 14.0 - 6.0 * pbs) / 1.5, 2.0)) * 0.5;
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.2, vec3f(0.0));
+return col / (1.0 + 0.4 * col);
+'''
