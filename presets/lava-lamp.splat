@@ -1,0 +1,198 @@
+# Lava Lamp: a giant lava lamp glowing in a dark violet room. Hot wax
+# gathers in a pool over the lamp's bulb, swells, stretches upward into a
+# neck and pinches off into a blob that rises through the deep violet
+# liquid, drawn out long while it climbs fast, lingering and cooling under
+# the cap, then sinking back to merge with the pool again. Eight blobs
+# ride their own slow convection loops, so they meet, merge and part on
+# the way. The wax glows from a hot gold core through orange to a magenta
+# skin; it lights the liquid round it, the bulb lights the base of the
+# lamp, and the lamp throws a slow, swirling psychedelic glow over the
+# room behind it.
+#
+# Everything is in the composite. The wax is a metaball field: each blob
+# an ellipse stretched along its path by its speed, keeping its area,
+# plus a pool at the foot and a thinner one under the cap, each a field
+# that reaches 1 at its own wavy surface. Where the field passes 1 is wax,
+# and the field inside gives the glow from skin to core. The glass is a
+# profile (wide low down, narrowing to the cap), with a metal cap and
+# base, a soft highlight down one side and a neon rim on the base.
+#
+# Each blob's place on its loop is accumulated (never time times the
+# music). Bass heats the lamp (smoothed): the bulb and the liquid round it
+# glow hotter, the wax rises faster and the base's rim shines. Mids turn
+# the room's swirl and shift its colours. Each hit of the music is felt at
+# once, through pulses of the bass, mids and treble that rise in a tick or
+# two and die away over a fraction of a second (soft-limited, so a bigger
+# hit still means more): a kick flares the bulb, heaves the pool up in a
+# bulge, swells the blobs, sends them on up their loops and ripples the
+# liquid; the mids brighten the swirl; the treble glints in tiny bubbles
+# rising through the liquid.
+version = 1
+
+[meta]
+name = "Lava Lamp"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+f1 = 0.3; f2 = 1.9; f3 = 3.4; f4 = 4.6; f5 = 5.9; f6 = 1.1; f7 = 2.7; f8 = 4.1;
+sw = 0; hu = 0; pp = 0; rp = 0; bu = 0;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+sm = sm + (min(mid_att, 2.5) - sm) * 0.03;
+st = st + (min(treb_att, 2.5) - st) * 0.1;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+// The blobs' places on their loops: each its own pace (a loop in 18 to
+// 30 s), hotter wax faster, each kick sending them on.
+ht = min(sb, 2) / 2;
+sp = (1 + 0.6 * ht) / 60;
+f1 = f1 + 0.33 * sp + 0.012 * pb; f1 = f1 - 6.2831853 * floor(f1 / 6.2831853);
+f2 = f2 + 0.27 * sp + 0.010 * pb; f2 = f2 - 6.2831853 * floor(f2 / 6.2831853);
+f3 = f3 + 0.30 * sp + 0.013 * pb; f3 = f3 - 6.2831853 * floor(f3 / 6.2831853);
+f4 = f4 + 0.22 * sp + 0.009 * pb; f4 = f4 - 6.2831853 * floor(f4 / 6.2831853);
+f5 = f5 + 0.35 * sp + 0.012 * pb; f5 = f5 - 6.2831853 * floor(f5 / 6.2831853);
+f6 = f6 + 0.25 * sp + 0.011 * pb; f6 = f6 - 6.2831853 * floor(f6 / 6.2831853);
+f7 = f7 + 0.29 * sp + 0.010 * pb; f7 = f7 - 6.2831853 * floor(f7 / 6.2831853);
+f8 = f8 + 0.24 * sp + 0.013 * pb; f8 = f8 - 6.2831853 * floor(f8 / 6.2831853);
+// The room's swirl, the pool's slow waves, the kick's ripple and the
+// bubbles' climb.
+sw = sw + (0.05 + 0.2 * min(sm, 2) / 2) / 60 + 0.004 * pm;
+sw = sw - 6.2831853 * floor(sw / 6.2831853);
+hu = hu + (0.003 + 0.15 * pm) / 60;
+hu = hu - floor(hu);
+pp = pp + 1.2 / 60 + 0.05 * pb;
+pp = pp - 6.2831853 * floor(pp / 6.2831853);
+rp = rp + 0.25 + 0.3 * pb;
+rp = rp - 6.2831853 * floor(rp / 6.2831853);
+bu = bu + 0.12 / 60;
+bu = bu - floor(bu);
+q1 = f1; q2 = f2; q3 = f3; q4 = f4; q5 = f5; q6 = f6; q7 = f7; q8 = f8;
+q9 = pb; q10 = sb; q11 = pm; q12 = pt;
+q13 = sw; q14 = hu; q15 = pp; q16 = rp;
+q17 = bu; q18 = st;
+'''
+
+[shader]
+comp = '''
+let sz = u.texsize.xy;
+let asp = sz.x / sz.y;
+let px = 1.0 / sz.y;
+let lw = max(1.0, sz.y / 540.0);
+let pb = u.q[2].x;
+let heat = min(u.q[2].y, 2.0) * 0.5;
+let pm = u.q[2].z;
+let pt = u.q[2].w;
+let sw = u.q[3].x;
+let hu = u.q[3].y;
+let pp = u.q[3].z;
+let rp = u.q[3].w;
+let bu = u.q[4].x;
+let st = max(0.0, min(u.q[4].y, 2.0) - 0.4);
+let hh = 6.2831853 * hu;
+let p0 = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
+// The glass: from yb to yt, wide low down, narrowing to the cap.
+let yb = -0.4;
+let yt = 0.45;
+let ty = clamp((p0.y - yb) / (yt - yb), 0.0, 1.0);
+let wg = 1.35 * (0.12 + 0.13 * (1.0 - ty) + 0.08 * sin(3.14159265 * ty) * (1.0 - ty));
+// The liquid ripples on a kick.
+let p = vec2f(p0.x + 0.006 * pb * sin(p0.y * 45.0 - rp) * smoothstep(yt, yb, p0.y), p0.y);
+// The wax: eight blobs on their loops, stretched by their speed, and the
+// two pools.
+var F = 0.0;
+for (var i = 0; i < 8; i++) {
+    let ph = u.q[i / 4][i % 4];
+    let fi = f32(i);
+    let r = (0.055 + 0.03 * fract(fi * 0.618 + 0.3)) * (1.0 + 0.18 * pb);
+    let yy = yb + 0.03 + (yt - yb - 0.08) * (0.5 - 0.5 * cos(ph));
+    let tb = clamp((yy - yb) / (yt - yb), 0.0, 1.0);
+    let wb = 1.35 * (0.12 + 0.13 * (1.0 - tb) + 0.08 * sin(3.14159265 * tb) * (1.0 - tb));
+    let xx = wb * 0.5 * sin(ph + fi * 2.1) + wb * 0.15 * sin(2.0 * ph + fi);
+    let s = 1.0 + 0.9 * abs(sin(ph));
+    let d = vec2f((p.x - xx) * sqrt(s), (p.y - yy) / s);
+    let fr = r * r / max(dot(d, d), 1e-6);
+    F += fr * fr;
+}
+let hp = 0.05 + 0.008 * sin(p.x * 21.0 + pp) + 0.005 * sin(p.x * 38.0 - pp * 2.0) + (0.05 + 0.02 * heat) * pb * exp(-p.x * p.x / 0.012);
+F += pow(hp / max(p.y - yb, 0.001), 4.0);
+let htp = 0.03 + 0.005 * sin(p.x * 27.0 - pp);
+F += pow(htp / max(yt - p.y, 0.001), 4.0);
+let fw = max(fwidth(min(F, 3.0)), 1e-4) * lw;
+// The room: deep violet, lit by the lamp, with a slow psychedelic swirl.
+let rc = p0 - vec2f(0.0, 0.0);
+let rr = length(rc * vec2f(0.8, 1.0));
+let ra = atan2(rc.y, rc.x);
+let swl = 0.5 + 0.5 * sin(5.0 * ra + 7.0 * log(rr + 0.05) - 3.0 * sw);
+let sw2 = 0.5 + 0.5 * sin(3.0 * ra - 4.0 * log(rr + 0.05) + 2.0 * sw + 1.0);
+let ca = vec3f(0.85, 0.1, 1.0) * (0.8 + 0.2 * cos(hh)) + vec3f(0.3, 0.0, -0.3) * sin(hh);
+let cb = vec3f(1.0, 0.3, 0.1);
+var col = vec3f(0.05, 0.01, 0.1) + (ca * swl + cb * sw2 * 0.5) * exp(-rr * 1.6) * (0.22 + 0.06 * heat + 0.12 * pm);
+col += vec3f(0.4, 0.06, 0.35) * exp(-rr * 4.0) * (0.18 + 0.08 * heat);
+// The glass.
+let gx = abs(p0.x) - wg;
+let ing = smoothstep(px * lw, -px * lw, gx) * step(yb, p0.y) * step(p0.y, yt);
+if (ing > 0.0) {
+    // The liquid: deep violet, lit hot from the bulb below.
+    let fb = exp(-(p.y - yb) * 7.0);
+    var lq = vec3f(0.14, 0.02, 0.26) + vec3f(0.75, 0.12, 0.45) * fb * (0.35 + 0.35 * heat + 0.6 * pb);
+    // The wax lights the liquid round it.
+    lq += vec3f(1.0, 0.3, 0.2) * smoothstep(0.15, 1.0, F) * 0.3;
+    // Tiny bubbles climbing, glinting with the treble.
+    let bq = vec2f(p.x * 70.0, (p.y - bu * 0.73) * 70.0);
+    let bc = floor(bq);
+    let bh = fract(sin(dot(bc, vec2f(127.1, 311.7))) * 43758.5453);
+    let bd = length(fract(bq) - vec2f(0.5)) / 70.0 * sz.y / lw;
+    lq += vec3f(1.0, 0.8, 0.9) * step(0.965, bh) * exp(-bd * bd * 0.6) * (0.15 + 0.4 * st + 1.0 * min(pt, 1.5)) * smoothstep(0.0, -0.06, gx);
+    // The wax: magenta skin, orange flesh, a gold core, hotter low down.
+    let e = clamp((pow(F, 0.25) - 1.0) / 0.7, 0.0, 1.0);
+    let cool = smoothstep(yb + 0.15, yt, p.y);
+    let hot = exp(-(p.y - yb) * 3.0) * (0.5 + 0.5 * heat) + 0.25 * pb;
+    var wx = mix(vec3f(0.95, 0.06, 0.5), mix(vec3f(1.0, 0.4, 0.05), vec3f(1.0, 0.15, 0.3), cool * 0.7), smoothstep(0.02, 0.45, e));
+    wx = mix(wx, vec3f(1.0, 0.8, 0.25), smoothstep(0.5, 1.0, e) * min(hot, 1.0));
+    wx *= 1.1 + 0.5 * hot;
+    let wm = smoothstep(1.0 - fw, 1.0 + fw, F);
+    var gc = mix(lq, wx, wm);
+    // The glass's shine: a soft highlight down one side, a darker rim.
+    let gu = p0.x / wg;
+    gc += vec3f(0.9, 0.8, 1.0) * exp(-pow((gu + 0.62) / 0.08, 2.0)) * 0.22;
+    gc *= 0.65 + 0.35 * smoothstep(1.0, 0.75, abs(gu));
+    col = mix(col, gc, ing);
+}
+// The cap: a metal cone over the glass.
+let ct = clamp((p0.y - yt) / 0.12, 0.0, 1.0);
+let cw = mix(0.162, 0.09, ct);
+let inc = smoothstep(px * lw, -px * lw, abs(p0.x) - cw) * step(yt, p0.y) * step(p0.y, yt + 0.12);
+let cu = p0.x / cw;
+let metal = vec3f(0.18, 0.1, 0.28) + vec3f(0.6, 0.35, 0.7) * exp(-pow((cu + 0.4) / 0.25, 2.0)) * 0.5;
+col = mix(col, metal * (1.0 - 0.4 * ct), inc);
+// The base: a wider cone under the glass, its rim lit by the bulb.
+let bt = clamp((yb - p0.y) / 0.13, 0.0, 1.0);
+let bw = mix(0.3, 0.46, bt);
+let inb = smoothstep(px * lw, -px * lw, abs(p0.x) - bw) * step(p0.y, yb) * step(yb - 0.13, p0.y);
+let bu2 = p0.x / bw;
+let bm = vec3f(0.14, 0.07, 0.22) + vec3f(0.6, 0.35, 0.7) * exp(-pow((bu2 + 0.45) / 0.25, 2.0)) * 0.45;
+col = mix(col, bm, inb);
+// The rim between the base and the glass glows with the heat.
+let rd = (p0.y - yb) / px / lw;
+let rim = exp(-rd * rd / 6.0) * smoothstep(px * lw * 2.0, 0.0, abs(p0.x) - 0.33);
+col += vec3f(1.0, 0.35, 0.15) * rim * (0.5 + 0.6 * heat + 0.9 * pb);
+col += vec3f(1.0, 0.3, 0.2) * exp(-length((p0 - vec2f(0.0, yb)) * vec2f(1.0, 2.5)) * 9.0) * (0.12 + 0.1 * heat + 0.25 * pb);
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.15, vec3f(0.0));
+return col / (1.0 + 0.4 * col);
+'''
