@@ -1,0 +1,230 @@
+# Möbius Ribbon: a fat neon Möbius strip turning through deep space, a
+# broad band with a half twist, so its one side and its one edge run
+# twice round before they meet themselves. Chevrons of light chase
+# round it, nose to tail, over the twist and back without ever changing
+# side; its single edge is a bright neon tube, and the band glows in
+# bands of magenta, violet and cyan with a soft bloom round it.
+#
+# Everything is in the composite. The ribbon is marched as a distance
+# field: round the ring, a point's offset from the centre circle is turned
+# back by half its angle round the ring (plus a twist wave) and measured
+# against a thin rounded rectangle. A half turn per lap means the
+# rectangle comes back upside down, which is the same rectangle, so the
+# field is seamless. Where the ray hits, the angle round the ring and the
+# offset across the band give the chevrons and the edge; on the way, how
+# close the ray passed gives the bloom.
+#
+# The ribbon spins and tumbles (accumulated, faster with the mids), and
+# the chevrons chase round (accumulated). Bass brightens the band
+# (smoothed); the mids drift its colours. Each hit of the music is felt
+# at once, through pulses of the bass, mids and treble that rise in a
+# tick or two and die away over a fraction of a second (soft-limited, so
+# a bigger hit still means more): a kick wrenches the twist harder (a
+# wave of extra twist that runs round the ring), swells the ribbon, rushes
+# the chevrons on and launches a fresh white arrow of light round the
+# loop (up to three at once); the mids spin it; the treble sparkles along
+# the edge.
+version = 1
+
+[meta]
+name = "Möbius Ribbon"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+sp = 0; tm = 0; fl = 0; hu = 0; wv = 0; k1 = 9; k2 = 9; k3 = 9;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+sm = sm + (min(mid_att, 2.5) - sm) * 0.03;
+st = st + (min(treb_att, 2.5) - st) * 0.1;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+ob = pb;
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+// A fresh kick launches an arrow of light round the loop, in the next
+// of three slots; each runs a little over a lap, fading.
+kk = max(pb - ob, 0);
+cd = cd + 1;
+if(kk > 0.1 && cd > 8,
+  cd = 0; sl = (sl + 1) % 3;
+  if(sl == 0, k1 = 0; a1 = min(pb, 1.5), 0);
+  if(sl == 1, k2 = 0; a2 = min(pb, 1.5), 0);
+  if(sl == 2, k3 = 0; a3 = min(pb, 1.5), 0),
+  0);
+k1 = min(k1 + 0.11, 9); k2 = min(k2 + 0.11, 9); k3 = min(k3 + 0.11, 9);
+a1 = a1 * 0.97; a2 = a2 * 0.97; a3 = a3 * 0.97;
+// The ribbon spins (once in 30 s) and tumbles, faster with the mids.
+sp = sp + (6.2831853 / 30 + 0.6 * pm + 0.2 * pb) / 60;
+sp = sp - 6.2831853 * floor(sp / 6.2831853);
+tm = tm + (6.2831853 / 47 + 0.2 * pm) / 60;
+tm = tm - 6.2831853 * floor(tm / 6.2831853);
+// The chevrons chase round, rushing on with the kicks.
+fl = fl + (0.5 + 0.2 * min(sb, 2) + 4 * pb) / 60;
+fl = fl - floor(fl);
+// The twist wave runs round the ring.
+wv = wv + (1.2 + 3 * pb) / 60;
+wv = wv - 6.2831853 * floor(wv / 6.2831853);
+hu = hu + (0.008 + 0.02 * min(sm, 2) / 2 + 0.12 * pm) / 60;
+hu = hu - floor(hu);
+q1 = sp; q2 = tm; q3 = fl; q4 = hu;
+q5 = pb; q6 = pm; q7 = pt; q8 = sb;
+q9 = k1; q10 = k2; q11 = k3; q12 = a1;
+q13 = a2; q14 = a3; q15 = st; q16 = wv;
+'''
+
+[shader]
+comp = '''
+let sz = u.texsize.xy;
+let asp = sz.x / sz.y;
+let spn = u.q[0].x;
+let tm = u.q[0].y;
+let flw = u.q[0].z;
+let hu = u.q[0].w;
+let pb = u.q[1].x;
+let pm = u.q[1].y;
+let pt = min(u.q[1].z, 1.5);
+let sb = min(u.q[1].w, 2.0) * 0.5;
+let k1 = u.q[2].x;
+let k2 = u.q[2].y;
+let k3 = u.q[2].z;
+let a1 = u.q[2].w;
+let a2 = u.q[3].x;
+let a3 = u.q[3].y;
+let st = max(0.0, min(u.q[3].z, 2.5) - 0.3);
+let wv = u.q[3].w;
+let lw = max(1.0, sz.y / 540.0);
+let TAU = 6.2831853;
+let sp = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
+// Space: deep blue-violet, a soft magenta glow behind the ribbon, dust.
+let r0 = length(sp);
+var col = vec3f(0.01, 0.008, 0.03) + vec3f(0.1, 0.02, 0.12) * exp(-r0 * r0 * 2.2) + vec3f(0.0, 0.03, 0.06) * exp(-r0 * 1.2);
+let cell = floor(uv * sz / lw);
+let h0 = (u32(cell.x) * 1973u + u32(cell.y) * 9277u) * 747796405u + 2891336453u;
+let h1 = ((h0 >> ((h0 >> 28u) + 4u)) ^ h0) * 277803737u;
+let hh = f32((h1 >> 22u) ^ h1) / 4294967296.0;
+col += vec3f(0.7, 0.8, 1.0) * step(0.9975, hh) * (0.2 + 0.4 * fract(hh * 911.0));
+// The camera, pushed in a little by the kicks.
+let fz = 1.6 * (1.0 + 0.03 * pb);
+let rd0 = normalize(vec3f(sp.x, sp.y, fz));
+// Orbit: tilt down onto the ring (tumbling), then spin about its axis.
+let tl = 0.5 + 0.3 * sin(tm);
+let ct = cos(tl);
+let stt = sin(tl);
+let cs = cos(spn);
+let ss = sin(spn);
+let ro1 = vec3f(0.0, 6.0 * stt, -6.0 * ct);
+let ro = vec3f(ro1.x * cs + ro1.z * ss, ro1.y, -ro1.x * ss + ro1.z * cs);
+let rd1 = vec3f(rd0.x, rd0.y * ct - rd0.z * stt, rd0.y * stt + rd0.z * ct);
+let rd = vec3f(rd1.x * cs + rd1.z * ss, rd1.y, -rd1.x * ss + rd1.z * cs);
+// The ribbon: ring radius, half width and thickness, swelling with the kicks.
+let sc = 1.0 + 0.04 * pb;
+let RR = 1.35 * sc;
+let WW = 0.55 * sc;
+let TT = 0.045 * sc;
+let tws = 0.35 + 0.9 * pb;
+let bq = dot(ro, rd);
+let cq = dot(ro, ro) - (RR + WW + 0.3) * (RR + WW + 0.3);
+let disc = bq * bq - cq;
+var glow = 0.0;
+var hit = false;
+var ha = 0.0;
+var aa = 0.0;
+var qx = 0.0;
+var qy = 0.0;
+var th = 0.0;
+if (disc > 0.0) {
+    let sq = sqrt(disc);
+    var t = max(-bq - sq, 0.0);
+    let t1 = -bq + sq;
+    for (var i = 0; i < 90; i++) {
+        if (t > t1) {
+            break;
+        }
+        let P = ro + rd * t;
+        let a = atan2(P.z, P.x);
+        let rx = length(P.xz) - RR;
+        let h = 0.5 * a + tws * sin(a - wv);
+        let ch = cos(h);
+        let sh = sin(h);
+        let ux = rx * ch + P.y * sh;
+        let uy = -rx * sh + P.y * ch;
+        let bx = abs(ux) - WW;
+        let by = abs(uy) - TT;
+        let d = length(max(vec2f(bx, by), vec2f(0.0))) + min(max(bx, by), 0.0) - 0.02;
+        glow += exp(-max(d, 0.0) * 9.0) * min(max(d, 0.02), 0.2);
+        if (d < 0.0015 * t) {
+            hit = true;
+            ha = h;
+            aa = a;
+            qx = ux;
+            qy = uy;
+            th = t;
+            break;
+        }
+        t += max(d * 0.6, 0.004);
+    }
+}
+// The band's colours, periodic round the ring (and the same either side,
+// since there is only one side).
+let hc = TAU * hu;
+col += mix(vec3f(0.9, 0.15, 0.8), vec3f(0.1, 0.7, 1.0), 0.5 + 0.5 * sin(hc)) * glow * (0.07 + 0.05 * sb + 0.03 * pb);
+if (hit) {
+    let v = clamp(qx / WW, -1.0, 1.0);
+    let av = abs(v);
+    // The normal: the band's face, turned with it.
+    let sd = select(-1.0, 1.0, qy >= 0.0);
+    let ra = vec3f(cos(aa), 0.0, sin(aa));
+    let nf = ra * (-sd * sin(ha)) + vec3f(0.0, sd * cos(ha), 0.0);
+    let ne = ra * (sign(qx) * cos(ha)) + vec3f(0.0, sign(qx) * sin(ha), 0.0);
+    let nn = normalize(mix(nf, ne, smoothstep(0.93, 1.0, av)));
+    let fres = pow(1.0 - abs(dot(nn, rd)), 3.0);
+    let lt = normalize(vec3f(0.4, 0.9, -0.3));
+    let df = abs(dot(nn, lt));
+    let sp2 = pow(max(dot(reflect(rd, nn), lt), 0.0), 30.0);
+    // Colour: round the ring and across it.
+    let ph = TAU * (hu + 0.5 * cos(aa) * 0.3) + v * v * 0.6;
+    let base = mix(vec3f(1.0, 0.1, 0.75), vec3f(0.05, 0.75, 1.0), 0.5 + 0.5 * cos(aa + hc));
+    let alt = mix(vec3f(0.55, 0.2, 1.0), vec3f(1.0, 0.45, 0.1), 0.5 + 0.5 * sin(ph));
+    var c = mix(base, alt, 0.35 * av) * (0.22 + 0.25 * df + 0.2 * sb);
+    // Chevrons chasing round: nose forward, the same either side.
+    let cv = aa / TAU * 9.0 - av * 0.55 - flw * 1.0;
+    let fcv = fract(cv);
+    let chev = smoothstep(0.0, 0.08, fcv) * (1.0 - smoothstep(0.22, 0.34, fcv)) * smoothstep(0.98, 0.85, av);
+    c += mix(base, vec3f(1.0), 0.35) * chev * (1.2 + 0.5 * pb);
+    // The kicks' arrows of light: a bright chevron running round.
+    var ar = 0.0;
+    for (var j = 0; j < 3; j++) {
+        let kp = select(select(k3, k2, j == 1), k1, j == 0);
+        let ka = select(select(a3, a2, j == 1), a1, j == 0);
+        let dd = aa - kp + 1.2 - av * 0.35;
+        let wd = dd - TAU * floor(dd / TAU + 0.5);
+        ar += ka * exp(-wd * wd * 30.0);
+    }
+    c += vec3f(1.0, 0.95, 1.0) * ar * 1.8;
+    // The one edge: a neon tube, sparkling with the treble.
+    let edge = smoothstep(0.86, 0.99, av);
+    let ef = fract(aa * 9.549297) - 0.5;
+    let eh = fract(sin(floor(aa * 9.549297) * 12.9898) * 43758.5453);
+    let tw = 0.5 + 0.5 * sin(u.time * (3.0 + 5.0 * eh) + eh * 30.0);
+    let spk = step(0.6 - 0.2 * pt, eh) * exp(-ef * ef * 60.0) * tw * (0.8 * st + 4.0 * pt);
+    c += mix(vec3f(0.6, 1.0, 1.0), base, 0.3) * edge * (1.1 + 0.6 * sb + spk);
+    c += vec3f(1.0) * sp2 * 0.5 + base * fres * 0.6;
+    col = mix(col, c, exp(-max(th - 4.0, 0.0) * 0.15));
+}
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.2, vec3f(0.0));
+return col / (1.0 + 0.4 * col);
+'''

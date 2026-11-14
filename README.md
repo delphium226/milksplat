@@ -69,8 +69,8 @@ device, so just start your music and run it.
 | **Neural Storm**: layers of glowing neurons joined by arcing axons, sparks racing along them and firing cascades spreading from cell to cell | **Mycelium**: luminous cyan and violet fungal threads forking outward through dark soil, nutrient pulses racing along them as glowing fruiting bodies push up, then crumbling away to regrow |
 | ![Dyson Swarm](docs/images/dyson-swarm.png) | ![Abyssal Jellyfish](docs/images/abyssal-jellyfish.png) |
 | **Dyson Swarm**: thousands of collector panels in inclined rings round a blazing star, glinting gold and silhouetted on its face, beaming energy to a distant receiver | **Abyssal Jellyfish**: bioluminescent jellyfish pulsing up through the deep, every kick squeezing their glowing bells, among marine snow and beaded siphonophore chains |
-| ![Klein Bottle](docs/images/klein-bottle.png) |  |
-| **Klein Bottle**: a glowing glass Klein bottle turning in a violet void, its neck plunging back through its own side, iridescent bands flowing round its one surface and every kick racing a pulse through the self-intersection |  |
+| ![Klein Bottle](docs/images/klein-bottle.png) | ![Möbius Ribbon](docs/images/mobius-ribbon.png) |
+| **Klein Bottle**: a glowing glass Klein bottle turning in a violet void, its neck plunging back through its own side, iridescent bands flowing round its one surface and every kick racing a pulse through the self-intersection | **Möbius Ribbon**: a fat neon Möbius strip turning through deep space, chevrons of light chasing round its one side, every kick wrenching its twist and launching a fresh arrow of light round the loop |
 
 These are single frames; every preset moves and changes with the music.
 
