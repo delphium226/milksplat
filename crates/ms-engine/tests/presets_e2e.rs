@@ -54,7 +54,7 @@ const HAT_SEED: u64 = 0x4A75_6E6B_4861_7473;
 const RGBA8: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 
 /// The bundled presets, by file stem. `presets/` must hold exactly these.
-const BUNDLED: [&str; 66] = [
+const BUNDLED: [&str; 67] = [
     "default",
     "ink-bloom",
     "bass-tunnel",
@@ -121,6 +121,7 @@ const BUNDLED: [&str; 66] = [
     "lava-lamp",
     "girih-lattice",
     "starling-murmuration",
+    "blazar-jet",
 ];
 
 // ------------------------------------------------------------ synthetic audio
@@ -565,6 +566,7 @@ preset_tests! {
     preset_lava_lamp => "lava-lamp",
     preset_girih_lattice => "girih-lattice",
     preset_starling_murmuration => "starling-murmuration",
+    preset_blazar_jet => "blazar-jet",
 }
 
 /// `presets/` holds exactly the bundled set (so every file has a test
@@ -597,7 +599,7 @@ fn bundled_set_is_complete() {
 /// runs: a minute for those with long-running state (accumulated phases,
 /// state machines), twenty seconds for the rest (enough for their feedback
 /// to settle; every bundled preset but the gentle default is covered).
-const LONG_RUN: [(&str, usize); 65] = [
+const LONG_RUN: [(&str, usize); 66] = [
     ("ink-bloom", 1200),
     ("bass-tunnel", 1200),
     ("prism-drift", 1200),
@@ -663,6 +665,7 @@ const LONG_RUN: [(&str, usize); 65] = [
     ("lava-lamp", 3600),
     ("girih-lattice", 3600),
     ("starling-murmuration", 3600),
+    ("blazar-jet", 3600),
 ];
 
 /// A cheap guard against flashing that only develops over time (for
