@@ -63,6 +63,8 @@ device, so just start your music and run it.
 | **Hyperspace Jump**: stars stretch into streaks as the ship punches into a swirling blue-white tunnel of energy filaments, then drops out into a new star field and nebula | **Neural Storm**: layers of glowing neurons joined by arcing axons, sparks racing along them and firing cascades spreading from cell to cell |
 | ![Mycelium](docs/images/mycelium.png) | ![Dyson Swarm](docs/images/dyson-swarm.png) |
 | **Mycelium**: luminous cyan and violet fungal threads forking outward through dark soil, nutrient pulses racing along them as glowing fruiting bodies push up, then crumbling away to regrow | **Dyson Swarm**: thousands of collector panels in inclined rings round a blazing star, glinting gold and silhouetted on its face, beaming energy to a distant receiver |
+| ![Abyssal Jellyfish](docs/images/abyssal-jellyfish.png) | |
+| **Abyssal Jellyfish**: bioluminescent jellyfish pulsing up through the deep, every kick squeezing their glowing bells, among marine snow and beaded siphonophore chains | |
 
 These are single frames; every preset moves and changes with the music.
 
