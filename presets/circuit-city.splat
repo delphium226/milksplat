@@ -18,7 +18,7 @@
 # and treble that rise in a tick or two and die away over a fraction of a
 # second (soft-limited, so a bigger hit still means more): a fresh kick
 # sends a pulse wave racing out through the grid from a point ahead (in
-# the next of three slots, ramping in), lighting every trace it crosses,
+# the next of four slots, ramping in), lighting every trace it crosses,
 # boosts the flight and the packets, and flares the dies; the mids swing
 # the packets' colours; the treble sets the LEDs twinkling.
 version = 1
@@ -38,7 +38,7 @@ mesh = [8, 6]
 [code]
 init = '''
 fz = 0; ph = 0; sw = 0; hu = 0; cd = 0; sl = 0;
-r1 = 99; r2 = 99; r3 = 99;
+r1 = 99; r2 = 99; r3 = 99; r4 = 99;
 '''
 frame = '''
 xs = max(bass_att - 1, 0); xs = xs / (1 + 0.5 * xs);
@@ -54,7 +54,7 @@ pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
 // The flight, boosted by each kick; the world repeats every 256 units,
 // and the pulse waves' centres are wrapped with it.
 fz = fz + (0.7 + 0.3 * sb) / 60 + 0.06 * pb;
-if(fz > 256, fz = fz - 256; c1 = c1 - 256; c2 = c2 - 256; c3 = c3 - 256, 0);
+if(fz > 256, fz = fz - 256; c1 = c1 - 256; c2 = c2 - 256; c3 = c3 - 256; c4 = c4 - 256, 0);
 // The packets (their pattern repeats every 6).
 ph = ph + 0.45 / 60 + 0.05 * pb;
 ph = ph - 6 * floor(ph / 6);
@@ -63,23 +63,25 @@ sw = sw + 6.2831853 / 40 / 60;
 sw = sw - 6.2831853 * floor(sw / 6.2831853);
 hu = hu + (0.003 + 0.08 * pm) / 60;
 hu = hu - floor(hu);
-// A fresh kick sends a pulse wave out from a point ahead.
+// A fresh kick sends a pulse wave out from a point ahead, in the next of
+// four slots (each wave is gone before its slot comes round again).
 kk = pb - ob;
 cd = cd + 1;
-if(kk > 0.08 && cd > 12,
-  cd = 0; sl = (sl + 1) % 3; na = 0.5 + min(pb, 1.3);
+if(kk > 0.08 && cd > 16,
+  cd = 0; sl = (sl + 1) % 4; na = 0.5 + min(pb, 1.3);
   nx = 1.6 * sin(sw) + 3 * (rand(1000) / 1000 - 0.5); nz = fz + 6 + 3 * rand(1000) / 1000;
   if(sl == 0, r1 = 0; a1 = na; x1 = nx; c1 = nz, 0);
   if(sl == 1, r2 = 0; a2 = na; x2 = nx; c2 = nz, 0);
-  if(sl == 2, r3 = 0; a3 = na; x3 = nx; c3 = nz, 0),
+  if(sl == 2, r3 = 0; a3 = na; x3 = nx; c3 = nz, 0);
+  if(sl == 3, r4 = 0; a4 = na; x4 = nx; c4 = nz, 0),
   0);
-r1 = min(r1 + 1 / 60, 99); r2 = min(r2 + 1 / 60, 99); r3 = min(r3 + 1 / 60, 99);
+r1 = min(r1 + 1 / 60, 99); r2 = min(r2 + 1 / 60, 99); r3 = min(r3 + 1 / 60, 99); r4 = min(r4 + 1 / 60, 99);
 q1 = fz; q2 = ph; q3 = sw; q4 = hu;
 q5 = pb; q6 = pm; q7 = pt; q8 = sb;
-q9 = r1; q10 = r2; q11 = r3;
-q13 = a1; q14 = a2; q15 = a3;
-q17 = x1; q18 = x2; q19 = x3;
-q21 = c1; q22 = c2; q23 = c3;
+q9 = r1; q10 = r2; q11 = r3; q12 = r4;
+q13 = a1; q14 = a2; q15 = a3; q16 = a4;
+q17 = x1; q18 = x2; q19 = x3; q20 = x4;
+q21 = c1; q22 = c2; q23 = c3; q24 = c4;
 '''
 
 [shader]
@@ -114,7 +116,7 @@ let h0 = 6.2831853 * hu;
 let pc0 = vec3f(0.1, 0.85, 1.0);
 let pc1 = vec3f(1.0, 0.2, 0.8);
 let pc2 = vec3f(1.0, 0.75, 0.2);
-let fogc = vec3f(0.2, 0.065, 0.3);
+let fogc = vec3f(0.22, 0.075, 0.33);
 var col = fogc;
 if (rd.y < -0.004) {
     let tg = -ro.y / rd.y;
@@ -167,15 +169,15 @@ if (rd.y < -0.004) {
     let tt = min(th, tg);
     let P = ro + rd * tt;
     var ring = 0.0;
-    for (var k = 0; k < 3; k++) {
+    for (var k = 0; k < 4; k++) {
         let ra = u.q[2][k];
-        if (ra < 3.0) {
+        if (ra < 1.0) {
             let am = u.q[3][k];
             let cx = u.q[4][k];
             let cz = u.q[5][k];
-            let rr = ra * 4.5;
+            let rr = ra * 6.0;
             let dd = length(P.xz - vec2f(cx, cz)) - rr;
-            ring += am * exp(-dd * dd / (0.08 + 0.05 * ra)) * smoothstep(0.0, 0.12, ra) * (1.0 - smoothstep(1.2, 3.0, ra));
+            ring += am * exp(-dd * dd / (0.08 + 0.05 * ra)) * smoothstep(0.0, 0.12, ra) * (1.0 - smoothstep(0.45, 0.95, ra));
         }
     }
     let ringc = vec3f(0.6, 0.95, 1.0);
@@ -217,7 +219,7 @@ if (rd.y < -0.004) {
     } else {
         // The board.
         let G = P.xz;
-        col = vec3f(0.018, 0.04, 0.05);
+        col = vec3f(0.024, 0.048, 0.06);
         let s = 0.2;
         let det = 1.0 - smoothstep(0.012, 0.05, fp);
         var tr = vec3f(0.0);
