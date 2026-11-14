@@ -1,0 +1,290 @@
+# Fireworks Symphony: a fireworks show over a still lake at night. Shells
+# streak up from the far shore and burst into peonies of coloured stars,
+# golden willows whose long trails droop and hang, crossettes whose stars
+# split into crosses, and tilted ring shells. Every star falls under
+# gravity, slowed by the air, fading and crackling as it burns out. Smoke
+# hangs over the show and glows where the bursts light it; the treeline
+# on the far shore stands black against a city's glow, and the lake below
+# mirrors it all in rippling, stretched reflections.
+#
+# Everything is in the composite. Ten shells live in slots set by the
+# frame code (each an age and a seed); the shader hashes a shell's place,
+# height, type and colour from its seed. A star's path is closed-form (a
+# radial burst slowed by drag, less the drop of a falling body with drag),
+# so for each pixel the shell's droop is undone and only the stars of the
+# nearest angular sectors are tested, each drawn as a short trail (the
+# segment from where it was a moment ago to where it is now) with a hot
+# head. Lake pixels show the scene at their mirror point, rippled and
+# stretched.
+#
+# Each hit of the music is felt at once, through pulses of the bass, mids
+# and treble that rise in a tick or two and die away over a fraction of a
+# second (soft-limited, so a bigger hit still means more): a fresh kick
+# launches a shell (in the next of ten slots, its size and brightness set
+# by the hit) with a flash at the mortar on the shore, and makes every
+# burning star flare; the mids light the smoke and the city's glow; the
+# treble makes the stars glitter. A shell's light ramps in as it bursts
+# and lights only the smoke round it, so nothing ever flashes the whole
+# sky. Now and then a shell goes up on its own, so the sky is never
+# empty.
+version = 1
+
+[meta]
+name = "Fireworks Symphony"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+nn = 1; sl = 0; cd = 0; at = 0; sm0 = 0;
+a1 = 1.2; s1 = 3.6; a2 = 2.0; s2 = 5.7; a3 = 0.5; s3 = 8.4;
+a4 = 3.0; s4 = 11.5; a5 = 99; a6 = 99; a7 = 99; a8 = 99; a9 = 99; a10 = 99;
+nn = 12;
+'''
+frame = '''
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+ob = pb;
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+// The smoke drifts (accumulated).
+sm0 = sm0 + 0.012 / 60;
+sm0 = sm0 - 64 * floor(sm0 / 64);
+// A fresh kick launches a shell in the next of ten slots; one goes up
+// on its own every two and a half seconds of quiet. Its seed carries its
+// strength in the fraction.
+kk = pb - ob;
+cd = cd + 1; at = at + 1;
+if((kk > 0.08 && cd > 16) || at > 150,
+  cd = 0; at = 0; sl = (sl + 1) % 10; nn = nn + 1; nn = nn - 4096 * floor(nn / 4096);
+  ns = nn + 0.2 + 0.35 * min(pb, 1.5);
+  if(sl == 0, a1 = 0; s1 = ns, 0);
+  if(sl == 1, a2 = 0; s2 = ns, 0);
+  if(sl == 2, a3 = 0; s3 = ns, 0);
+  if(sl == 3, a4 = 0; s4 = ns, 0);
+  if(sl == 4, a5 = 0; s5 = ns, 0);
+  if(sl == 5, a6 = 0; s6 = ns, 0);
+  if(sl == 6, a7 = 0; s7 = ns, 0);
+  if(sl == 7, a8 = 0; s8 = ns, 0);
+  if(sl == 8, a9 = 0; s9 = ns, 0);
+  if(sl == 9, a10 = 0; s10 = ns, 0),
+  0);
+a1 = min(a1 + 1 / 60, 99); a2 = min(a2 + 1 / 60, 99);
+a3 = min(a3 + 1 / 60, 99); a4 = min(a4 + 1 / 60, 99);
+a5 = min(a5 + 1 / 60, 99); a6 = min(a6 + 1 / 60, 99);
+a7 = min(a7 + 1 / 60, 99); a8 = min(a8 + 1 / 60, 99);
+a9 = min(a9 + 1 / 60, 99); a10 = min(a10 + 1 / 60, 99);
+q1 = a1; q2 = s1; q3 = a2; q4 = s2;
+q5 = a3; q6 = s3; q7 = a4; q8 = s4;
+q9 = a5; q10 = s5; q11 = a6; q12 = s6;
+q13 = a7; q14 = s7; q15 = a8; q16 = s8;
+q17 = a9; q18 = s9; q19 = a10; q20 = s10;
+q21 = pb; q22 = pm; q23 = pt; q24 = sm0;
+'''
+
+[shader]
+comp = '''
+let sz = u.texsize.xy;
+let asp = sz.x / sz.y;
+let pb = u.q[5].x;
+let pm = u.q[5].y;
+let pt = u.q[5].z;
+let sm0 = u.q[5].w;
+let px = 1.0 / sz.y;
+let lw = max(1.0, sz.y / 540.0);
+// A star's line: about a pixel and a half wide at any size, its glow
+// relative to the picture.
+let w1 = 1.3 * px * lw;
+// On a tiny picture a star is a large share of it: its flicker and its
+// flare are held back there.
+let rs = clamp(sz.y / 200.0, 0.0, 1.0);
+let hz = -0.2;
+let p0 = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
+// Lake pixels look at their mirror point, rippled (more near the
+// shore, in perspective) and stretched downward.
+let dep = hz - p0.y;
+let inlake = dep > 0.0;
+var p = p0;
+if (inlake) {
+    let zz = 1.0 / (dep + 0.03);
+    let n1 = textureSampleLevel(sampler_noise_lq, s_fw, vec2f(p0.x * 1.5 * zz * 0.15, zz * 0.08 + sm0 * 6.0), 0.0).xy - vec2f(0.5);
+    let rip = n1 * vec2f(0.12, 0.6) * dep;
+    p = vec2f(p0.x + rip.x, hz + dep * 1.35 + rip.y);
+}
+// The sky: deep blue, warming to a city's glow at the horizon.
+let hy = max(p.y - hz, 0.0);
+var col = mix(vec3f(0.1, 0.07, 0.16), vec3f(0.02, 0.025, 0.07), smoothstep(0.0, 0.5, hy));
+col += vec3f(0.35, 0.16, 0.08) * exp(-hy * 22.0) * (0.55 + 0.35 * pm);
+// Stars.
+let sq = p * 90.0;
+let sc = floor(sq);
+let sh = fract(sin(vec2f(dot(sc, vec2f(127.1, 311.7)), dot(sc, vec2f(269.5, 183.3)))) * 43758.5453);
+let sd = length(sq - sc - vec2f(0.2) - sh * 0.6) / 90.0 / (px * lw);
+col += vec3f(0.7, 0.8, 1.0) * step(0.97, sh.x) * exp(-sd * sd / 0.8) * (0.35 + 0.25 * sin(u.time * 2.0 + sh.y * 50.0)) * smoothstep(0.02, 0.15, hy);
+// The smoke, drifting.
+let s1 = textureSampleLevel(sampler_noisevol_lq, s_fw, vec3f(p * vec2f(0.5, 0.9) + vec2f(sm0 * 3.0, 0.0), sm0), 0.0).x;
+let s2 = textureSampleLevel(sampler_noisevol_lq, s_fw, vec3f(p * vec2f(1.2, 2.0) + vec2f(sm0 * 5.0, 0.3), sm0 * 1.7 + 0.5), 0.0).x;
+let smoke = smoothstep(0.25, 0.75, 0.65 * s1 + 0.35 * s2) * smoothstep(-0.05, 0.12, hy);
+col += vec3f(0.06, 0.05, 0.09) * smoke;
+var fire = vec3f(0.0);
+var lit = vec3f(0.0);
+for (var k = 0; k < 10; k++) {
+    let ag = u.q[k / 2][(k % 2) * 2];
+    let sdv = u.q[k / 2][(k % 2) * 2 + 1];
+    if (ag > 5.0) {
+        continue;
+    }
+    let n = floor(sdv);
+    let amp = fract(sdv) * 2.0;
+    let h1 = fract(sin(n * 12.9898 + 1.0) * 43758.5453);
+    let h2 = fract(sin(n * 78.233 + 2.0) * 43758.5453);
+    let h3 = fract(sin(n * 39.425 + 3.0) * 43758.5453);
+    let h4 = fract(sin(n * 93.989 + 4.0) * 43758.5453);
+    let h5 = fract(sin(n * 51.731 + 5.0) * 43758.5453);
+    let bx = (h1 - 0.5) * min(asp, 1.8) * 0.8;
+    let by = 0.04 + 0.26 * h2;
+    let tr = 0.32 + 0.25 * h2;
+    let ty = floor(h3 * 4.0);
+    // A saturated colour; willows are gold.
+    let hh = 6.2831853 * h4;
+    var cc = 0.5 + 0.5 * vec3f(cos(hh), cos(hh - 2.094), cos(hh + 2.094));
+    cc = cc * cc * 1.3 + vec3f(0.08);
+    cc = select(cc, vec3f(1.0, 0.62, 0.22), ty == 1.0);
+    if (ag < tr) {
+        // The shell rising: a streak of sparks, slowing as it climbs.
+        let f = ag / tr;
+        let f0 = max(f - 0.25, 0.0);
+        let yh = hz + (by - hz) * (1.0 - (1.0 - f) * (1.0 - f));
+        let yt = hz + (by - hz) * (1.0 - (1.0 - f0) * (1.0 - f0));
+        let hd = vec2f(bx + 0.01 * sin(f * 9.0 + h5 * 6.0), yh);
+        let tl = vec2f(bx, yt);
+        let ab = hd - tl;
+        let hp = clamp(dot(p - tl, ab) / max(dot(ab, ab), 1e-8), 0.0, 1.0);
+        let dd = length(p - tl - ab * hp) / w1;
+        fire += vec3f(1.0, 0.7, 0.35) * (exp(-dd * dd) * (0.2 + 0.8 * hp) * 1.2 + exp(-dd * 0.25) * 0.05) * smoothstep(0.0, 0.1, ag);
+        // The mortar's flash on the shore.
+        let md = length((p - vec2f(bx, hz)) * vec2f(1.0, 2.5));
+        lit += vec3f(1.0, 0.6, 0.3) * exp(-md * md / 0.004) * smoothstep(0.0, 0.08, ag) * exp(-ag * 6.0) * (0.6 + amp);
+        continue;
+    }
+    let tau = ag - tr;
+    // The type: drag, reach, droop, life, star count, trail length.
+    var kd = 1.7;
+    var rinf = 0.3;
+    var gr = 0.09;
+    var life = 3.0;
+    var ns = 36.0;
+    var tl0 = 0.16;
+    if (ty == 1.0) {
+        kd = 2.2; rinf = 0.3; gr = 0.15; life = 3.8; ns = 26.0; tl0 = 0.7;
+    } else if (ty == 2.0) {
+        kd = 1.6; rinf = 0.22; gr = 0.09; life = 2.6; ns = 16.0; tl0 = 0.14;
+    } else if (ty == 3.0) {
+        kd = 1.9; rinf = 0.28; gr = 0.07; life = 2.6; ns = 44.0; tl0 = 0.12;
+    }
+    if (tau > life) {
+        continue;
+    }
+    rinf = rinf * (0.75 + 0.3 * h5) * (0.85 + 0.25 * amp);
+    let c = vec2f(bx, by);
+    let ek = exp(-kd * tau);
+    let rr = rinf * (1.0 - ek);
+    let dr = gr / kd * (tau - (1.0 - ek) / kd);
+    let t2 = max(tau - tl0, 0.0);
+    let ek2 = exp(-kd * t2);
+    let rr2 = rinf * (1.0 - ek2);
+    let dr2 = gr / kd * (t2 - (1.0 - ek2) / kd);
+    // The burst's light: ramps in, then dies away.
+    let env = smoothstep(0.0, 0.12, tau) * (1.0 - smoothstep(life * 0.55, life, tau));
+    let fade = 1.0 - smoothstep(life * 0.5, life, tau);
+    // Undo the droop; ring shells are tilted ellipses.
+    var q = p - c + vec2f(0.0, dr);
+    let tilt = (h5 - 0.5) * 1.6;
+    let ct = 0.3 + 0.45 * h1;
+    let cs = cos(tilt);
+    let sn = sin(tilt);
+    if (ty == 3.0) {
+        q = vec2f(cs * q.x + sn * q.y, (-sn * q.x + cs * q.y) / ct);
+    }
+    let sa = 6.2831853 / ns;
+    let sec = floor(atan2(q.y, q.x) / sa);
+    let nl = select(2, 1, ty == 3.0);
+    var acc = 0.0;
+    for (var l = 0; l < nl; l++) {
+        for (var s = -1; s < 2; s++) {
+            let i = sec + f32(s);
+            let hi = fract(sin(i * 17.31 + n * 3.17 + f32(l) * 41.3) * 43758.5453);
+            let hj = fract(hi * 7.13 + 0.31);
+            let th = (i + 0.5 + 0.6 * (hj - 0.5)) * sa;
+            var dv = vec2f(cos(th), sin(th));
+            if (ty == 3.0) {
+                let dy = dv.y * ct;
+                dv = vec2f(cs * dv.x - sn * dy, sn * dv.x + cs * dy);
+            }
+            let sr = select(0.35 + 0.4 * hi, 0.82 + 0.18 * hi, l == 0);
+            let hd = c + dv * (sr * rr) - vec2f(0.0, dr);
+            let tp = c + dv * (sr * rr2) - vec2f(0.0, dr2);
+            // Each star burns out at its own moment, crackling first.
+            let lf = 1.0 - smoothstep(life * (0.55 + 0.4 * hj), life * (0.6 + 0.4 * hj), tau);
+            let crk = select(1.0, 1.0 - 0.5 * rs * step(0.5, fract(hi * 91.7 + u.time * 13.0)), tau > life * 0.45 && ty != 1.0);
+            let gl = 1.0 + 1.5 * rs * pt * step(0.6, fract(hj * 53.1 + u.time * 7.0));
+            if (ty == 2.0 && tau > 0.6) {
+                // A crossette: the star splits into four.
+                let tx = tau - 0.6;
+                let r4 = 0.06 * (1.0 - exp(-2.5 * tx));
+                let ex = exp(-kd * 0.6);
+                let sp0 = c + dv * (sr * rinf * (1.0 - ex)) - vec2f(0.0, gr / kd * (0.6 - (1.0 - ex) / kd) + 0.5 * gr * tx * tx);
+                for (var m = 0; m < 4; m++) {
+                    let am = th + 0.785 + 1.5708 * f32(m);
+                    let e4 = sp0 + vec2f(cos(am), sin(am)) * r4;
+                    let ab = e4 - sp0;
+                    let hp = clamp(dot(p - sp0, ab) / max(dot(ab, ab), 1e-8), 0.0, 1.0);
+                    let dd = length(p - sp0 - ab * hp) / w1;
+                    acc += (exp(-dd * dd) * (0.15 + 0.85 * hp * hp) + exp(-length(p - e4) / w1 * 0.5) * 0.3) * lf * crk * gl;
+                }
+            } else {
+                let ab = hd - tp;
+                let hp = clamp(dot(p - tp, ab) / max(dot(ab, ab), 1e-8), 0.0, 1.0);
+                let dd = length(p - tp - ab * hp) / w1;
+                let hdd = length(p - hd) / w1;
+                acc += (exp(-dd * dd) * (0.1 + 0.9 * hp * hp) * select(1.0, 0.7, ty == 1.0) + exp(-hdd * 0.45) * 0.35) * lf * crk * gl;
+            }
+        }
+    }
+    // Hot white heads early on, the colour as they cool.
+    let hot = mix(cc, vec3f(1.0, 0.95, 0.85), 0.6 * exp(-tau * 2.5));
+    fire += hot * acc * env * (0.8 + 0.25 * amp) * (1.0 + 0.6 * pb * rs) * (0.3 + 0.7 * rs);
+    // The burst's light on the smoke round it (and a soft core early on).
+    let ld = length(p - c + vec2f(0.0, dr * 0.5));
+    let rl = 0.03 + rr * rr * 1.5;
+    lit += cc * exp(-ld * ld / rl) * smoothstep(0.0, 0.3, tau) * env * exp(-tau * 0.6) * (0.65 + 0.4 * amp)
+        + vec3f(1.0, 0.9, 0.75) * exp(-ld * ld / 0.002) * env * exp(-tau * 3.0) * 0.6;
+}
+col += lit * (0.12 + 0.8 * smoke) * (1.0 + 0.4 * pm) + fire;
+// The far shore: a treeline, black against the glow.
+let th2 = hz + 0.014 + 0.012 * sin(p.x * 4.0 + 1.0) + 0.006 * sin(p.x * 11.0 + 2.0) + 0.003 * sin(p.x * 37.0);
+let land = smoothstep(px * 1.5, -px * 1.5, p.y - th2);
+// Lights along the shore.
+let lx = p.x * 140.0;
+let lc = floor(lx);
+let lhh = fract(sin(lc * 91.7) * 43758.5453);
+let ld2 = length(vec2f((fract(lx) - 0.5) / 140.0, p.y - hz - 0.006)) / (px * lw);
+col = mix(col, vec3f(0.006, 0.006, 0.012), land) + vec3f(1.0, 0.75, 0.4) * step(0.7, lhh) * exp(-ld2 * ld2 / 0.8) * 0.6;
+if (inlake) {
+    // The water: a dark mirror, with fresnel and a faint sheen.
+    col = col * (0.55 + 0.25 * smoothstep(0.0, 0.3, dep)) * vec3f(0.85, 0.9, 1.0) + vec3f(0.006, 0.01, 0.022);
+}
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.15, vec3f(0.0));
+return col / (1.0 + 0.45 * col);
+'''

@@ -65,6 +65,8 @@ device, so just start your music and run it.
 | **Lava Lamp**: a giant lava lamp, glowing wax rising, stretching, pinching off and sinking through deep violet as the bass heats the bulb | **Girih Lattice**: an Islamic star-and-polygon pattern in gold strapwork and turquoise inlay, its stars unfolding and refolding as light races along the bands |
 | ![Starling Murmuration](docs/images/starling-murmuration.png) | ![Blazar Jet](docs/images/blazar-jet.png) |
 | **Starling Murmuration**: thousands of starlings swirling in a shape-shifting cloud over a dusk reed bed, rippling round a striking hawk | **Blazar Jet**: a black hole's relativistic jet beamed almost straight at you, wound by magnetic helices, as each kick fires a knot of plasma up it |
+| ![Fireworks Symphony](docs/images/fireworks-symphony.png) | |
+| **Fireworks Symphony**: peonies, golden willows, crossettes and ring shells bursting over a mirror-still lake, a shell launched on every kick | |
 
 These are single frames; every preset moves and changes with the music.
 
