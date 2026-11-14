@@ -1,0 +1,236 @@
+# Abyssal Jellyfish: the black water of the deep, faintly blue from far
+# above. Bioluminescent jellyfish pulse slowly upward through it, each a
+# translucent glowing bell with radial canals and four bright gonads, a
+# scalloped margin trailing long fine tentacles beaded with light and
+# frilled oral arms. Marine snow drifts down past them, and siphonophores
+# hang across the dark in long sinuous chains of glowing beads, waves of
+# light running down their length.
+#
+# Everything is in the composite. Each jellyfish is drawn in its own
+# frame, tilted gently: the bell an elliptical dome, bright at its rim
+# like a soap film seen edge-on, with its canals, gonads and scalloped
+# margin; the tentacles and arms are curves hanging from the margin,
+# waves travelling down them and swinging wider toward their tips, their
+# distance measured across the curve. The four jellyfish are at different
+# depths (smaller, dimmer and bluer farther off). The marine snow is
+# three layers of hashed cells falling at different speeds; the
+# siphonophores are beads strung along sine curves, the nearest bead to
+# each pixel found from its position along the chain.
+#
+# The frame code moves the jellyfish (each rises on its own thrust and
+# sways; one that leaves the top comes back in below, somewhere new) and
+# accumulates their tentacles' waves, the snow's fall and the chains'
+# light. Bass brightens the bells (smoothed). Each hit of the music is
+# felt at once, through pulses of the bass, mids and treble that rise in a
+# tick or two and die away over a fraction of a second (soft-limited, so
+# a bigger hit still means more): every kick drives a bell contraction,
+# each bell narrowing and lengthening as it squeezes, its rim flashing,
+# and thrusts the jellyfish upward with its tentacles streaming behind;
+# the mids send waves of light down the siphonophore chains; the treble
+# twinkles the marine snow and the tentacles' beads.
+version = 1
+
+[meta]
+name = "Abyssal Jellyfish"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+j1x = -0.45; j1y = 0.0; j2x = 0.35; j2y = 0.15; j3x = 0.05; j3y = -0.25; j4x = -0.75; j4y = 0.3;
+p1 = 0; p2 = 1.6; p3 = 3.1; p4 = 4.4; sn = 0; ch = 0;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+// Each jellyfish rises slowly, thrust on by every contraction (the
+// nearer ones faster across the screen); one that leaves the top comes
+// back in below.
+th = 0.01 / 60 + 0.0009 * pb;
+j1y = j1y + th * 1.0; j2y = j2y + th * 0.8; j3y = j3y + th * 0.6; j4y = j4y + th * 0.45;
+// (Each wraps only once wholly out of sight, tentacles and all.)
+if(j1y > 1.2, j1y = -0.8; j1x = (rand(1000) / 1000 - 0.5) * 1.3, 0);
+if(j2y > 1.05, j2y = -0.74; j2x = (rand(1000) / 1000 - 0.5) * 1.4, 0);
+if(j3y > 0.94, j3y = -0.69; j3x = (rand(1000) / 1000 - 0.5) * 1.5, 0);
+if(j4y > 0.85, j4y = -0.66; j4x = (rand(1000) / 1000 - 0.5) * 1.6, 0);
+// The tentacles' waves run faster with the thrust.
+w = 0.9 / 60 + 0.05 * pb;
+p1 = p1 + w; p2 = p2 + w * 0.9; p3 = p3 + w * 0.8; p4 = p4 + w * 0.7;
+p1 = p1 - 6.2831853 * 32 * floor(p1 / (6.2831853 * 32));
+p2 = p2 - 6.2831853 * 32 * floor(p2 / (6.2831853 * 32));
+p3 = p3 - 6.2831853 * 32 * floor(p3 / (6.2831853 * 32));
+p4 = p4 - 6.2831853 * 32 * floor(p4 / (6.2831853 * 32));
+// The snow falls; the chains' light runs on, faster with the mids.
+sn = sn + 0.012 / 60; sn = sn - 64 * floor(sn / 64);
+ch = ch + (0.08 + 0.6 * pm) / 60; ch = ch - 64 * floor(ch / 64);
+q1 = j1x; q2 = j1y; q3 = j2x; q4 = j2y;
+q5 = j3x; q6 = j3y; q7 = j4x; q8 = j4y;
+q9 = p1; q10 = p2; q11 = p3; q12 = p4;
+q13 = pb; q14 = pm; q15 = pt; q16 = sb;
+q17 = sn; q18 = ch;
+'''
+
+[shader]
+comp = '''
+let sz = u.texsize.xy;
+let asp = sz.x / sz.y;
+let lw = max(1.0, sz.y / 540.0);
+let pxu = sz.y / lw;
+let pb = u.q[3].x;
+let rsf = min(1.0, sz.y / 270.0);
+let pbs = pb * rsf;
+// The fine lines (at least a pixel wide) dimmed on a small picture, where
+// they would cover much of it.
+let lk = 0.4 + 0.6 * rsf;
+let pm = u.q[3].y;
+let pt = min(u.q[3].z, 1.5);
+let sb = min(u.q[3].w, 2.0) * 0.5;
+let sn = u.q[4].x;
+let ch = u.q[4].y;
+let p = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
+// The water: faintly blue from above, with soft shafts and drifting haze.
+let hq = (p * 0.12 + vec2f(sn * 0.3, sn)) * 32.0;
+let hf = fract(hq);
+let hm = (floor(hq) + hf * hf * (3.0 - 2.0 * hf) + 0.5) / 32.0;
+let hz = textureSampleLevel(sampler_noise_lq, s_fw, hm, 0.0).r;
+let shaft = 0.5 + 0.5 * sin(p.x * 7.0 + p.y * 2.0 + 0.6 * sin(p.x * 3.1 + 1.0));
+var col = vec3f(0.008, 0.028, 0.065) + vec3f(0.02, 0.075, 0.15) * smoothstep(-0.6, 0.6, p.y) * (0.6 + 0.4 * shaft) + vec3f(0.0, 0.03, 0.06) * hz;
+// The siphonophores: two chains of beads.
+for (var c = 0; c < 2; c++) {
+    let fc = f32(c);
+    let y0 = select(-0.28, 0.2, c == 0);
+    let ph = ch * 0.3 + fc * 2.0;
+    let s = 0.018 - 0.004 * fc;
+    let bi = floor(p.x / s + 0.5);
+    var best = 1e9;
+    var bx = 0.0;
+    for (var m = -1; m <= 1; m++) {
+        let xb = (bi + f32(m)) * s;
+        let yb = y0 + 0.09 * sin(xb * 2.7 + ph) + 0.035 * sin(xb * 6.3 - ph * 1.7);
+        let d = length(p - vec2f(xb, yb));
+        if (d < best) {
+            best = d;
+            bx = xb;
+        }
+    }
+    let dpx = best * pxu;
+    let br = 1.6 - 0.5 * fc;
+    // Waves of light run along the chain.
+    let wv = 0.25 + 0.75 * pow(0.5 + 0.5 * sin(bx * 9.0 - ch * 6.0 + fc * 3.0), 8.0) * (0.4 + 1.2 * pm);
+    let cc = select(vec3f(1.0, 0.45, 0.25), vec3f(0.35, 1.0, 0.75), c == 0);
+    col += cc * (exp(-dpx * dpx / (br * br * 2.0)) * 0.9 + exp(-dpx / (br * 5.0)) * 0.12) * wv * (0.7 + 0.3 * fc);
+}
+// The jellyfish, far to near.
+for (var j = 3; j >= 0; j--) {
+    let fj = f32(j);
+    let jx = select(select(select(u.q[1].z, u.q[1].x, j == 2), u.q[0].z, j == 1), u.q[0].x, j == 0);
+    let jy = select(select(select(u.q[1].w, u.q[1].y, j == 2), u.q[0].w, j == 1), u.q[0].y, j == 0);
+    let ph = select(select(select(u.q[2].w, u.q[2].z, j == 2), u.q[2].y, j == 1), u.q[2].x, j == 0);
+    let sc = select(select(select(0.42, 0.56, j == 2), 0.75, j == 1), 1.0, j == 0);
+    let dim = select(select(select(0.4, 0.55, j == 2), 0.75, j == 1), 1.0, j == 0);
+    let hue = select(select(select(vec3f(0.55, 0.35, 1.0), vec3f(0.7, 1.0, 0.35), j == 2), vec3f(0.2, 0.85, 1.0), j == 1), vec3f(1.0, 0.3, 0.75), j == 0);
+    let hue2 = select(select(select(vec3f(0.3, 0.7, 1.0), vec3f(0.2, 1.0, 0.8), j == 2), vec3f(0.55, 0.45, 1.0), j == 1), vec3f(1.0, 0.65, 0.4), j == 0);
+    // The contraction: every kick squeezes the bell (nearer ones more).
+    let ct = min(pb, 1.4) * (0.55 + 0.25 * sc) * (0.5 + 0.5 * rsf);
+    let W = 0.2 * sc * (1.0 - 0.28 * ct);
+    let H = 0.17 * sc * (1.0 + 0.22 * ct);
+    let Lt = 0.55 * sc;
+    // The frame: centred on the bell's margin, tilted gently.
+    let tl = 0.18 * sin(ph * 0.21 + fj * 1.7);
+    let d0 = p - vec2f(jx + 0.03 * sin(ph * 0.13 + fj), jy);
+    let ct2 = cos(tl);
+    let st2 = sin(tl);
+    let lp = vec2f(d0.x * ct2 - d0.y * st2, d0.x * st2 + d0.y * ct2);
+    if (abs(lp.x) > W * 2.5 + 0.12 * sc || lp.y > H * 2.5 || lp.y < -Lt - 0.06) {
+        continue;
+    }
+    var jc = vec3f(0.0);
+    let pu = pxu;
+    // Tentacles: eight, from the margin, waves running down them.
+    for (var k = 0; k < 8; k++) {
+        let fk = f32(k);
+        let x0 = (fk / 7.0 - 0.5) * 1.8 * W;
+        let yy = min(lp.y, 0.0);
+        let dn = clamp(-yy / Lt, 0.0, 1.0);
+        let kk = 14.0 / sc;
+        let am = (0.02 + 0.09 * dn) * sc;
+        let xt = x0 * (1.0 + 0.4 * dn) + am * sin(kk * yy + ph * 2.0 + fk * 1.3);
+        let sl = am * kk * cos(kk * yy + ph * 2.0 + fk * 1.3) + x0 * 0.4 / Lt;
+        let dx = (lp.x - xt) / sqrt(1.0 + sl * sl);
+        let dy = max(lp.y, 0.0) + max(-lp.y - Lt * (0.8 + 0.2 * fract(fk * 0.37)), 0.0);
+        let d = sqrt(dx * dx + dy * dy) * pu;
+        let wd = 0.6 + 0.6 * sc;
+        let fade = (1.0 - dn) * (1.0 - dn * 0.4);
+        // Beads of light along the tentacle, twinkling with the treble.
+        let bead = pow(0.5 + 0.5 * sin(yy * 90.0 / sc + ph * 4.0 + fk), 12.0) * (0.5 + 1.5 * pt);
+        jc += hue2 * (exp(-d * d / (wd * wd)) * (0.8 + bead) + exp(-d / (wd * 4.0)) * 0.08) * fade * lk;
+    }
+    // Oral arms: four frilled ribbons from the centre.
+    for (var k = 0; k < 4; k++) {
+        let fk = f32(k);
+        let yy = min(lp.y, 0.0);
+        let La = Lt * 0.6;
+        let dn = clamp(-yy / La, 0.0, 1.0);
+        let x0 = (fk / 3.0 - 0.5) * 0.4 * W;
+        let xt = x0 + 0.035 * sc * sin(9.0 / sc * yy + ph * 1.4 + fk * 2.0) * dn;
+        let fr = 0.008 * sc * (1.0 + 0.6 * sin(yy * 160.0 / sc + fk)) * (1.0 - dn * 0.6);
+        let dx = abs(lp.x - xt) - fr;
+        let dy = max(lp.y, 0.0) + max(-lp.y - La, 0.0);
+        let d = sqrt(max(dx, 0.0) * max(dx, 0.0) + dy * dy) * pu;
+        jc += mix(hue, vec3f(1.0), 0.25) * (exp(-d * d / 1.5) * 0.45 + exp(-d / 6.0) * 0.06) * (1.0 - dn) * smoothstep(0.0, 0.02, -lp.y + 0.01) * lk;
+    }
+    // The bell: an elliptical dome, its rim bright, with canals, gonads
+    // and a scalloped margin.
+    let ex = lp.x / W;
+    let ey = max(lp.y, 0.0) / H;
+    let er = sqrt(ex * ex + ey * ey);
+    let ang = atan2(ey, ex);
+    let scal = 1.0 - 0.04 * pow(abs(sin(ex * 9.0)), 0.5) * smoothstep(0.25, 0.0, ey);
+    let inb = smoothstep(scal + 0.02, scal - 0.02, er) * smoothstep(-0.02 * sc, 0.005 * sc, lp.y);
+    let rim = exp(-pow((scal - er) * W * pu / (2.0 + 2.5 * sc), 2.0)) * smoothstep(-0.02 * sc, 0.0, lp.y);
+    let film = pow(clamp(er, 0.0, 1.0), 4.0);
+    let canal = pow(0.5 + 0.5 * cos(ang * 16.0), 20.0) * smoothstep(0.3, 0.9, er);
+    let gx = abs(abs(ex) - 0.35);
+    let gy = ey - 0.35;
+    let gon = exp(-(gx * gx + gy * gy) / 0.02) * 0.9 + exp(-(ex * ex + (ey - 0.45) * (ey - 0.45)) / 0.03) * 0.5;
+    let flash = 1.0 + 1.5 * min(pbs, 1.2);
+    jc += hue * inb * (0.16 + 0.6 * film + 0.35 * canal + 0.7 * gon * (0.7 + 0.5 * sb)) * (0.8 + 0.4 * sb);
+    jc += mix(hue, vec3f(1.0), 0.4) * rim * 0.9 * flash;
+    // A soft glow round the bell.
+    let eg = sqrt(ex * ex + pow(lp.y / H, 2.0));
+    jc += hue * exp(-max(eg - 0.9, 0.0) * 3.5) * 0.18 * (1.0 + 0.8 * pbs);
+    // Depth: the far ones dimmer and bluer.
+    col = col * (1.0 - inb * 0.5) + jc * dim * mix(vec3f(0.5, 0.75, 1.0), vec3f(1.0), dim);
+}
+// Marine snow: three layers falling at their own pace (faded out on a
+// small picture, where the flakes would fill it).
+for (var l = 0; l < 3; l++) {
+    let fl = f32(l);
+    let ls = 18.0 - 4.0 * fl;
+    let q = p * ls + vec2f(sin(sn * 2.0 + fl) * 0.6 + fl * 13.1, sn * (6.0 + 3.0 * fl) + fl * 5.7);
+    let cell = floor(q);
+    let hp = fract(sin(vec2f(dot(cell, vec2f(127.1, 311.7)), dot(cell, vec2f(269.5, 183.3)))) * 43758.5453);
+    let pp = cell + vec2f(0.2) + hp * 0.6;
+    let dd = length(q - pp) / ls * pxu;
+    let on = step(0.55, fract(hp.x * 7.31 + hp.y * 3.17));
+    let tw = 0.75 + 0.25 * sin(u.time * (1.5 + hp.y * 3.0) + hp.x * 40.0);
+    let wdt = 0.9 + 0.5 * fl;
+    col += vec3f(0.6, 0.8, 1.0) * on * exp(-dd * dd / (wdt * wdt * 2.0)) * (0.18 + 0.1 * fl) * (tw + 0.8 * pt * tw) * rsf * rsf;
+}
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.25, vec3f(0.0));
+return col / (1.0 + 0.4 * col);
+'''

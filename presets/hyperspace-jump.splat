@@ -1,0 +1,229 @@
+# Hyperspace Jump: the view from the cockpit of a ship crossing the
+# galaxy in jumps. It drifts through a star field over a coloured nebula,
+# then punches into hyperspace: the stars stretch into long blue-white
+# streaks pouring past from a point dead ahead, and the ship plunges into
+# a swirling tunnel of blue and white light, ribbed with bands and laced
+# with bright energy filaments that stream past and twist round it. Then
+# the tunnel falls away, the streaks shrink back to points, and the ship
+# drifts in a new star field, over a new nebula, until the next jump
+# (about every 28 s).
+#
+# Everything is in the composite. The stars are in six layers of radial
+# sectors round the point ahead; each sector holds a star at a hashed
+# angle and depth, its depth cycling as the ship travels. A star at depth
+# z sits at 1/z from the centre, and its streak runs back to where it was
+# a streak length L earlier, at 1/(z + L): short in the cruise, so the
+# stars are points with short trails, and long in the jump, so they reach
+# nearly to the centre. The tunnel is the noise textures mapped onto a
+# cylinder (angle round, 1/r along), twisted, scrolled by the travel and
+# ridged into thin filaments; its far end glows white.
+#
+# The frame code runs the jump cycle and accumulates the travel, the
+# tunnel's scroll and swirl, and the roll. Each hit of the music is felt
+# at once, through pulses of the bass, mids and treble that rise in a tick
+# or two and die away over a fraction of a second (soft-limited, so a
+# bigger hit still means more): a kick lurches the ship forward (the
+# travel and the tunnel jump on), lengthens the streaks, pushes the view
+# in, flares the point ahead and sends a bright ring rushing down the
+# tunnel; the mids swirl the tunnel and swing it toward violet; the treble
+# sparks the filaments and twinkles the stars. Bass brightens the nebula
+# (smoothed).
+version = 1
+
+[meta]
+name = "Hyperspace Jump"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+jc = 0.08; sd = 3; tr = 0; tt = 0; sw = 0; rl = 0; rw = 9; ra = 0;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+sm = sm + (min(mid_att, 2.5) - sm) * 0.03;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+ob = pb;
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+// The jump cycle (28 s): cruise, jump in, the tunnel, drop out. A new
+// star field is chosen in the middle of the tunnel.
+ojc = jc;
+jc = jc + 1 / (28 * 60);
+if(jc >= 1, jc = jc - 1, 0);
+if(ojc < 0.6 && jc >= 0.6, sd = sd + 1; sd = sd - 512 * floor(sd / 512), 0);
+ja = min(max((jc - 0.2) / 0.12, 0), 1); ja = ja * ja * (3 - 2 * ja);
+jb = min(max((jc - 0.86) / 0.1, 0), 1); jb = jb * jb * (3 - 2 * jb);
+str = ja * (1 - jb);
+ha = min(max((jc - 0.29) / 0.09, 0), 1); ha = ha * ha * (3 - 2 * ha);
+hb = min(max((jc - 0.83) / 0.07, 0), 1); hb = hb * hb * (3 - 2 * hb);
+hs = ha * (1 - hb);
+// Travel (depth units): slow in the cruise, fast in the jump; a kick
+// lurches the ship forward.
+tr = tr + (0.05 + 0.5 * str) / 60 + pb * (0.06 + 0.14 * str);
+tr = tr - 64 * floor(tr / 64);
+tt = tt + (0.02 + 0.1 * hs) / 60 + 0.015 * pb;
+tt = tt - 64 * floor(tt / 64);
+sw = sw + (0.05 + 0.25 * pm) / 60;
+sw = sw - 64 * floor(sw / 64);
+rl = rl + (0.005 + 0.02 * hs) / 60 + 0.002 * pm;
+rl = rl - 6.2831853 * floor(rl / 6.2831853);
+// A fresh kick sends a ring rushing down the tunnel.
+kk = max(pb - ob, 0);
+cd = cd + 1;
+if(kk > 0.12 && cd > 8, cd = 0; rw = 0; ra = min(pb, 1.5), 0);
+rw = min(rw + 0.035, 9);
+ra = ra * 0.95;
+q1 = tr; q2 = tt; q3 = sw; q4 = rl;
+q5 = str; q6 = hs; q7 = sd; q8 = pb;
+q9 = pm; q10 = pt; q11 = sb; q12 = rw;
+q13 = ra;
+'''
+
+[shader]
+comp = '''
+let sz = u.texsize.xy;
+let asp = sz.x / sz.y;
+let lw = max(1.0, sz.y / 540.0);
+let tr = u.q[0].x;
+let tt = u.q[0].y;
+let sw = u.q[0].z;
+let rl = u.q[0].w;
+let str = u.q[1].x;
+let hs = u.q[1].y;
+let sd = u.q[1].z;
+// The kick's flare, held back on a small picture so it never throbs the
+// whole frame.
+let pb = u.q[1].w;
+let pbs = pb * min(1.0, sz.y / 270.0);
+let pm = u.q[2].x;
+let pt = min(u.q[2].y, 1.5);
+let sb = min(u.q[2].z, 2.0) * 0.5;
+let rw = u.q[2].w;
+let ra = u.q[3].x;
+// The view: centred on the point ahead, rolled slowly, pushed in by a kick.
+let fk = 1.0 + 0.12 * pb;
+let p0 = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y) / fk;
+let cr = cos(rl);
+let sr = sin(rl);
+let p = vec2f(p0.x * cr - p0.y * sr, p0.x * sr + p0.y * cr);
+let r = max(length(p), 1e-4);
+let a = atan2(p.y, p.x);
+let pxs = sz.y / lw;
+// The cruise: a nebula behind the stars, new with each field.
+let so = vec2f(fract(sd * 0.137), fract(sd * 0.291));
+// Smooth (C1) value noise from the 32-texel noise (each sample point is
+// moved within its texel cell along a smoothstep), in three octaves.
+var nn = vec3f(0.0);
+var amp = 0.5;
+var fq = 0.1;
+for (var o = 0; o < 3; o++) {
+    let qq = (p * fq + so + vec2f(f32(o) * 0.31, f32(o) * 0.17)) * 32.0;
+    let ff = fract(qq);
+    let mm = (floor(qq) + ff * ff * (3.0 - 2.0 * ff) + 0.5) / 32.0;
+    nn += textureSampleLevel(sampler_noise_lq, s_fw, mm, 0.0).rgb * amp;
+    amp *= 0.5;
+    fq *= 2.3;
+}
+nn /= 0.875;
+// Wisps: ridges of the noise; clouds: its broad swells.
+let wisp = pow(max(1.0 - abs(nn.r - 0.5) * 2.0, 0.0), 6.0);
+let wisp2 = pow(max(1.0 - abs(nn.g - 0.5) * 2.0, 0.0), 8.0);
+let cloud = smoothstep(0.42, 0.75, nn.b);
+let nh = 3.6 + 2.6 * fract(sd * 0.382);
+let nc1a = 0.5 + 0.5 * vec3f(cos(nh), cos(nh - 2.094), cos(nh + 2.094));
+let nc2a = 0.5 + 0.5 * vec3f(cos(nh + 0.9), cos(nh - 1.194), cos(nh + 2.994));
+let nc1 = nc1a * nc1a * 1.5;
+let nc2 = nc2a * nc2a * 1.5;
+var col = vec3f(0.015, 0.018, 0.045) + (nc1 * (0.2 * cloud + 0.45 * wisp * (0.4 + cloud) * (0.65 + 1.1 * pb)) + nc2 * 0.28 * wisp2 * (0.3 + 0.7 * cloud)) * (0.8 + 0.4 * sb) * (1.0 - 0.6 * str);
+// Distant stars, fixed on the sky.
+let dcell = floor(uv * sz / (2.0 * lw));
+let dh0 = (u32(dcell.x) * 1973u + u32(dcell.y) * 9277u + u32(sd) * 26699u) * 747796405u + 2891336453u;
+let dh1 = ((dh0 >> ((dh0 >> 28u) + 4u)) ^ dh0) * 277803737u;
+let dhh = f32((dh1 >> 22u) ^ dh1) / 4294967296.0;
+col += vec3f(0.75, 0.85, 1.0) * step(0.992, dhh) * (0.3 + 0.6 * fract(dhh * 977.0)) * (1.0 + 0.8 * pt * sin(u.time * 7.0 + dhh * 300.0)) * (1.0 - str);
+// The tunnel: the noise mapped on a cylinder, twisted and scrolled.
+if (hs > 0.001) {
+    let v = 0.22 / r;
+    let ua = a / 6.2831853;
+    let t1 = textureSampleLevel(sampler_noise_mq, s_fw, vec2f(ua * 3.0 + sw + v * 0.04, v * 0.12 - tt * 0.5), 0.0).r;
+    let t2 = textureSampleLevel(sampler_noise_hq, s_fw, vec2f(ua * 5.0 - sw * 1.7 + v * 0.07, v * 0.2 - tt), 0.0).r;
+    let t3 = textureSampleLevel(sampler_noise_lq, s_fw, vec2f(ua * 2.0 + sw * 0.6, v * 0.05 - tt * 0.3), 0.0).r;
+    let fil = pow(max(1.0 - abs(t2 - 0.5) * 2.0, 0.0), 14.0);
+    let fil2 = pow(max(1.0 - abs(t1 - 0.5) * 2.0, 0.0), 30.0);
+    let rib = 0.5 + 0.5 * sin(v * 3.0 - tt * 40.0 + t3 * 6.0);
+    // Bluer at the walls, white toward the far end; the mids swing it to
+    // violet.
+    let deep = mix(vec3f(0.05, 0.25, 0.95), vec3f(0.55, 0.15, 1.0), min(pm, 1.0) * 0.7);
+    let fog = exp(-r / 0.025);
+    var tc = deep * (0.08 + 0.9 * t3 * t3 + 0.3 * rib * t3) * (0.5 + 0.5 * smoothstep(0.0, 0.6, r));
+    tc += vec3f(0.6, 0.85, 1.0) * fil * (1.0 + 0.5 * pt + 0.7 * pb);
+    tc += vec3f(0.85, 0.75, 1.0) * fil2 * 1.2;
+    tc = mix(tc, vec3f(0.9, 0.95, 1.0), fog);
+    // Treble sparks in the filaments.
+    let sc = floor(vec2f(ua * 160.0, v * 6.0 - tt * 30.0));
+    let sh = fract(sin(dot(sc, vec2f(12.9898, 78.233))) * 43758.5453);
+    tc += vec3f(0.8, 0.95, 1.0) * step(0.985 - 0.01 * pt, sh) * fil * 1.5 * (0.3 + pt);
+    // The kick's ring, rushing down the tunnel.
+    let rv = log(v + 1.0) - (2.2 - rw * 0.35);
+    tc += vec3f(0.5, 0.8, 1.0) * ra * exp(-rv * rv / 0.01) * (0.6 + 0.8 * t3);
+    col = mix(col, tc, hs);
+}
+// The stars: six layers of radial sectors.
+let L = 0.03 + 1.6 * str * str + 0.25 * pb;
+let f = 0.05;
+var stars = vec3f(0.0);
+for (var l = 0; l < 6; l++) {
+    let fl = f32(l);
+    let S = 110.0 + 40.0 * fl;
+    let ac = a / 6.2831853 * S + fl * 0.37;
+    let ci0 = floor(ac);
+    let fa = fract(ac);
+    for (var k = 0; k < 2; k++) {
+        let ci = ci0 + select(select(-1.0, 1.0, fa > 0.5), 0.0, k == 0);
+        let cw = (ci % S + S) % S;
+        let h0 = (u32(cw) * 1973u + u32(fl) * 9277u + u32(sd) * 26699u) * 747796405u + 2891336453u;
+        let h = ((h0 >> ((h0 >> 28u) + 4u)) ^ h0) * 277803737u;
+        let hz = f32(h & 1023u) / 1023.0;
+        let hj = f32((h >> 10u) & 255u) / 255.0;
+        let hb = f32((h >> 18u) & 255u) / 255.0;
+        let hc = f32((h >> 26u) & 63u) / 63.0;
+        if (hb < 0.25) {
+            continue;
+        }
+        let z = max(4.0 * fract(hz - tr * 0.25), 0.015);
+        let rh = f / z;
+        let rt = f / (z + L * z);
+        let da = (ac - ci - 0.2 - 0.6 * hj) * 6.2831853 / S;
+        let dp = r * abs(da);
+        let dr = max(max(rt - r, r - rh), 0.0);
+        let dd = sqrt(dp * dp + dr * dr) * pxs;
+        let wdt = 0.7 + 2.5 * min(f / z, 1.0) * min(1.0, sz.y / 540.0);
+        let along = clamp((r - rt) / max(rh - rt, 1e-4), 0.0, 1.0);
+        // Faded in from the far distance and out as it rushes past.
+        let fade = smoothstep(4.0, 1.6, z) * smoothstep(0.04, 0.4, z) * (0.35 + 0.65 * hb);
+        let br = fade * (0.35 + 0.65 * along * along);
+        let tw = 1.0 + 0.6 * pt * sin(u.time * 9.0 + hc * 50.0);
+        let sc = mix(vec3f(0.65, 0.8, 1.0), vec3f(1.0, 0.85, 0.65), step(0.8, hc));
+        stars += mix(sc, vec3f(0.75, 0.9, 1.0), str) * br * tw * (exp(-dd * dd / (wdt * wdt)) * 1.1 + exp(-dd / (wdt * 1.5)) * 0.05);
+    }
+}
+col += stars * (1.0 - 0.88 * hs) * (0.85 + 0.5 * pb);
+// The point ahead: a glow, flaring with the kicks.
+let g = r * fk;
+col += vec3f(0.6, 0.8, 1.0) * (exp(-g * g / 0.0008) * (0.4 + 1.6 * pbs + 1.2 * str) + exp(-g / 0.08) * (0.05 + 0.25 * pbs) * (0.3 + hs + str));
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.2, vec3f(0.0));
+return col / (1.0 + 0.4 * col);
+'''

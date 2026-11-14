@@ -63,8 +63,12 @@ device, so just start your music and run it.
 | **Synthwave Drive**: a night drive down an endless neon grid toward a striped retro sun, past wireframe mountains and palm silhouettes | **Mercury Metaballs**: liquid chrome drops mirroring a neon studio, flung apart by every kick and flowing back together |
 | ![Lava Lamp](docs/images/lava-lamp.png) | ![Girih Lattice](docs/images/girih-lattice.png) |
 | **Lava Lamp**: a giant lava lamp, glowing wax rising, stretching, pinching off and sinking through deep violet as the bass heats the bulb | **Girih Lattice**: an Islamic star-and-polygon pattern in gold strapwork and turquoise inlay, its stars unfolding and refolding as light races along the bands |
-| ![Starling Murmuration](docs/images/starling-murmuration.png) | |
-| **Starling Murmuration**: thousands of starlings swirling in a shape-shifting cloud over a dusk reed bed, rippling round a striking hawk | |
+| ![Starling Murmuration](docs/images/starling-murmuration.png) | ![Hyperspace Jump](docs/images/hyperspace-jump.png) |
+| **Starling Murmuration**: thousands of starlings swirling in a shape-shifting cloud over a dusk reed bed, rippling round a striking hawk | **Hyperspace Jump**: stars stretch into streaks as the ship punches into a swirling blue-white tunnel of energy filaments, then drops out into a new star field and nebula |
+| ![Neural Storm](docs/images/neural-storm.png) | ![Mycelium](docs/images/mycelium.png) |
+| **Neural Storm**: layers of glowing neurons joined by arcing axons, sparks racing along them and firing cascades spreading from cell to cell | **Mycelium**: luminous cyan and violet fungal threads forking outward through dark soil, nutrient pulses racing along them as glowing fruiting bodies push up, then crumbling away to regrow |
+| ![Dyson Swarm](docs/images/dyson-swarm.png) | ![Abyssal Jellyfish](docs/images/abyssal-jellyfish.png) |
+| **Dyson Swarm**: thousands of collector panels in inclined rings round a blazing star, glinting gold and silhouetted on its face, beaming energy to a distant receiver | **Abyssal Jellyfish**: bioluminescent jellyfish pulsing up through the deep, every kick squeezing their glowing bells, among marine snow and beaded siphonophore chains |
 
 These are single frames; every preset moves and changes with the music.
 

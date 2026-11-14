@@ -121,6 +121,11 @@ const BUNDLED: [&str; 66] = [
     "lava-lamp",
     "girih-lattice",
     "starling-murmuration",
+    "hyperspace-jump",
+    "neural-storm",
+    "mycelium",
+    "dyson-swarm",
+    "abyssal-jellyfish",
 ];
 
 // ------------------------------------------------------------ synthetic audio
@@ -565,6 +570,11 @@ preset_tests! {
     preset_lava_lamp => "lava-lamp",
     preset_girih_lattice => "girih-lattice",
     preset_starling_murmuration => "starling-murmuration",
+    preset_hyperspace_jump => "hyperspace-jump",
+    preset_neural_storm => "neural-storm",
+    preset_mycelium => "mycelium",
+    preset_dyson_swarm => "dyson-swarm",
+    preset_abyssal_jellyfish => "abyssal-jellyfish",
 }
 
 /// `presets/` holds exactly the bundled set (so every file has a test
@@ -663,6 +673,11 @@ const LONG_RUN: [(&str, usize); 65] = [
     ("lava-lamp", 3600),
     ("girih-lattice", 3600),
     ("starling-murmuration", 3600),
+    ("hyperspace-jump", 3600),
+    ("neural-storm", 3600),
+    ("mycelium", 3600),
+    ("dyson-swarm", 3600),
+    ("abyssal-jellyfish", 3600),
 ];
 
 /// A cheap guard against flashing that only develops over time (for
