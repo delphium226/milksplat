@@ -1,0 +1,270 @@
+# Mycelium: a fungal network spreading through dark forest soil, seen from
+# above. Two colonies grow outward from where their spores landed, each a
+# fan of luminous hyphae, cyan and violet, branching and branching again
+# as they spread, their growing tips bright at a ragged front. Nutrient
+# pulses flow out along the threads from the colony's heart, and as the
+# network matures, fruiting bodies push up through the soil behind the
+# front and glow, little mushroom caps in pink and violet with fine gills.
+# Spores drift and glint above. In time each colony crumbles away into the
+# soil and a new one grows somewhere else (each lives about 50 s, the two
+# out of step).
+#
+# Everything is in the composite. Each colony's hyphae are two branching
+# trees of thread segments round its centre, a coarse one and a fine one
+# (with gaps). Their nodes sit on rings spaced evenly in the log of the
+# distance out, jittered round the ring, and each joins its parent on the
+# ring inside with a gently bent segment; every few rings the number of
+# nodes round doubles, so each thread forks in two as it spreads, the same
+# at every scale. A pixel only looks at the segments ending on the two
+# rings round it. Only where the colony has reached (a radius ragged in
+# angle) do they show, and the tips glow in a band at the front. A
+# nutrient pulse is a ring travelling out, lighting the threads it
+# crosses. The fruiting bodies sit in a grid of hashed cells and come up
+# once the front has passed them. A dying colony crumbles where a noise
+# field falls below its decay, so it breaks up in patches.
+#
+# The frame code runs each colony's life (growing, mature, crumbling,
+# then a new one at a new place) and accumulates its growth and the
+# nutrients' flow. Bass brightens the hyphae (smoothed). Each hit of the
+# music is felt at once, through pulses of the bass, mids and treble that
+# rise in a tick or two and die away over a fraction of a second
+# (soft-limited, so a bigger hit still means more): a kick sends a bright
+# nutrient pulse out along the threads of both colonies (up to three at
+# once), spurts the growth and makes the fruiting bodies glow up; the mids
+# stream finer pulses along the hyphae; the treble glints the drifting
+# spores.
+version = 1
+
+[meta]
+name = "Mycelium"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+la = 0.3; lb = 0.8; ga = 0.4; gb = 0.55; ax = -0.35; ay = 0.08; bx = 0.45; by = -0.12; sa = 1; sbd = 2;
+pr1 = 9; pr2 = 9; pr3 = 9; fl = 0; dr = 0;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+ob = pb;
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+// Each colony lives about 50 s, then a new one starts at a new place.
+la = la + 1 / (50 * 60);
+lb = lb + 1 / (50 * 60);
+if(la >= 1, la = la - 1; ga = 0; sa = sa + 1; sa = sa - 512 * floor(sa / 512);
+  ax = (rand(1000) / 1000 - 0.5) * 1.1; ay = (rand(1000) / 1000 - 0.5) * 0.5, 0);
+if(lb >= 1, lb = lb - 1; gb = 0; sbd = sbd + 1; sbd = sbd - 512 * floor(sbd / 512);
+  bx = (rand(1000) / 1000 - 0.5) * 1.1; by = (rand(1000) / 1000 - 0.5) * 0.5, 0);
+// Growth: quick at first, slowing as the colony spreads; a kick spurts it.
+ga = ga + (0.04 / 60 + 0.004 * pb) * max(0.6 - ga, 0);
+gb = gb + (0.04 / 60 + 0.004 * pb) * max(0.6 - gb, 0);
+// A fresh kick sends a nutrient pulse out from the colonies' centres.
+kk = max(pb - ob, 0);
+cd = cd + 1;
+if(kk > 0.1 && cd > 7,
+  cd = 0; sl = (sl + 1) % 3;
+  if(sl == 0, pr1 = 0; pa1 = min(0.4 + pb, 1.6), 0);
+  if(sl == 1, pr2 = 0; pa2 = min(0.4 + pb, 1.6), 0);
+  if(sl == 2, pr3 = 0; pa3 = min(0.4 + pb, 1.6), 0),
+  0);
+pr1 = min(pr1 + 0.016, 9); pr2 = min(pr2 + 0.016, 9); pr3 = min(pr3 + 0.016, 9);
+pa1 = pa1 * 0.97; pa2 = pa2 * 0.97; pa3 = pa3 * 0.97;
+// The mids' finer pulses stream outward (accumulated); the spores drift.
+fl = fl + (0.15 + 1.0 * pm) / 60; fl = fl - 64 * floor(fl / 64);
+dr = dr + 0.01 / 60; dr = dr - 64 * floor(dr / 64);
+q1 = la; q2 = lb; q3 = ga; q4 = gb;
+q5 = ax; q6 = ay; q7 = bx; q8 = by;
+q9 = sa; q10 = sbd; q11 = pb; q12 = pm;
+q13 = pt; q14 = sb; q15 = fl; q16 = dr;
+q17 = pr1; q18 = pr2; q19 = pr3; q20 = pa1;
+q21 = pa2; q22 = pa3;
+'''
+
+[shader]
+comp = '''
+let sz = u.texsize.xy;
+let asp = sz.x / sz.y;
+let lw = max(1.0, sz.y / 540.0);
+let pxu = sz.y / lw;
+let pb = u.q[2].z;
+let pbs = pb * min(1.0, sz.y / 270.0);
+let pm = u.q[2].w;
+let pt = min(u.q[3].x, 1.5);
+let sb = min(u.q[3].y, 2.0) * 0.5;
+let flw = u.q[3].z;
+let dr = u.q[3].w;
+let prr = vec3f(u.q[4].x, u.q[4].y, u.q[4].z);
+let pra = vec3f(u.q[4].w, u.q[5].x, u.q[5].y) * min(1.0, sz.y / 270.0);
+let p = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
+// The soil: dark loam, smooth value noise in two octaves, with grit.
+let s1 = p * 1.1 * 32.0;
+let f1 = fract(s1);
+let m1 = (floor(s1) + f1 * f1 * (3.0 - 2.0 * f1) + 0.5) / 32.0;
+let s2 = (p * 3.1 + vec2f(0.3, 0.7)) * 32.0;
+let f2 = fract(s2);
+let m2 = (floor(s2) + f2 * f2 * (3.0 - 2.0 * f2) + 0.5) / 32.0;
+let soil = textureSampleLevel(sampler_noise_lq, s_fw, m1, 0.0).rgb * 0.6 + textureSampleLevel(sampler_noise_lq, s_fw, m2, 0.0).rgb * 0.4;
+let grit = textureSampleLevel(sampler_noise_hq, s_fw, p * 1.7, 0.0).r;
+var col = vec3f(0.05, 0.03, 0.03) * (0.6 + 0.9 * soil.r) + vec3f(0.02, 0.028, 0.035) * smoothstep(0.5, 0.8, soil.g) + vec3f(0.03, 0.02, 0.012) * grit;
+// The two colonies.
+for (var c = 0; c < 2; c++) {
+    let lf = select(u.q[0].y, u.q[0].x, c == 0);
+    let G = select(u.q[0].w, u.q[0].z, c == 0);
+    let cc = select(vec2f(u.q[1].z, u.q[1].w), vec2f(u.q[1].x, u.q[1].y), c == 0);
+    let sdc = select(u.q[2].y, u.q[2].x, c == 0);
+    let so = vec2f(fract(sdc * 0.137 + f32(c) * 0.5), fract(sdc * 0.291));
+    let v = p - cc;
+    let rho = max(length(v), 0.002);
+    let th = atan2(v.y, v.x) / 6.2831853;
+    let lr = log(rho);
+    // The ragged reach of the colony, and its crumbling at the end.
+    let rg = textureSampleLevel(sampler_noise_lq, s_fw, vec2f(th * 2.0 + so.x, so.y), 0.0).r;
+    let reach = G * (0.7 + 0.5 * rg);
+    let inside = smoothstep(reach, reach - 0.03, rho);
+    let dk = smoothstep(0.82, 0.98, lf);
+    let crum = textureSampleLevel(sampler_noise_mq, s_fw, p * 0.6 + so, 0.0).r;
+    let alive = smoothstep(dk - 0.05, dk + 0.05, crum * 0.98 + 0.01) * (1.0 - dk * 0.5);
+    if (inside * alive < 0.002) {
+        continue;
+    }
+    // Hyphae: two branching trees of segments, coarse and fine. Nodes sit
+    // on rings spaced evenly in log radius, jittered round; each joins its parent
+    // on the ring inside, and every K rings the number round doubles, so
+    // each thread forks in two as the colony spreads, the same at every
+    // scale. A pixel checks the segments ending on the two rings round it.
+    let th01 = fract(th + 1.0);
+    let r0 = 0.018;
+    var hy = 0.0;
+    var hf = 0.0;
+    var gl = 0.0;
+    for (var tr = 0; tr < 2; tr++) {
+        let K = select(9.0, 5.0, tr == 0);
+        let D = 0.6931472 / K;
+        let N0 = select(15.0, 6.0, tr == 0);
+        let wdt = select(0.65, 1.2, tr == 0);
+        let ib = floor((lr - log(r0)) / D);
+        for (var cr = 0; cr < 2; cr++) {
+            let ci = ib + f32(cr);
+            if (ci < 0.0) {
+                continue;
+            }
+            let nc = N0 * exp2(floor(ci / K));
+            let pi = ci - 1.0;
+            let np = N0 * exp2(floor(max(pi, 0.0) / K));
+            let fork = select(0.0, 1.0, nc > np + 0.5);
+            let jc0 = floor(th01 * nc);
+            for (var dj = -1; dj <= 1; dj++) {
+                let j = (jc0 + f32(dj) + nc) % nc;
+                let hc0 = (u32(ci) * 1973u + u32(j) * 9277u + u32(tr) * 26699u + u32(sdc) * 7919u + u32(c) * 104729u) * 747796405u + 2891336453u;
+                let hc = ((hc0 >> ((hc0 >> 28u) + 4u)) ^ hc0) * 277803737u;
+                let ca = (j + 0.5 + (f32(hc & 1023u) / 1023.0 - 0.5) * 0.7) / nc * 6.2831853;
+                let cra = r0 * exp(D * ci);
+                let C = vec2f(cos(ca), sin(ca)) * cra;
+                var P = vec2f(0.0);
+                if (pi >= 0.0) {
+                    let pj = select(j, floor(j / 2.0), fork > 0.5);
+                    let hp0 = (u32(pi) * 1973u + u32(pj) * 9277u + u32(tr) * 26699u + u32(sdc) * 7919u + u32(c) * 104729u) * 747796405u + 2891336453u;
+                    let hp = ((hp0 >> ((hp0 >> 28u) + 4u)) ^ hp0) * 277803737u;
+                    let pa = (pj + 0.5 + (f32(hp & 1023u) / 1023.0 - 0.5) * 0.7) / np * 6.2831853;
+                    let pra2 = r0 * exp(D * pi);
+                    P = vec2f(cos(pa), sin(pa)) * pra2;
+                }
+                let ab = C - P;
+                let ln = max(length(ab), 1e-5);
+                let dir = ab / ln;
+                let rq = v - P;
+                let tt = clamp(dot(rq, dir) / ln, 0.0, 1.0);
+                let hb = f32((hc >> 20u) & 1023u) / 1023.0;
+                // A gentle bend.
+                let bow = (hb - 0.5) * 0.3 * ln * 4.0 * tt * (1.0 - tt);
+                let dpp = dot(rq, vec2f(-dir.y, dir.x)) - bow;
+                let dal = (dot(rq, dir) / ln - tt) * ln;
+                let d = sqrt(dpp * dpp + dal * dal) * pxu;
+                // Some fine threads are missing, leaving gaps.
+                let br = (0.45 + 0.55 * hb) * select(step(0.3, fract(hb * 7.0)), 1.0, tr == 0);
+                hy += exp(-d * d / (wdt * wdt)) * br * select(0.55, 1.2, tr == 0);
+                hf += exp(-d * d / (wdt * wdt)) * f32(tr);
+                gl += exp(-d / (wdt * 4.0)) * br;
+            }
+        }
+    }
+    hy = min(hy, 1.5);
+    let n0 = fract(th01 * 37.0);
+    // The colony's heart: the threads thin out into a glowing knot.
+    let dens = smoothstep(0.0, 0.1, rho);
+    let heart = exp(-rho / 0.035);
+    // The growing tips: a bright band at the front.
+    let fd = (reach - rho) / 0.03;
+    let tip = exp(-fd * fd) * smoothstep(0.98, 0.9, lf);
+    // The nutrient pulses: rings travelling out along the threads; the
+    // mids' finer stream.
+    let pd = (prr - vec3f(rho)) / 0.04;
+    let pq = pra * exp(-pd * pd);
+    let pulse = pq.x + pq.y + pq.z;
+    let stream = pm * pow(0.5 + 0.5 * sin(lr * 14.0 - flw * 8.0 + n0 * 9.0), 8.0);
+    let hc = select(vec3f(0.55, 0.3, 1.0), vec3f(0.1, 0.85, 1.0), c == 0);
+    let hc2 = select(vec3f(0.25, 0.65, 1.0), vec3f(0.6, 0.35, 1.0), c == 0);
+    let base = mix(hc, hc2, min(hf, 1.0) * 0.7);
+    let dimd = mix(vec3f(1.0), vec3f(0.6, 0.45, 0.8), dk);
+    var cc2 = base * (hy * (0.6 + 0.35 * sb) * dens + gl * 0.05 * dens + heart * 0.5) * dimd;
+    cc2 += vec3f(0.85, 1.0, 1.0) * hy * tip * 1.3;
+    cc2 += vec3f(0.75, 1.0, 0.95) * hy * dens * (pulse * 1.6 + stream * 0.9);
+    col += cc2 * inside * alive;
+    // The fruiting bodies: hashed cells the front has passed.
+    let gq = v / 0.11;
+    let gi = floor(gq);
+    for (var k = 0; k < 4; k++) {
+        let ce = gi + vec2f(f32(k % 2), f32(k / 2)) - select(vec2f(0.0), vec2f(1.0), fract(gq) < vec2f(0.5));
+        let h0 = (u32(ce.x + 512.0) * 1973u + u32(ce.y + 512.0) * 9277u + u32(sdc) * 26699u + u32(c) * 7919u) * 747796405u + 2891336453u;
+        let h = ((h0 >> ((h0 >> 28u) + 4u)) ^ h0) * 277803737u;
+        let hp = vec2f(f32(h & 1023u), f32((h >> 10u) & 1023u)) / 1023.0;
+        let hs = f32((h >> 20u) & 255u) / 255.0;
+        if (hs < 0.82) {
+            continue;
+        }
+        let mp = (ce + vec2f(0.2) + hp * 0.6) * 0.11;
+        let mr = length(mp);
+        // It comes up a few seconds after the front passes.
+        let age = clamp((reach - mr - 0.08) / 0.2, 0.0, 1.0) * (1.0 - dk);
+        if (age <= 0.0) {
+            continue;
+        }
+        let cr = (0.012 + 0.016 * fract(hs * 13.0)) * sqrt(age);
+        let dv = v - mp;
+        let dm = length(dv) / cr;
+        let ang = atan2(dv.y, dv.x);
+        let gills = 0.7 + 0.3 * sin(ang * 22.0);
+        let cap = smoothstep(1.0, 0.85, dm) * (0.35 + 0.65 * smoothstep(0.2, 0.95, dm) * gills);
+        let rim = exp(-pow((dm - 0.95) / 0.12, 2.0));
+        let halo = exp(-max(dm - 1.0, 0.0) * 2.5) * 0.18;
+        let mc = mix(vec3f(1.0, 0.35, 0.8), vec3f(0.7, 0.4, 1.0), fract(hs * 7.0));
+        col += mc * (cap * 0.8 + rim * 0.9 + halo) * age * (0.6 + 0.4 * sb + 1.2 * pbs) * alive;
+    }
+}
+// Spores drifting above, glinting with the treble.
+let sq = p * 14.0 + vec2f(dr * 6.0, dr * 2.5);
+let scl = floor(sq);
+let sh = fract(sin(vec2f(dot(scl, vec2f(127.1, 311.7)), dot(scl, vec2f(269.5, 183.3)))) * 43758.5453);
+let spp = scl + vec2f(0.2) + sh * 0.6;
+let sdd = length(sq - spp) / 14.0 * pxu;
+let son = step(0.75, fract(sh.x * 7.31 + sh.y * 3.17));
+let tw = 0.5 + 0.5 * sin(u.time * (1.5 + sh.y * 2.0) + sh.x * 40.0);
+col += vec3f(0.7, 1.0, 0.9) * son * exp(-sdd * sdd / 2.0) * (0.15 + 0.15 * tw + 0.9 * pt * tw);
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.2, vec3f(0.0));
+return col / (1.0 + 0.4 * col);
+'''
