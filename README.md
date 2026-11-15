@@ -106,7 +106,7 @@ device, so just start your music and run it.
 | ![Ember Rain](docs/images/ember-rain.png) | ![Kaleido Spin](docs/images/kaleido-spin.png) |
 | **Ember Rain**: glowing embers falling and curling through a dark red haze | **Kaleido Spin**: a jewel-bright stained-glass kaleidoscope on black, its symmetry shifting, snapping round on every kick |
 | ![Liquid Chrome](docs/images/liquid-chrome.png) | ![Prism Drift](docs/images/prism-drift.png) |
-| **Liquid Chrome**: a chrome ring rippling through a liquid metal surface | **Prism Drift**: threads of prismatic light drifting across shifting colour fields |
+| **Liquid Chrome**: a black liquid-metal sea mirroring neon signs, kicks dropping splashes of chrome droplets | **Prism Drift**: threads of prismatic light drifting across shifting colour fields |
 | ![Pulse Grid](docs/images/pulse-grid.png) | ![Starfield Warp](docs/images/starfield-warp.png) |
 | **Pulse Grid**: a neon green grid swept by scanning lines that pulse with the beat | **Starfield Warp**: stars streaming out of a violet void at warp speed |
 
