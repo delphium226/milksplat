@@ -1,0 +1,279 @@
+# Neon Rain Window: looking out through a rain-streaked window at a city
+# at night. Beyond the glass everything is out of focus: big soft discs
+# of bokeh in magenta, cyan and amber, the glowing tubes of three neon
+# signs smeared into haloes, and a stream of traffic lights sliding along
+# the street below. The glass is fogged and beaded with rain. Every drop
+# is a tiny lens: through it the lights behind snap into focus, flipped
+# upside down, ringed by a dark rim with a glint of reflected light on
+# top. Fat drops break loose and trickle down in stops and starts,
+# wandering a little, wiping a clear trail through the fog behind them
+# and leaving a line of tiny beads in it.
+#
+# Everything is in the composite. First each pixel finds the drop it is
+# under, if any (resting beads and the kicks' fresh drops in hashed grid
+# cells, each growing and slowly evaporating; the running drops one per
+# column, falling along a hashed wobbling path), and with it where to
+# look and how sharply: through a drop the city is sampled flipped about
+# the drop's centre and seen in focus; through a trail it is sampled a
+# little bent and clear of fog; elsewhere it is fogged. Then the city is
+# drawn once at that point: three layers of bokeh in hashed cells, the
+# signs as rounded-rectangle tubes and the traffic as a scrolling layer,
+# each blurred by the focus.
+#
+# The frame code accumulates the running drops' fall, the traffic and
+# the bokeh's drift, and runs the fresh drops. Each hit of the music is
+# felt at once, through pulses of the bass, mids and treble that rise in
+# a tick or two and die away over a fraction of a second (soft-limited,
+# so a bigger hit still means more): a kick shakes a fresh spatter of
+# drops onto the glass (the next of three layers, more drops for a harder
+# kick), jolts the running drops further down and pulses the neon signs;
+# the mids brighten the bokeh and speed the traffic; the treble glints
+# the drops. Bass brightens the city (smoothed).
+version = 1
+
+[meta]
+name = "Neon Rain Window"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+rt = 0; tf = 0; bd = 0; ev = 0; cd = 0; sl = 0;
+s1 = 11; g1 = 300; a1 = 0; s2 = 23; g2 = 300; a2 = 0; s3 = 37; g3 = 300; a3 = 0;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+ob = pb;
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+kk = max(pb - ob, 0);
+// The running drops' fall (jolted by the kicks), the traffic, the drift.
+rt = rt + 0.0016 + 0.03 * kk; rt = rt - 1024 * floor(rt / 1024);
+tf = tf + 0.0025 + 0.004 * pm; tf = tf - 1024 * floor(tf / 1024);
+bd = bd + 0.0004; bd = bd - 1024 * floor(bd / 1024);
+ev = ev + 1 / 60; ev = ev - 4096 * floor(ev / 4096);
+// A fresh kick shakes a spatter of drops onto the glass, in the next of
+// three layers; each grows in a few ticks and evaporates over seconds.
+cd = cd + 1;
+if(kk > 0.1 && cd > 9,
+  cd = 0; sl = (sl + 1) % 3;
+  ns = floor(rand(997)) + 1;
+  if(sl == 0, s1 = ns; g1 = 0; a1 = 0.3, 0);
+  if(sl == 1, s2 = ns; g2 = 0; a2 = 0.3, 0);
+  if(sl == 2, s3 = ns; g3 = 0; a3 = 0.3, 0),
+  0);
+if(g1 < 6, a1 = max(a1, min(0.3 + 0.5 * pb, 1)), 0);
+if(g2 < 6, a2 = max(a2, min(0.3 + 0.5 * pb, 1)), 0);
+if(g3 < 6, a3 = max(a3, min(0.3 + 0.5 * pb, 1)), 0);
+g1 = min(g1 + 1, 300); g2 = min(g2 + 1, 300); g3 = min(g3 + 1, 300);
+q1 = rt; q2 = tf; q3 = bd; q4 = ev;
+q5 = pb; q6 = pm; q7 = pt; q8 = sb;
+q9 = s1; q10 = g1; q11 = a1;
+q13 = s2; q14 = g2; q15 = a2;
+q17 = s3; q18 = g3; q19 = a3;
+'''
+
+[shader]
+comp = '''
+let sz = u.texsize.xy;
+let asp = sz.x / sz.y;
+let px = 1.0 / sz.y;
+let lw = max(1.0, sz.y / 540.0);
+let rt = u.q[0].x;
+let tf = u.q[0].y;
+let bd = u.q[0].z;
+let ev = u.q[0].w;
+let pb = u.q[1].x;
+let pm = u.q[1].y;
+let pt = u.q[1].z;
+let sb = min(u.q[1].w, 2.0) * 0.5;
+let gk = min(1.0, sz.y / 200.0);
+let p = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
+// Which drop is this pixel under, and where does it look?
+var look = p;
+var focus = 0.0;
+var clear = 0.0;
+var rim = 0.0;
+var spec = 0.0;
+// Resting beads (two layers) and the kicks' fresh drops (three layers).
+for (var l = 0; l < 5; l++) {
+    var cs = 0.045;
+    var seed = 101u;
+    var rmax = 0.3;
+    var life = 1.0;
+    var dens = 0.3;
+    if (l == 1) { cs = 0.028; seed = 202u; rmax = 0.28; dens = 0.25; }
+    if (l >= 2) {
+        let g = u.q[l];
+        cs = 0.05;
+        seed = u32(g.x) * 7919u + 17u;
+        // Grows in a few ticks, evaporates over five seconds.
+        life = smoothstep(0.0, 5.0, g.y) * (1.0 - smoothstep(60.0, 300.0, g.y));
+        rmax = 0.34;
+        dens = 0.08 + 0.3 * g.z;
+    }
+    let off = vec2f(f32(l) * 0.37, f32(l) * 0.61);
+    let gq = (p + off) / cs;
+    let c = floor(gq);
+    let h0 = (u32(i32(c.x) + 4096) * 1973u + u32(i32(c.y) + 4096) * 9277u + seed * 26699u) * 747796405u + 2891336453u;
+    let h = ((h0 >> ((h0 >> 28u) + 4u)) ^ h0) * 277803737u;
+    let ha = f32(h & 1023u) / 1023.0;
+    let hb = f32((h >> 10u) & 1023u) / 1023.0;
+    let hc = f32((h >> 20u) & 1023u) / 1023.0;
+    if (hc < dens) {
+        var rr = rmax * (0.35 + 0.65 * ha) * life;
+        if (l < 2) {
+            // Resting beads come and go slowly.
+            rr *= smoothstep(-0.3, 0.4, sin(ev * (0.05 + 0.08 * hb) + hc * 40.0));
+        }
+        let ctr = c + vec2f(0.5 + (hb - 0.5) * (0.9 - 2.0 * rmax), 0.5 + (ha - 0.5) * (0.9 - 2.0 * rmax));
+        let d = (gq - ctr) / max(rr, 1e-4);
+        // Drops sag a little: flatter on top.
+        let dd = length(vec2f(d.x, d.y * select(1.15, 0.92, d.y < 0.0)));
+        if (dd < 1.0 && rr > 0.02) {
+            let cw = (ctr * cs - off);
+            look = cw - (p - cw) * 1.6;
+            focus = 1.0;
+            rim = smoothstep(0.6, 1.0, dd);
+            spec = exp(-dot(d - vec2f(-0.3, 0.38), d - vec2f(-0.3, 0.38)) / 0.03);
+        }
+    }
+}
+// The running drops: one per column, trickling down in stops and starts
+// along a wobbling path, a clear trail behind.
+let colw = 0.085;
+let cx = floor((p.x + 2.0) / colw);
+for (var k = 0; k < 2; k++) {
+    let ci = cx - f32(k);
+    let h0 = (u32(i32(ci) + 4096) * 7919u + 4241u) * 747796405u + 2891336453u;
+    let h = ((h0 >> ((h0 >> 28u) + 4u)) ^ h0) * 277803737u;
+    let ha = f32(h & 1023u) / 1023.0;
+    let hb = f32((h >> 10u) & 1023u) / 1023.0;
+    let hc = f32((h >> 20u) & 1023u) / 1023.0;
+    if (hc < 0.6) {
+        let sp = 0.6 + 0.8 * hb;
+        let tt = rt * sp + ha * 7.0;
+        let cyc = floor(tt);
+        let ft = tt - cyc;
+        // Stop-start: the drop lingers, then slides.
+        let mv = ft + 0.12 * sin(ft * 6.2831853 * 3.0);
+        let dy = 0.62 - 1.35 * mv;
+        let xbase = (ci + 0.5) * colw - 2.0 + (ha - 0.5) * 0.03;
+        let wob = 0.008 * sin(p.y * 23.0 + ha * 30.0 + cyc * 2.1) + 0.005 * sin(p.y * 57.0 + hb * 20.0);
+        let dropx = xbase + 0.008 * sin(dy * 23.0 + ha * 30.0 + cyc * 2.1) + 0.005 * sin(dy * 57.0 + hb * 20.0);
+        let rr = 0.02 + 0.012 * hb;
+        let d = vec2f(p.x - dropx, (p.y - dy) * select(1.0, 0.7, p.y < dy)) / rr;
+        let dd = length(d);
+        // The trail: clear, thinner than the drop, behind it.
+        let tw = rr * 0.45;
+        let tx = abs(p.x - xbase - wob);
+        let behind = p.y - dy;
+        if (behind > 0.0 && behind < 0.5 && tx < tw) {
+            let fade = 1.0 - behind / 0.5;
+            clear = max(clear, fade * smoothstep(tw, tw * 0.5, tx));
+            look = look + vec2f((p.x - xbase - wob) * 0.6, 0.0) * fade;
+            // Tiny beads left along the trail.
+            let by = floor(behind / 0.018);
+            let bh0 = (u32(i32(by) + 4096) * 1973u + u32(i32(ci) + 4096) * 9277u + u32(cyc) * 31u) * 747796405u + 2891336453u;
+            let bh = ((bh0 >> ((bh0 >> 28u) + 4u)) ^ bh0) * 277803737u;
+            let bx = f32(bh & 1023u) / 1023.0;
+            let br = 0.003 + 0.004 * f32((bh >> 10u) & 1023u) / 1023.0;
+            let bq = vec2f(p.x - xbase - wob - (bx - 0.5) * tw, behind - (by + 0.5) * 0.018) / br;
+            if (length(bq) < 1.0 && bx > 0.35) {
+                look = p - (p - vec2f(xbase, dy + (by + 0.5) * 0.018)) * 2.0 - bq * br * 3.0;
+                focus = 1.0;
+                rim = max(rim, smoothstep(0.5, 1.0, length(bq)));
+            }
+        }
+        if (dd < 1.0) {
+            let cw = vec2f(dropx, dy);
+            look = cw - (p - cw) * 1.6;
+            focus = 1.0;
+            rim = smoothstep(0.55, 1.0, dd);
+            spec = exp(-dot(d - vec2f(-0.3, 0.45), d - vec2f(-0.3, 0.45)) / 0.03);
+            clear = 1.0;
+        }
+    }
+}
+// The city, drawn once at the look point, blurred unless in focus.
+let q = look;
+let bl = mix(1.0, 0.8, focus);
+var city = vec3f(0.01, 0.012, 0.035) + vec3f(0.03, 0.01, 0.05) * smoothstep(0.5, -0.5, q.y);
+// Bokeh: three layers of soft discs.
+for (var l = 0; l < 3; l++) {
+    let fl = f32(l);
+    let cs = 0.26 - 0.06 * fl;
+    let gq = (q + vec2f(bd * (1.0 + fl) + fl * 0.29, fl * 0.47)) / cs;
+    let c = floor(gq);
+    let h0 = (u32(i32(c.x) + 4096) * 1973u + u32(i32(c.y) + 4096) * 9277u + u32(l) * 26699u + 5u) * 747796405u + 2891336453u;
+    let h = ((h0 >> ((h0 >> 28u) + 4u)) ^ h0) * 277803737u;
+    let ha = f32(h & 1023u) / 1023.0;
+    let hb = f32((h >> 10u) & 1023u) / 1023.0;
+    let hc = f32((h >> 20u) & 1023u) / 1023.0;
+    if (hc < 0.75) {
+        let ctr = c + vec2f(0.4 + 0.2 * ha, 0.4 + 0.2 * hb);
+        let rd = (0.24 + 0.14 * ha) * bl;
+        let d = length(gq - ctr);
+        let disc = smoothstep(rd, rd - 0.06 * bl, d) * (0.75 + 0.25 * smoothstep(rd * 0.5, rd, d));
+        let k = floor(fract(hc * 13.7) * 5.0);
+        var bc = vec3f(1.0, 0.1, 0.7);
+        if (k == 1.0) { bc = vec3f(0.1, 0.85, 1.0); }
+        if (k == 2.0) { bc = vec3f(1.0, 0.6, 0.12); }
+        if (k == 3.0) { bc = vec3f(0.6, 0.25, 1.0); }
+        if (k == 4.0) { bc = vec3f(1.0, 0.3, 0.2); }
+        city += bc * disc * (0.22 + 0.12 * fl) * (0.8 + 0.4 * sb + 0.5 * pm) / (bl * 0.6 + 0.4);
+    }
+}
+// The traffic: red and amber lights sliding along the street.
+let ty = q.y + 0.33;
+if (abs(ty) < 0.12) {
+    let tq = vec2f(q.x / 0.09 + tf * 9.0, 0.0);
+    let tc = floor(tq.x);
+    let th0 = (u32(i32(tc) + 65536) * 104729u + 7u) * 747796405u + 2891336453u;
+    let th = ((th0 >> ((th0 >> 28u) + 4u)) ^ th0) * 277803737u;
+    let ta = f32(th & 1023u) / 1023.0;
+    let tb = f32((th >> 10u) & 1023u) / 1023.0;
+    let lane = select(-0.03, 0.03, tb > 0.5);
+    let tdx = (tq.x - tc - 0.5) * 0.09;
+    let tdd = length(vec2f(tdx, ty - lane));
+    let trd = 0.03 * bl;
+    let tl = smoothstep(trd, trd * 0.7, tdd) * step(0.4, ta);
+    city += mix(vec3f(1.0, 0.15, 0.08), vec3f(1.0, 0.7, 0.25), step(0.5, tb)) * tl * 0.5 / (bl * 0.5 + 0.5);
+}
+// The neon signs: rounded-rectangle tubes, haloed, pulsing on the kicks.
+for (var i = 0; i < 3; i++) {
+    var sc = vec2f(-0.62, 0.12);
+    var hs = vec2f(0.05, 0.26);
+    var ncol = vec3f(1.0, 0.1, 0.65);
+    if (i == 1) { sc = vec2f(0.45, 0.3); hs = vec2f(0.28, 0.06); ncol = vec3f(0.1, 0.9, 1.0); }
+    if (i == 2) { sc = vec2f(0.15, -0.1); hs = vec2f(0.12, 0.05); ncol = vec3f(1.0, 0.65, 0.1); }
+    let dq = abs(q - sc) - hs + vec2f(0.02);
+    let sd = length(max(dq, vec2f(0.0))) + min(max(dq.x, dq.y), 0.0) - 0.02;
+    let tube = abs(sd);
+    let tbw = mix(0.035, 0.004 + 1.5 * px * lw, focus);
+    let glow = exp(-tube * tube / (tbw * tbw)) + exp(-tube / mix(0.09, 0.03, focus)) * 0.35;
+    let flick = 1.0 + 0.9 * pb * select(1.0, 0.6, i == 1);
+    city += ncol * glow * 0.6 * flick * (0.85 + 0.3 * sb);
+}
+// The glass: fogged except through the drops and trails.
+let fogk = 1.0 - max(focus, clear * 0.8);
+var col = mix(city * 1.5 + vec3f(0.03, 0.035, 0.05), city * 0.55 + vec3f(0.035, 0.04, 0.06), fogk);
+// The drops' dark rims and glints.
+col *= 1.0 - 0.6 * rim * rim * rim;
+col += vec3f(0.9, 0.95, 1.0) * spec * (0.5 + 1.5 * pt);
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.2, vec3f(0.0)) * 1.2;
+return col / (1.0 + 0.45 * col);
+'''

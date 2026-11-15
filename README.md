@@ -301,7 +301,7 @@ MIT OR Apache-2.0, at your option. See `LICENSE-MIT` and `LICENSE-APACHE`.
 | **Pulse Grid**: a dark wall of crisp neon grid, scanning pulses and square pulse rings racing out on the kicks | **Starfield Warp**: streaks of coloured stars and nebula wisps rushing past, every kick punching the warp |
 | ![Black Smoker](docs/images/black-smoker.png) | ![Glitch Mosaic](docs/images/glitch-mosaic.png) |
 | **Black Smoker**: glowing hydrothermal chimneys on a pitch-black seabed billowing shimmering heat plumes over swaying bioluminescent tube worms, every kick erupting a vent | **Glitch Mosaic**: a neon geometric mosaic torn by datamosh glitches, block jumps, RGB splits, scanline tears and pixel-sorted streaks bursting in bands on the kicks |
-| ![Total Eclipse](docs/images/total-eclipse.png) | |
-| **Total Eclipse**: a black moon in a pearly corona of streamers and magenta prominences, with Baily's beads and a diamond ring, kicks swelling the corona and flaring the limb | |
+| ![Total Eclipse](docs/images/total-eclipse.png) | ![Neon Rain Window](docs/images/neon-rain-window.png) |
+| **Total Eclipse**: a black moon in a pearly corona of streamers and magenta prominences, with Baily's beads and a diamond ring, kicks swelling the corona and flaring the limb | **Neon Rain Window**: rain beading and trickling down a fogged window onto blurred neon city bokeh, every drop a tiny lens, kicks shaking fresh drops onto the glass |
 
 These are single frames; every preset moves and changes with the music.
