@@ -104,11 +104,11 @@ device, so just start your music and run it.
 | ![Neon Orbit](docs/images/neon-orbit.png) | ![Aurora Sweep](docs/images/aurora-sweep.png) |
 | **Neon Orbit**: a swarm of neon comets streaking round a blazing core and its accretion disc, flung outward by every kick | **Aurora Sweep**: green, violet and red aurora curtains over black mountains, a ripple sweeping along them on every kick |
 | ![Ember Rain](docs/images/ember-rain.png) | ![Kaleido Spin](docs/images/kaleido-spin.png) |
-| **Ember Rain**: hot embers curling down through the dark onto a bed of glowing coals that throws up sparks on every kick | **Kaleido Spin**: a spinning kaleidoscope of petals and starbursts |
+| **Ember Rain**: hot embers curling down through the dark onto a bed of glowing coals that throws up sparks on every kick | **Kaleido Spin**: a jewel-bright stained-glass kaleidoscope on black, its symmetry shifting, snapping round on every kick |
 | ![Liquid Chrome](docs/images/liquid-chrome.png) | ![Prism Drift](docs/images/prism-drift.png) |
-| **Liquid Chrome**: a chrome ring rippling through a liquid metal surface | **Prism Drift**: threads of prismatic light drifting across shifting colour fields |
+| **Liquid Chrome**: a black liquid-metal sea mirroring neon signs, kicks dropping splashes of chrome droplets | **Prism Drift**: white beams split by drifting glass prisms into vivid spectra in the dark |
 | ![Pulse Grid](docs/images/pulse-grid.png) | ![Starfield Warp](docs/images/starfield-warp.png) |
-| **Pulse Grid**: a neon green grid swept by scanning lines that pulse with the beat | **Starfield Warp**: stars streaming out of a violet void at warp speed |
+| **Pulse Grid**: a dark wall of crisp neon grid, scanning pulses and square pulse rings racing out on the kicks | **Starfield Warp**: streaks of coloured stars and nebula wisps rushing past, every kick punching the warp |
 
 These are single frames; every preset moves and changes with the music.
 

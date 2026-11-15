@@ -1,8 +1,30 @@
-# Liquid Chrome: a wandering ring of the waveform stirs a pool of mercury. The
-# warp shader swirls the image along its own blurred contours; the
-# composite reads the blur as a height field and lights it like polished
-# metal under a cool studio sky. Half-float (fp16) feedback keeps the
-# slow swirl smooth instead of stepping in 8-bit increments.
+# Liquid Chrome: a sea of black liquid metal at night, stretching to the
+# horizon under a dark sky hung with neon: a great magenta ring sign with
+# a gold ring inside it, tall tubes of cyan, magenta and gold standing on
+# the horizon, a gold strip along it and a magenta glow where sea meets
+# sky. The mirror-black swell carries all of it, the tubes stretched into
+# long wavering streaks of colour across the sea, chrome ripples running
+# over the long waves. Each kick drops a splash: a ring of ripples spreads
+# out across the sea, bending every reflection it crosses, and a crown of
+# chrome droplets leaps up, each a tiny mirror of the neon, and falls
+# back.
+#
+# Everything is in the composite. Each pixel's ray meets the sea (a plane
+# under the camera) or the sky. The sea's slope is a sum of six long
+# waves in different directions, each faded out before it is finer than
+# the pixel it falls on, plus the splashes' ripple rings; the ray is
+# reflected off the tilted surface into the same neon sky the camera sees
+# above the horizon, with a metal's strong reflection even straight down.
+# The droplets are spheres flying on ballistic arcs from each splash,
+# shaded by what they reflect.
+#
+# The frame code accumulates the swell's phase and places the splashes.
+# Each hit of the music is felt at once, through pulses of the bass, mids
+# and treble that rise in a tick or two and die away over a fraction of a
+# second (soft-limited, so a bigger hit still means more): a kick drops a
+# splash somewhere out on the sea (up to three at once), surges the swell
+# on and flares the neon; the mids raise the chop of the small waves; the
+# treble sparkles the sea's crests. Bass swells the long waves (smoothed).
 version = 1
 
 [meta]
@@ -11,58 +33,196 @@ author = "Milksplat"
 license = "MIT OR Apache-2.0"
 
 [params]
-feedback_format = "fp16"
-decay = 0.975
+decay = 0.0
 zoom = 1.0
 warp = 0.0
-wave_mode = 0
-wave_a = 0.9
-wave_r = 1.0
-wave_g = 1.0
-wave_b = 1.0
-wave_thick = 1
-mesh = [48, 36]
+wave_a = 0.0
+mesh = [8, 6]
 
 [code]
+init = '''
+ph = 0; sl = 0; cd = 0;
+x1 = -0.8; z1 = 4; r1 = 9; a1 = 0; g1 = 9;
+x2 = 0.9; z2 = 5; r2 = 9; a2 = 0; g2 = 9;
+x3 = 0.1; z3 = 3; r3 = 9; a3 = 0; g3 = 9;
+'''
 frame = '''
-// The ring wanders on a slow Lissajous path, stirring the pool.
-wave_x = 0.5 + 0.22 * sin(time * 0.37);
-wave_y = 0.5 + 0.2 * sin(time * 0.29 + 1.3);
-wave_mystery = -0.5 + 0.3 * min(bass, 2);
-wave_a = 0.45 + 0.45 * min(bass, 2) / 2;
-zoom = 0.996 + 0.01 * min(bass_att, 2);
-rot = 0.006 * sin(time * 0.21);
-q1 = 0.04 + 0.08 * min(mid_att, 2) / 2;
-q2 = 0.5 + 0.5 * min(treb, 1.5) / 1.5;
-q3 = time * 0.1;
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+ob = pb;
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+kk = max(pb - ob, 0);
+// The swell's phase: a slow roll, surging on with the kicks.
+ph = ph + 0.012 + 0.006 * min(sb, 2) + 0.07 * pb;
+ph = ph - 6283.1853 * floor(ph / 6283.1853);
+// A fresh kick drops a splash somewhere out on the sea, in the next of
+// three slots: its ripple ring spreads and fades, its droplets fly.
+cd = cd + 1;
+if(kk > 0.1 && cd > 9,
+  cd = 0; sl = (sl + 1) % 3;
+  nx = (rand(1000) / 1000 - 0.5) * 3.4; nz = 2.0 + rand(1000) / 1000 * 3.5; na = min(pb, 1.5);
+  if(sl == 0, x1 = nx; z1 = nz; r1 = 0; a1 = na; g1 = 0, 0);
+  if(sl == 1, x2 = nx; z2 = nz; r2 = 0; a2 = na; g2 = 0, 0);
+  if(sl == 2, x3 = nx; z3 = nz; r3 = 0; a3 = na; g3 = 0, 0),
+  0);
+// While a splash is young its strength follows the kick up.
+if(g1 < 0.06, a1 = max(a1, min(pb, 1.5)), 0); if(g2 < 0.06, a2 = max(a2, min(pb, 1.5)), 0); if(g3 < 0.06, a3 = max(a3, min(pb, 1.5)), 0);
+r1 = min(r1 + 0.03, 9); r2 = min(r2 + 0.03, 9); r3 = min(r3 + 0.03, 9);
+a1 = a1 * 0.975; a2 = a2 * 0.975; a3 = a3 * 0.975;
+g1 = min(g1 + 1 / 60, 9); g2 = min(g2 + 1 / 60, 9); g3 = min(g3 + 1 / 60, 9);
+q1 = ph; q2 = pb; q3 = pm; q4 = pt;
+q5 = x1; q6 = z1; q7 = r1; q8 = a1;
+q9 = x2; q10 = z2; q11 = r2; q12 = a2;
+q13 = x3; q14 = z3; q15 = r3; q16 = a3;
+q17 = g1; q18 = g2; q19 = g3; q20 = sb;
 '''
 
 [shader]
-warp = '''
-// Swirl along the contours of the blurred image (its gradient turned by
-// 90 degrees), plus a slow drift.
-let e = u.texsize.zw * 4.0;
-let hx = dot(GetBlur2(uv + vec2f(e.x, 0.0)) - GetBlur2(uv - vec2f(e.x, 0.0)), vec3f(0.333));
-let hy = dot(GetBlur2(uv + vec2f(0.0, e.y)) - GetBlur2(uv - vec2f(0.0, e.y)), vec3f(0.333));
-let swirl = vec2f(-hy, hx) * u.q[0].x;
-let src = uv + swirl + 0.0006 * vec2f(sin(u.q[0].z * 6.0 + uv.y * 9.0), cos(u.q[0].z * 5.0 + uv.x * 7.0));
-let c = mix(GetMain(src), GetBlur1(src), 0.3);
-return c * u.decay;
-'''
 comp = '''
-// Height = blurred brightness; its slope tilts the surface normal.
-let e = u.texsize.zw * 2.0;
-let h = dot(GetBlur1(uv), vec3f(0.333));
-let sx = dot(GetBlur1(uv + vec2f(e.x, 0.0)) - GetBlur1(uv - vec2f(e.x, 0.0)), vec3f(0.333));
-let sy = dot(GetBlur1(uv + vec2f(0.0, e.y)) - GetBlur1(uv - vec2f(0.0, e.y)), vec3f(0.333));
-let n = normalize(vec3f(-sx * 5.0, sy * 5.0, 0.25));
-// Reflect a sky: steel blue overhead, warm floor, a bright key light.
-let sky = mix(vec3f(0.25, 0.22, 0.2), vec3f(0.55, 0.7, 0.9), n.y * 0.5 + 0.5);
-let key = pow(max(dot(n, normalize(vec3f(-0.4, 0.5, 0.75))), 0.0), 12.0);
-let rim = pow(1.0 - n.z, 2.0);
-let metal = sky * (0.25 + 0.9 * h) + vec3f(key) * (0.4 + 0.6 * u.q[0].y) + rim * vec3f(0.3, 0.45, 0.6);
-// Where the pool is thin, a softly lit brushed-steel backdrop.
-let soft = smoothstep(0.35, 0.0, abs(uv.x - uv.y * 0.6 - 0.3));
-let steel = mix(vec3f(0.26, 0.3, 0.38), vec3f(0.12, 0.14, 0.2), uv.y) + soft * vec3f(0.12, 0.14, 0.16) + 0.05 * hue_shader;
-return mix(steel, metal * 1.15, smoothstep(0.0, 0.08, h)) + GetMain(uv) * 0.2;
+let sz = u.texsize.xy;
+let asp = sz.x / sz.y;
+let ph = u.q[0].x;
+let pb = u.q[0].y;
+let pm = u.q[0].z;
+let pt = u.q[0].w;
+let sb = min(u.q[4].w, 2.0) * 0.5;
+// The neon flares with a kick, held back on a tiny picture (where the
+// lit share is larger).
+let fl = 1.0 + 0.45 * pb * min(1.0, sz.y / 200.0);
+// The camera: a little above the sea, looking out at the horizon; a kick
+// pushes the view in.
+let tf = 0.85 / (1.0 + 0.05 * pb);
+let cy = 0.55;
+let ro = vec3f(0.0, cy, 0.0);
+let pit = 0.13;
+let fw = vec3f(0.0, -sin(pit), cos(pit));
+let up = vec3f(0.0, cos(pit), sin(pit));
+let sx = (uv.x - 0.5) * asp * tf;
+let sy = (0.5 - uv.y) * tf;
+let rd = normalize(fw + vec3f(sx, 0.0, 0.0) + up * sy);
+let pa = tf / sz.y;
+var col = vec3f(0.0);
+var dir = rd;
+var refl = 1.0;
+var tsea = 1e9;
+var gx = 0.0;
+var gz = 0.0;
+var crest = 0.0;
+if (rd.y < -1e-4) {
+    tsea = cy / -rd.y;
+    let p = ro + rd * tsea;
+    // The footprint of a pixel on the sea, across and along the view.
+    let fp = tsea * pa / max(-rd.y, 0.02);
+    // Six long waves, each faded out before it is finer than the pixel.
+    var hsum = 0.0;
+    for (var i = 0; i < 6; i++) {
+        let fi = f32(i);
+        let an = fi * 1.07 + 0.3;
+        let k = 2.2 * pow(1.55, fi);
+        let am = (0.035 + 0.02 * sb) / k * select(1.0, 1.0 + 1.5 * pm, i >= 3);
+        let d = vec2f(cos(an), sin(an));
+        let ff = exp(-k * k * fp * fp * 0.6);
+        let arg = k * dot(p.xz, d) - ph * sqrt(k) * 1.4;
+        let c = cos(arg) * am * k * ff;
+        gx += c * d.x;
+        gz += c * d.y;
+        hsum += sin(arg) * am * k * ff;
+    }
+    crest = smoothstep(0.08, 0.2, hsum);
+    // The splashes' ripple rings.
+    for (var j = 0; j < 3; j++) {
+        let b = u.q[1 + j];
+        let ra = b.w;
+        if (ra > 0.01) {
+            let dv = p.xz - b.xy;
+            let dd = length(dv) + 1e-4;
+            let x = dd - b.z;
+            let kr = 22.0;
+            let env = exp(-x * x / 0.08);
+            let ff = exp(-kr * kr * fp * fp * 0.6);
+            let s = ra * 0.09 * kr * cos(kr * x) * env * ff;
+            gx += s * dv.x / dd;
+            gz += s * dv.y / dd;
+        }
+    }
+    let n = normalize(vec3f(-gx, 1.0, -gz));
+    dir = reflect(rd, n);
+    dir.y = abs(dir.y);
+    // A metal's reflection: strong even looking straight down.
+    let ct = max(dot(-rd, n), 0.0);
+    refl = 0.62 + 0.38 * pow(1.0 - ct, 5.0);
+}
+// The droplets: chrome spheres on ballistic arcs from each splash.
+var tdrop = tsea;
+for (var j = 0; j < 3; j++) {
+    let b = u.q[1 + j];
+    let ag = select(select(u.q[4].z, u.q[4].y, j == 1), u.q[4].x, j == 0);
+    if (ag < 0.7) {
+        for (var m = 0; m < 6; m++) {
+            let th = f32(m) * 1.0472 + f32(j) * 0.7 + b.x * 3.0;
+            let hv = 0.55 + 0.25 * fract(f32(m) * 0.618 + b.y);
+            let pos = vec3f(b.x + cos(th) * hv * ag, (1.7 + 0.3 * fract(f32(m) * 0.37)) * ag - 2.6 * ag * ag, b.y + sin(th) * hv * ag);
+            let rr = 0.05 * min(1.0, b.w * 1.5 + 0.3);
+            let oc = ro - pos;
+            let bb = dot(oc, rd);
+            let cc = dot(oc, oc) - rr * rr;
+            let disc = bb * bb - cc;
+            if (disc > 0.0 && pos.y > -rr) {
+                let th0 = -bb - sqrt(disc);
+                if (th0 > 0.0 && th0 < tdrop) {
+                    tdrop = th0;
+                    let nn = normalize(ro + rd * th0 - pos);
+                    dir = reflect(rd, nn);
+                    refl = 0.95;
+                }
+            }
+        }
+    }
+}
+// The neon sky, seen directly or in the metal.
+let el = dir.y;
+let az = atan2(dir.x, dir.z);
+var env = vec3f(0.004, 0.0, 0.012) + vec3f(0.05, 0.0, 0.09) * exp(-max(el, 0.0) / 0.3);
+// The glow along the horizon, and a gold strip on it.
+env += vec3f(1.0, 0.1, 0.6) * (exp(-el / 0.012) * 0.55 + exp(-el / 0.1) * 0.25);
+env += vec3f(1.0, 0.7, 0.15) * exp(-pow((el - 0.022) / 0.0025, 2.0)) * step(abs(az), 0.95) * 1.3;
+// Tall neon tubes standing on the horizon.
+for (var i = 0; i < 9; i++) {
+    let fi = f32(i);
+    let ta = (fi - 4.0) * 0.2 + 0.05 * sin(fi * 2.3);
+    let th = 0.12 + 0.12 * fract(fi * 0.618 + 0.2);
+    let ci = i % 3;
+    var tc = vec3f(0.1, 0.95, 1.0);
+    if (ci == 1) { tc = vec3f(1.0, 0.15, 0.75); }
+    if (ci == 2) { tc = vec3f(1.0, 0.75, 0.15); }
+    let dz = abs(az - ta);
+    let inb = (1.0 - smoothstep(th, th + 0.004, el)) * step(0.0, el);
+    let inh = (1.0 - smoothstep(th - 0.06, th + 0.04, el)) * step(0.0, el);
+    env += tc * (inb * exp(-dz * dz / 0.00002) * 1.6 + inh * exp(-dz / 0.03) * 0.3);
+}
+// The great ring sign: magenta outside, gold within.
+let cdir = normalize(vec3f(0.0, 0.3, 1.0));
+let ga = acos(clamp(dot(dir, cdir), -1.0, 1.0));
+let d1 = abs(ga - 0.21);
+let d2 = abs(ga - 0.15);
+env += vec3f(1.0, 0.12, 0.7) * (exp(-d1 * d1 / 0.000012) * 1.7 + exp(-d1 / 0.04) * 0.4);
+env += vec3f(1.0, 0.75, 0.2) * (exp(-d2 * d2 / 0.000008) * 1.3 + exp(-d2 / 0.025) * 0.25);
+env *= fl;
+col = env * refl;
+// Where the sea is not a droplet: a faint sheen of the swell, and the
+// treble's sparkle on the crests.
+if (tsea < 1e8 && tdrop >= tsea) {
+    let cell = floor(uv * sz / max(1.0, sz.y / 540.0));
+    let gl = fract(sin(dot(cell, vec2f(41.3, 289.1))) * 43758.5);
+    col += vec3f(0.6, 0.9, 1.0) * step(0.996 - 0.01 * pt, gl) * crest * (0.3 + 2.0 * pt) * exp(-tsea * 0.08);
+    col += vec3f(0.02, 0.015, 0.04) * exp(-tsea * 0.15);
+}
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.15, vec3f(0.0));
+return col / (1.0 + 0.4 * col);
 '''
