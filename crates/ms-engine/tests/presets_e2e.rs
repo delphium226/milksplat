@@ -54,7 +54,7 @@ const HAT_SEED: u64 = 0x4A75_6E6B_4861_7473;
 const RGBA8: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 
 /// The bundled presets, by file stem. `presets/` must hold exactly these.
-const BUNDLED: [&str; 103] = [
+const BUNDLED: [&str; 104] = [
     "default",
     "ink-bloom",
     "bass-tunnel",
@@ -158,6 +158,7 @@ const BUNDLED: [&str; 103] = [
     "spectrum-mountains",
     "black-smoker",
     "glitch-mosaic",
+    "total-eclipse",
 ];
 
 // ------------------------------------------------------------ synthetic audio
@@ -639,6 +640,7 @@ preset_tests! {
     preset_spectrum_mountains => "spectrum-mountains",
     preset_black_smoker => "black-smoker",
     preset_glitch_mosaic => "glitch-mosaic",
+    preset_total_eclipse => "total-eclipse",
 }
 
 /// `presets/` holds exactly the bundled set (so every file has a test
@@ -671,7 +673,7 @@ fn bundled_set_is_complete() {
 /// runs: a minute for those with long-running state (accumulated phases,
 /// state machines), twenty seconds for the rest (enough for their feedback
 /// to settle; every bundled preset but the gentle default is covered).
-const LONG_RUN: [(&str, usize); 102] = [
+const LONG_RUN: [(&str, usize); 103] = [
     ("ink-bloom", 3600),
     ("bass-tunnel", 3600),
     ("prism-drift", 3600),
@@ -774,6 +776,7 @@ const LONG_RUN: [(&str, usize); 102] = [
     ("spectrum-mountains", 3600),
     ("black-smoker", 3600),
     ("glitch-mosaic", 3600),
+    ("total-eclipse", 3600),
 ];
 
 /// A cheap guard against flashing that only develops over time (for
