@@ -54,7 +54,7 @@ const HAT_SEED: u64 = 0x4A75_6E6B_4861_7473;
 const RGBA8: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 
 /// The bundled presets, by file stem. `presets/` must hold exactly these.
-const BUNDLED: [&str; 104] = [
+const BUNDLED: [&str; 105] = [
     "default",
     "ink-bloom",
     "bass-tunnel",
@@ -159,6 +159,7 @@ const BUNDLED: [&str; 104] = [
     "magnetosphere",
     "equalizer-skyline",
     "rorschach-bloom",
+    "flower-of-life",
 ];
 
 // ------------------------------------------------------------ synthetic audio
@@ -641,6 +642,7 @@ preset_tests! {
     preset_magnetosphere => "magnetosphere",
     preset_equalizer_skyline => "equalizer-skyline",
     preset_rorschach_bloom => "rorschach-bloom",
+    preset_flower_of_life => "flower-of-life",
 }
 
 /// `presets/` holds exactly the bundled set (so every file has a test
@@ -673,7 +675,7 @@ fn bundled_set_is_complete() {
 /// runs: a minute for those with long-running state (accumulated phases,
 /// state machines), twenty seconds for the rest (enough for their feedback
 /// to settle; every bundled preset but the gentle default is covered).
-const LONG_RUN: [(&str, usize); 103] = [
+const LONG_RUN: [(&str, usize); 104] = [
     ("ink-bloom", 3600),
     ("bass-tunnel", 3600),
     ("prism-drift", 3600),
@@ -777,6 +779,7 @@ const LONG_RUN: [(&str, usize); 103] = [
     ("magnetosphere", 3600),
     ("equalizer-skyline", 3600),
     ("rorschach-bloom", 3600),
+    ("flower-of-life", 3600),
 ];
 
 /// A cheap guard against flashing that only develops over time (for

@@ -301,7 +301,7 @@ MIT OR Apache-2.0, at your option. See `LICENSE-MIT` and `LICENSE-APACHE`.
 | **Pulse Grid**: a dark wall of crisp neon grid, scanning pulses and square pulse rings racing out on the kicks | **Starfield Warp**: streaks of coloured stars and nebula wisps rushing past, every kick punching the warp |
 | ![Magnetosphere](docs/images/magnetosphere.png) | ![Equalizer Skyline](docs/images/equalizer-skyline.png) |
 | **Magnetosphere**: a dark blue-green world in looping neon field lines, solar wind bending round its bow shock, every kick a storm gust that squeezes the field and flares the aurorae | **Equalizer Skyline**: a night city whose forty towers are level meters for the live spectrum, searchlights thrown into a sweep and beacons rippling across the roofs on every kick |
-| ![Rorschach Bloom](docs/images/rorschach-bloom.png) |  |
-| **Rorschach Bloom**: mirror-symmetric neon inkblots blooming, bleeding and morphing into moths, masks and faces, every kick pushing a fresh bloom of ink out from the fold |  |
+| ![Rorschach Bloom](docs/images/rorschach-bloom.png) | ![Flower of Life](docs/images/flower-of-life.png) |
+| **Rorschach Bloom**: mirror-symmetric neon inkblots blooming, bleeding and morphing into moths, masks and faces, every kick pushing a fresh bloom of ink out from the fold | **Flower of Life**: the Flower of Life, Metatron's Cube and a Sri Yantra in gold and violet light, turning against each other and building up, kicks lighting the rings in sequence |
 
 These are single frames; every preset moves and changes with the music.
