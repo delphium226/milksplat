@@ -673,7 +673,7 @@ const LONG_RUN: [(&str, usize); 100] = [
     ("prism-drift", 1200),
     ("pulse-grid", 1200),
     ("aurora-sweep", 1200),
-    ("kaleido-spin", 1200),
+    ("kaleido-spin", 3600),
     ("ember-rain", 1200),
     ("liquid-chrome", 1200),
     ("starfield-warp", 1200),

@@ -104,7 +104,7 @@ device, so just start your music and run it.
 | ![Neon Orbit](docs/images/neon-orbit.png) | ![Aurora Sweep](docs/images/aurora-sweep.png) |
 | **Neon Orbit**: neon comets whirling round a bright core, trailing rings of light | **Aurora Sweep**: curtains of aurora rippling over a starry horizon |
 | ![Ember Rain](docs/images/ember-rain.png) | ![Kaleido Spin](docs/images/kaleido-spin.png) |
-| **Ember Rain**: glowing embers falling and curling through a dark red haze | **Kaleido Spin**: a spinning kaleidoscope of petals and starbursts |
+| **Ember Rain**: glowing embers falling and curling through a dark red haze | **Kaleido Spin**: a jewel-bright stained-glass kaleidoscope on black, its symmetry shifting, snapping round on every kick |
 | ![Liquid Chrome](docs/images/liquid-chrome.png) | ![Prism Drift](docs/images/prism-drift.png) |
 | **Liquid Chrome**: a chrome ring rippling through a liquid metal surface | **Prism Drift**: threads of prismatic light drifting across shifting colour fields |
 | ![Pulse Grid](docs/images/pulse-grid.png) | ![Starfield Warp](docs/images/starfield-warp.png) |

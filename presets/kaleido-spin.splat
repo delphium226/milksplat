@@ -1,6 +1,29 @@
-# Kaleido Spin: five triangles chase each other around a rotating
-# feedback field; the composite folds it into a six-way kaleidoscope with
-# a faint stained-glass texture (one of the random textures) behind it.
+# Kaleido Spin: a jewel-bright kaleidoscope on black. Shards of stained
+# glass in ruby, sapphire, emerald, amethyst, topaz and turquoise, each
+# cut with a bevel that catches the light and set in black leading, flow
+# out from the centre and are folded into a mandala that turns, its
+# symmetry shifting every few seconds (six, eight, ten, twelve, five,
+# seven, nine fold), one fold dissolving into the next. Gold starburst
+# rays shoot along the mirror lines from a glowing centre, and some
+# shards carry a glinting four-pointed star.
+#
+# Everything is in the composite. Each pixel's angle round the centre is
+# folded into one wedge of the current symmetry, mirrored, and turned;
+# the folded point, scaled and scrolled outward, is placed in a Voronoi
+# tessellation (the 3 x 3 cells round it): the nearest seed picks the
+# shard and its colour, and the gap to the second nearest gives the
+# distance to the leading, so the lines keep their width at any size.
+# While the symmetry changes both foldings are drawn and cross-faded.
+#
+# The frame code accumulates the turn, the outward flow and the colours,
+# and steps the symmetry. Each hit of the music is felt at once, through
+# pulses of the bass, mids and treble that rise in a tick or two and die
+# away over a fraction of a second (soft-limited, so a bigger hit still
+# means more): a kick snaps the rotation round (a quick lurch that
+# settles), surges the flow, blooms the centre and sends a ring of light
+# out through the glass, and a run of kicks brings the next symmetry on
+# sooner; the mids light the shards' bevels and swing their colours; the
+# treble glints the stars. Bass brightens the glass (smoothed).
 version = 1
 
 [meta]
@@ -9,71 +32,163 @@ author = "Milksplat"
 license = "MIT OR Apache-2.0"
 
 [params]
-decay = 0.96
-zoom = 1.02
-rot = 0.02
-warp = 0.3
-wave_mode = 1
-wave_a = 0.5
-wave_r = 1.0
-wave_g = 0.85
-wave_b = 0.2
-wave_additive = 1
-mesh = [48, 36]
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
 
 [code]
-frame = '''
-rot = 0.012 + 0.02 * min(mid_att, 2);
-zoom = 1.012 + 0.02 * min(bass, 2) / 2;
-wave_a = 0.25 + 0.35 * min(treb, 1.5) / 1.5;
-q1 = time * 0.15 + 0.2 * bass_att;
-q2 = time;
+init = '''
+n1 = 6; n2 = 8; mx = 0; ni = 1; tm = 0; ro = 0; rv = 0; dr = 0; hu = 0; kr = 2; ka = 0; sg = 1; cd = 0;
 '''
-
-[[shape]]
-enabled = true
-sides = 3
-instances = 5
-rad = 0.05
-r = 1.0
-g = 0.2
-b = 0.75
-a = 0.6
-r2 = 1.0
-g2 = 0.75
-b2 = 0.2
-a2 = 0.25
-border_r = 1.0
-border_g = 1.0
-border_b = 1.0
-border_a = 0.25
-additive = 1
 frame = '''
-p = instance / 5 * 6.2832 + q2 * 0.7;
-d = 0.22 + 0.1 * sin(q2 * 1.3 + instance);
-x = 0.5 + d * cos(p) * aspecty;
-y = 0.5 + d * sin(p);
-ang = p * 2;
-rad = 0.035 + 0.02 * min(bass, 2);
-g2 = 0.5 + 0.4 * sin(q2 + instance);
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+ob = pb;
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+kk = max(pb - ob, 0);
+// The turn: a slow drift, and each kick's rise snaps it round (the
+// lurch settles over a quarter of a second).
+rv = rv * 0.82 + 0.16 * kk * sg;
+ro = ro + 0.0025 * sg + rv;
+ro = ro - 6.2831853 * floor(ro / 6.2831853);
+// The outward flow of the glass, surging with the kicks.
+dr = dr + 0.004 + 0.035 * pb + 0.006 * pm;
+dr = dr - 1024 * floor(dr / 1024);
+hu = hu + 0.0003 + 0.005 * pm; hu = hu - floor(hu);
+// A ring of light out from the centre on a fresh kick.
+cd = cd + 1;
+if(kk > 0.12 && cd > 10, cd = 0; kr = 0; ka = min(pb, 1.5), 0);
+// While the ring is young its strength follows the kick up.
+if(kr < 0.06, ka = max(ka, min(pb, 1.5)), 0);
+kr = min(kr + 0.014, 2); ka = ka * 0.955;
+// The symmetry: a new fold every 8 s or so (sooner with kicks), faded in
+// over two thirds of a second; the turn reverses with each.
+tm = tm + (1 + 3 * pb) / 60;
+if(mx == 0 && tm > 8,
+  tm = 0; ni = (ni + 1) % 7;
+  n2 = if(ni == 0, 6, if(ni == 1, 8, if(ni == 2, 10, if(ni == 3, 12, if(ni == 4, 5, if(ni == 5, 7, 9))))));
+  mx = 0.001; sg = -sg,
+  0);
+if(mx > 0, mx = mx + 0.025, 0);
+if(mx >= 1, mx = 0; n1 = n2, 0);
+q1 = ro; q2 = dr; q3 = n1; q4 = n2;
+q5 = mx; q6 = hu; q7 = pb; q8 = pm;
+q9 = pt; q10 = sb; q11 = kr; q12 = ka;
 '''
 
 [shader]
 comp = '''
-// Fold the angle into one 60-degree wedge, mirrored, then rotate.
-let p = (uv - vec2f(0.5)) * vec2f(1.0 / u.aspect_y, 1.0 / u.aspect_x);
-let wedge = 1.0471976;
-var a = atan2(p.y, p.x) + u.q[0].x;
-a = a - wedge * floor(a / wedge);
-a = min(a, wedge - a);
+let sz = u.texsize.xy;
+let asp = sz.x / sz.y;
+let px = 1.0 / sz.y;
+// Line widths scale with the picture (down to half a pixel at 270
+// lines), so thin features keep their share of it.
+let lw = max(0.5, sz.y / 540.0);
+let ro = u.q[0].x;
+let dr = u.q[0].y;
+let mx = u.q[1].x;
+let hu = u.q[1].y;
+// The hits are held back on a tiny picture, where the thin rays, rims
+// and glints are a large share of it.
+let kq = min(1.0, sz.y / 135.0);
+let pb = u.q[1].z * kq;
+let pm = u.q[1].w * kq;
+let pt = u.q[2].x * kq;
+let sb = min(u.q[2].y, 2.0) * 0.5;
+let kr = u.q[2].z;
+let ka = u.q[2].w * kq;
+let p = vec2f((uv.x - 0.5) * asp, uv.y - 0.5);
 let r = length(p);
-let q = vec2f(cos(a), sin(a)) * r;
-let src = q * vec2f(u.aspect_y, u.aspect_x) + vec2f(0.5);
-let c = GetMain(src);
-let glass = textureSampleLevel(sampler_rand00, sampler_rand00_s, q * 1.5 + vec2f(0.5), 0.0).rgb;
-// Stained glass: rose toward the centre, sky blue toward the rim.
-let tint = mix(vec3f(1.0, 0.45, 0.85), vec3f(0.45, 0.75, 1.1), smoothstep(0.1, 0.6, r));
-let col = c * 1.15 + glass * tint * (0.2 + 0.22 * (1.0 - r)) + vec3f(0.12, 0.03, 0.14);
-// Roll off the highlights so the bright centre does not blow out.
-return col / (vec3f(1.0) + 0.35 * col);
+let a0 = atan2(p.y, p.x) + ro;
+// Cells per unit of height: the glass seen a little closer on a kick.
+let dens = 8.0 / (1.0 + 0.08 * pb);
+let cpx = sz.y / dens;
+var col = vec3f(0.0);
+var rays = 0.0;
+for (var s = 0; s < 2; s++) {
+    let w = select(1.0 - mx, mx, s == 1);
+    if (w <= 0.0) {
+        continue;
+    }
+    let n = select(u.q[0].z, u.q[0].w, s == 1);
+    let wedge = 6.2831853 / n;
+    var a = a0 - wedge * floor(a0 / wedge);
+    a = min(a, wedge - a);
+    let q = vec2f(cos(a), sin(a)) * r;
+    // The starburst rays along both mirror lines of the wedge.
+    let d1 = r * sin(a);
+    let d2 = r * sin(wedge * 0.5 - a);
+    let rw = px * lw * 1.3;
+    rays += w * (exp(-d1 * d1 / (rw * rw)) + 0.6 * exp(-d2 * d2 / (rw * rw)));
+    // The glass: a Voronoi tessellation of the folded point, flowing out.
+    let g = q * dens - vec2f(dr, 0.0) + vec2f(31.0, 17.0);
+    let ip = floor(g);
+    var f1 = 9.0;
+    var f2 = 9.0;
+    var s1 = vec2f(0.0);
+    var hid = 0u;
+    for (var k = 0; k < 9; k++) {
+        let c = ip + vec2f(f32(k % 3) - 1.0, f32(k / 3) - 1.0);
+        let h0 = (u32(i32(c.x)) * 1973u + u32(i32(c.y)) * 9277u + 101u) * 747796405u + 2891336453u;
+        let h = ((h0 >> ((h0 >> 28u) + 4u)) ^ h0) * 277803737u;
+        let sd = c + vec2f(0.12) + vec2f(f32(h & 1023u), f32((h >> 10u) & 1023u)) / 1023.0 * 0.76;
+        let d = length(g - sd);
+        if (d < f1) {
+            f2 = f1;
+            f1 = d;
+            s1 = sd;
+            hid = h;
+        } else if (d < f2) {
+            f2 = d;
+        }
+    }
+    let hc = f32((hid >> 20u) & 1023u) / 1023.0;
+    let hb = f32((hid >> 4u) & 255u) / 255.0;
+    // Distance to the leading, in pixels (half the gap is the distance to
+    // the bisector, near enough).
+    let ed = (f2 - f1) * 0.5 * cpx / lw;
+    let glass = smoothstep(2.6, 3.8, ed);
+    // The jewel colour: six hues, pushed to full saturation.
+    let hh = 6.2831853 * (floor(hc * 6.0) / 6.0 + 0.06 * sin(hc * 40.0) + hu);
+    var jc = 0.5 + 0.5 * cos(vec3f(hh, hh - 2.0944, hh + 2.0944));
+    jc = jc * jc * jc;
+    jc = jc / max(max(jc.r, jc.g), max(jc.b, 1e-3)) * 1.1;
+    // The bevel: lit from one side, brighter toward the shard's heart.
+    let dv = g - s1;
+    let la = hb * 6.2831853;
+    let facet = 0.5 + 0.5 * dot(normalize(dv + vec2f(1e-4)), vec2f(cos(la), sin(la)));
+    let heart = exp(-f1 * f1 * 3.0);
+    var shard = jc * (0.25 + 0.55 * facet + 0.5 * heart) * (0.75 + 0.35 * sb);
+    // A bright rim just inside the leading, lit by the mids.
+    let rim = exp(-(ed - 4.0) * (ed - 4.0) / 3.0) * glass;
+    shard += mix(jc, vec3f(1.0), 0.5) * rim * (0.25 + 0.9 * pm);
+    // A third of the panes are black glass.
+    shard *= select(1.0, 0.04, hb < 0.3);
+    // A four-pointed star glinting on some shards, with the treble.
+    let sx = abs(dv.x) * cpx / lw;
+    let sy = abs(dv.y) * cpx / lw;
+    let star = (exp(-sx * 0.35) * exp(-sy * 0.05) + exp(-sy * 0.35) * exp(-sx * 0.05)) * step(0.7, fract(hb * 13.0));
+    shard += vec3f(1.0, 0.95, 0.8) * star * (0.35 + 1.4 * pt);
+    col += w * shard * glass;
+}
+// The glass fades to black toward the corners.
+col *= 1.0 - smoothstep(0.45, 1.0, r);
+// The rays and the centre: gold-white, flaring with the kicks.
+let reach = 0.22 + 0.25 * pb;
+col += vec3f(1.0, 0.8, 0.45) * rays * exp(-r / reach) * (0.6 + 0.8 * pb);
+col += vec3f(1.0, 0.85, 0.6) * (exp(-r / (0.03 + 0.02 * pb)) * (0.6 + 1.0 * pb) + exp(-r / 0.15) * 0.1 * pb);
+// The kick's ring of light running out through the glass.
+let rg = exp(-(r - kr) * (r - kr) / 0.0012);
+col *= 1.0 + 1.6 * ka * rg;
+col += vec3f(1.0, 0.9, 0.75) * ka * exp(-(r - kr) * (r - kr) / (px * px * lw * lw * 4.0)) * 0.5;
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.15, vec3f(0.0));
+return col / (1.0 + 0.4 * col);
 '''
