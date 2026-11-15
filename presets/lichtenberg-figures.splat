@@ -1,0 +1,233 @@
+# Lichtenberg Figures: electrical trees burned into a dark block of
+# acrylic. Each discharge bursts from its strike point and grows outward
+# in a few tenths of a second, a fractal of forking, crackling channels:
+# white-hot where it is still growing, electric blue along the trunks
+# and violet out in the fine branches. Spent figures stay in the block,
+# dimming to a faint smouldering glow, until a fresh strike takes their
+# place. The block itself is near black, with a cool sheen and bevelled
+# edges.
+#
+# The channels are drawn in the warp shader, fresh each frame, and the
+# composite adds the blurred copies for their glow. Five figures at once,
+# each in its own slot: a strike point, an age, a seed and a reach. A
+# figure is a branching tree in log-polar coordinates round its strike
+# point: six trunks, and each branch forks in two every time the radius
+# doubles, so the branches keep the same spacing however far out they
+# go. Each fork survives with a hashed chance (a dead branch ends partway
+# through its generation, and all its descendants with it), the split
+# radius and the angle are warped by noise so no two forks fall at the
+# same distance, and every channel zig-zags along a hashed broken line.
+# The tree is drawn only out to the growing front, whose tips glow
+# white.
+#
+# Each hit of the music is felt at once, through pulses of the bass,
+# mids and treble that rise in a tick or two and die away over a fraction
+# of a second (soft-limited, so a bigger hit still means more): a kick
+# fires a fresh discharge from a new point, bigger and brighter the
+# harder the kick, in the slot of the oldest figure; the mids make the
+# spent figures smoulder; the treble crackles sparks off the growing
+# tips. Bass brightens the glow (smoothed). With no kicks for a few
+# seconds a small discharge fires on its own.
+version = 1
+
+[meta]
+name = "Lichtenberg Figures"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 1.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+b1n = 0.0
+b1x = 1.0
+b2n = 0.0
+b2x = 1.0
+b3n = 0.0
+b3x = 1.0
+
+[code]
+init = '''
+// Five figures already in the block, of different ages.
+x1 = -0.35; y1 = 0.12; a1 = 4.0; s1 = 11; m1 = 0.42;
+x2 = 0.42; y2 = -0.18; a2 = 3.0; s2 = 23; m2 = 0.38;
+x3 = 0.05; y3 = -0.05; a3 = 2.0; s3 = 37; m3 = 0.46;
+x4 = -0.6; y4 = -0.25; a4 = 1.0; s4 = 41; m4 = 0.3;
+x5 = 0.62; y5 = 0.22; a5 = 0.4; s5 = 53; m5 = 0.34;
+sl = 4; ns = 60; cd = 0; f1 = 0.4; f2 = 0.8; f3 = 1; f4 = 1; f5 = 1;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+ob = pb;
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+// The figures age (in seconds).
+dt = 1 / 60;
+a1 = a1 + dt; a2 = a2 + dt; a3 = a3 + dt; a4 = a4 + dt; a5 = a5 + dt;
+// A fresh kick (or a few quiet seconds) fires a discharge in the next
+// slot, which holds the oldest figure.
+kk = max(pb - ob, 0);
+cd = cd + 1;
+fire = if(kk > 0.1 && cd > 12, 1, 0);
+fire = if(cd > 200, 1, fire);
+if(fire,
+  st = if(cd > 200, 0.35, min(pb, 1.4));
+  cd = 0; sl = (sl + 1) % 5; ns = ns + 1;
+  nx = (rand(1000) / 1000 - 0.5) * 1.45; ny = (rand(1000) / 1000 - 0.5) * 0.7;
+  nm = 0.22 + 0.16 * st;
+  if(sl == 0, x1 = nx; y1 = ny; a1 = 0; s1 = ns; m1 = nm, 0);
+  if(sl == 1, x2 = nx; y2 = ny; a2 = 0; s2 = ns; m2 = nm, 0);
+  if(sl == 2, x3 = nx; y3 = ny; a3 = 0; s3 = ns; m3 = nm, 0);
+  if(sl == 3, x4 = nx; y4 = ny; a4 = 0; s4 = ns; m4 = nm, 0);
+  if(sl == 4, x5 = nx; y5 = ny; a5 = 0; s5 = ns; m5 = nm, 0),
+  0);
+ns = ns - 1000 * floor(ns / 1000);
+// Each figure fades as newer ones come, gone before its slot is reused:
+// full for the three newest, half for the next, out for the oldest.
+tg = 1; rk = (sl - 0 + 5) % 5; tg = if(rk > 3.5, 0, if(rk > 2.5, 0.3, if(rk > 1.5, 0.65, 1))); f1 = f1 + (tg - f1) * 0.15;
+rk = (sl - 1 + 5) % 5; tg = if(rk > 3.5, 0, if(rk > 2.5, 0.3, if(rk > 1.5, 0.65, 1))); f2 = f2 + (tg - f2) * 0.15;
+rk = (sl - 2 + 5) % 5; tg = if(rk > 3.5, 0, if(rk > 2.5, 0.3, if(rk > 1.5, 0.65, 1))); f3 = f3 + (tg - f3) * 0.15;
+rk = (sl - 3 + 5) % 5; tg = if(rk > 3.5, 0, if(rk > 2.5, 0.3, if(rk > 1.5, 0.65, 1))); f4 = f4 + (tg - f4) * 0.15;
+rk = (sl - 4 + 5) % 5; tg = if(rk > 3.5, 0, if(rk > 2.5, 0.3, if(rk > 1.5, 0.65, 1))); f5 = f5 + (tg - f5) * 0.15;
+q1 = x1; q2 = y1; q3 = a1; q4 = s1 + m1;
+q5 = x2; q6 = y2; q7 = a2; q8 = s2 + m2;
+q9 = x3; q10 = y3; q11 = a3; q12 = s3 + m3;
+q13 = x4; q14 = y4; q15 = a4; q16 = s4 + m4;
+q17 = x5; q18 = y5; q19 = a5; q20 = s5 + m5;
+q21 = pb; q22 = pm; q23 = pt; q24 = sb;
+q25 = f1; q26 = f2; q27 = f3; q28 = f4; q29 = f5;
+'''
+
+[shader]
+warp = '''
+let sz = u.texsize.xy;
+let asp = sz.x / sz.y;
+// Widths scale with the picture (so a small picture is not brighter).
+let lw = sz.y / 540.0;
+let p = vec2f((uv_orig.x - 0.5) * asp, 0.5 - uv_orig.y);
+let pm = u.q[5].y;
+let pt = min(u.q[5].z, 1.5);
+let r0 = 0.015;
+var col = vec3f(0.0);
+for (var i = 0; i < 5; i++) {
+    let sv = u.q[i];
+    let d = p - sv.xy;
+    let r = length(d);
+    let age = sv.z;
+    let sd = floor(sv.w);
+    let rm = fract(sv.w);
+    // The growing front.
+    let rf = rm * (1.0 - exp(-age / 0.3));
+    if (r > rf + 0.02) {
+        continue;
+    }
+    let su = u32(sd);
+    // Brightness: a flash while it grows, then a slow fade to a smoulder
+    // that the mids stir up.
+    let fresh = exp(-age / 0.7);
+    let old = exp(-age / 6.0);
+    let fdv = select(select(select(select(u.q[7].x, u.q[6].w, i == 3), u.q[6].z, i == 2), u.q[6].y, i == 1), u.q[6].x, i == 0);
+    let br = (0.4 * old + 0.4 * fresh + pm * 0.6 * (1.0 - fresh) * (0.4 + old)) * fdv;
+    // The strike point itself.
+    let rp = r * sz.y / lw;
+    col += vec3f(0.7, 0.85, 1.0) * exp(-rp * rp / 12.0) * (0.4 + 1.2 * fresh) * fdv;
+    // Log-polar position: the generation (radius doublings past r0) and
+    // the angle in turns, both warped by noise.
+    let th = atan2(d.y, d.x) / 6.2831853 + f32(su % 97u) * 0.0731;
+    let n1 = textureSampleLevel(sampler_noise_lq, s_fw, vec2f(th * 1.0, log2(max(r, 1e-4)) * 0.06 + sd * 0.137), 0.0).r;
+    let n2 = textureSampleLevel(sampler_noise_lq, s_fw, vec2f(th * 1.0 + 0.5, sd * 0.291), 0.0).r;
+    let s = log2(max(r, 1e-4) / r0) + 0.7 * (n2 - 0.5);
+    if (s < 0.0) {
+        continue;
+    }
+    let g = floor(s);
+    let f = s - g;
+    let gi = u32(g);
+    let n = 7.0 * exp2(g);
+    let lr = log2(max(r, 1e-4)) * 0.6 + sd * 1.7;
+    let tw = fract(th + 0.045 * sin(12.566371 * th + lr) + 0.025 * sin(18.849556 * th - 1.3 * lr + 2.0) + 0.012 * (n1 - 0.5));
+    let b = floor(tw * n);
+    let bu = u32(b);
+    // Alive: every ancestor survived its fork; this branch may end
+    // partway through its generation.
+    var alive = true;
+    for (var k = 1u; k <= gi; k++) {
+        let ab = bu >> (gi - k + 1u);
+        let h0 = (su * 7919u + (k - 1u) * 104729u + ab * 15485863u) * 747796405u + 2891336453u;
+        let h = ((h0 >> ((h0 >> 28u) + 4u)) ^ h0) * 277803737u;
+        let hv = f32((h >> 8u) & 65535u) / 65535.0;
+        if (hv < 0.26 + 0.05 * f32(k)) {
+            alive = false;
+        }
+    }
+    if (!alive) {
+        continue;
+    }
+    let h0 = (su * 7919u + gi * 104729u + bu * 15485863u) * 747796405u + 2891336453u;
+    let h = ((h0 >> ((h0 >> 28u) + 4u)) ^ h0) * 277803737u;
+    let hv = f32((h >> 8u) & 65535u) / 65535.0;
+    let kp = 0.26 + 0.05 * g;
+    let len = select(1.0, hv / kp, hv < kp);
+    if (f > len) {
+        continue;
+    }
+    // The channel: from the parent's line to this branch's centre,
+    // diverging fast at the fork, zig-zagging on a hashed broken line.
+    let pc = select((floor(b * 0.5) + 0.5) * 2.0, b + 0.5, g < 0.5);
+    let cc = b + 0.5;
+    let e = 1.0 - (1.0 - f) * (1.0 - f);
+    let zs = s * 9.0;
+    let zi = floor(zs);
+    let za = fract(sin((zi + b * 0.61 + sd * 3.1) * 12.9898) * 43758.5);
+    let zb = fract(sin((zi + 1.0 + b * 0.61 + sd * 3.1) * 12.9898) * 43758.5);
+    let zz = (mix(za, zb, zs - zi) - 0.5) * 0.45;
+    let lc = mix(pc, cc, e) + zz;
+    let dpx = abs(tw * n - lc) / n * 6.2831853 * r * sz.y / lw;
+    let wd = 0.6 + 1.8 * exp(-0.55 * s);
+    let line = exp(-dpx * dpx / (wd * wd)) + 0.18 * exp(-dpx / (2.5 * wd));
+    // Hot white tips at the growing front; blue trunks, violet branches.
+    let tip = exp(-pow((rf - r) * sz.y / (lw * 5.0), 2.0)) * fresh;
+    let bc = mix(vec3f(0.25, 0.6, 1.0), vec3f(0.6, 0.3, 1.0), smoothstep(2.0, 5.0, s));
+    let smc = mix(bc, vec3f(1.0, 0.35, 0.75), 0.35 * pm * (1.0 - fresh));
+    var c = smc * br * (1.15 - 0.1 * s) + vec3f(0.9, 0.95, 1.0) * tip * 1.0 * fdv;
+    // Treble: sparks crackling off the growing tips (only where the picture
+    // is big enough for them to be specks, not a flicker).
+    let cell = floor(uv_orig * sz / (2.0 * max(lw, 1.0)));
+    let sp = fract(sin(dot(cell, vec2f(41.3, 289.1)) + u.time * 37.0) * 43758.5);
+    c += vec3f(0.8, 0.9, 1.0) * step(0.9 - 0.25 * pt, sp) * pt * exp(-pow((rf - r) * sz.y / (lw * 14.0), 2.0)) * (0.3 + fresh) * 1.5 * smoothstep(150.0, 400.0, sz.y);
+    col += c * line;
+}
+return min(col, vec3f(1.0));
+'''
+comp = '''
+let sz = u.texsize.xy;
+let asp = sz.x / sz.y;
+let lw = max(1.0, sz.y / 540.0);
+let sb = min(u.q[5].w, 2.0) * 0.5;
+let pb = u.q[5].x;
+let p = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
+// The acrylic block: near black, a cool sheen falling from the top, and
+// bevelled edges catching the light.
+var col = vec3f(0.018, 0.02, 0.045) + vec3f(0.03, 0.045, 0.1) * exp(-pow((uv.y - 0.15) / 0.45, 2.0));
+let ex = min(uv.x, 1.0 - uv.x) * sz.x / lw;
+let ey = min(uv.y, 1.0 - uv.y) * sz.y / lw;
+let ed = min(ex, ey);
+col += vec3f(0.12, 0.2, 0.4) * exp(-pow((ed - 14.0) / 1.6, 2.0)) * 0.5;
+col += vec3f(0.05, 0.08, 0.18) * exp(-ed / 40.0);
+// The channels and their glow.
+let m = textureSampleLevel(sampler_main, s_fc, uv, 0.0).rgb;
+let b1 = textureSampleLevel(sampler_blur1, s_fc, uv, 0.0).rgb * (u.blur_max.x - u.blur_min.x);
+let b2 = textureSampleLevel(sampler_blur2, s_fc, uv, 0.0).rgb * (u.blur_max.y - u.blur_min.y);
+let b3 = textureSampleLevel(sampler_blur3, s_fc, uv, 0.0).rgb * (u.blur_max.z - u.blur_min.z);
+col += m * 1.6 + b1 * (2.4 + 1.0 * sb) + b2 * (3.0 + 1.2 * sb) + b3 * (4.5 + 1.5 * sb);
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.25, vec3f(0.0));
+return col / (1.0 + 0.4 * col);
+'''

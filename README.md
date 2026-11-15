@@ -73,8 +73,8 @@ device, so just start your music and run it.
 | **Blazar Jet**: a black hole's relativistic jet beamed almost straight at you, wound by magnetic helices, as each kick fires a knot of plasma up it | **Fireworks Symphony**: peonies, golden willows, crossettes and ring shells bursting over a mirror-still lake, a shell launched on every kick |
 | ![Bioluminescent Surf](docs/images/bioluminescent-surf.png) | ![Circuit City](docs/images/circuit-city.png) |
 | **Bioluminescent Surf**: night waves breaking in electric-blue plankton glow, foam sheets sliding up the sand under the Milky Way, a wave breaking on each kick | **Circuit City**: a low flight over an endless circuit-board metropolis of LED-studded chip towers, data packets racing along the traces as kicks send pulse waves through the grid |
-| ![Crystal Geode](docs/images/crystal-geode.png) | |
-| **Crystal Geode**: inside a giant geode, a turning cluster of amethyst and quartz lit from within, rainbow fringes on its facets, as each kick sends a flare of light up through the crystals | |
+| ![Crystal Geode](docs/images/crystal-geode.png) | ![Lichtenberg Figures](docs/images/lichtenberg-figures.png) |
+| **Crystal Geode**: inside a giant geode, a turning cluster of amethyst and quartz lit from within, rainbow fringes on its facets, as each kick sends a flare of light up through the crystals | **Lichtenberg Figures**: electric-blue and violet discharge trees branching across a dark acrylic block, each kick firing a fresh one that forks out from a new strike point |
 
 These are single frames; every preset moves and changes with the music.
 
