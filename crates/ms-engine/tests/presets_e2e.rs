@@ -54,7 +54,7 @@ const HAT_SEED: u64 = 0x4A75_6E6B_4861_7473;
 const RGBA8: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 
 /// The bundled presets, by file stem. `presets/` must hold exactly these.
-const BUNDLED: [&str; 74] = [
+const BUNDLED: [&str; 75] = [
     "default",
     "ink-bloom",
     "bass-tunnel",
@@ -129,6 +129,7 @@ const BUNDLED: [&str; 74] = [
     "klein-bottle",
     "mobius-ribbon",
     "origami-polyhedra",
+    "volcano-lightning",
 ];
 
 // ------------------------------------------------------------ synthetic audio
@@ -581,6 +582,7 @@ preset_tests! {
     preset_klein_bottle => "klein-bottle",
     preset_mobius_ribbon => "mobius-ribbon",
     preset_origami_polyhedra => "origami-polyhedra",
+    preset_volcano_lightning => "volcano-lightning",
 }
 
 /// `presets/` holds exactly the bundled set (so every file has a test
@@ -613,7 +615,7 @@ fn bundled_set_is_complete() {
 /// runs: a minute for those with long-running state (accumulated phases,
 /// state machines), twenty seconds for the rest (enough for their feedback
 /// to settle; every bundled preset but the gentle default is covered).
-const LONG_RUN: [(&str, usize); 73] = [
+const LONG_RUN: [(&str, usize); 74] = [
     ("ink-bloom", 1200),
     ("bass-tunnel", 1200),
     ("prism-drift", 1200),
@@ -687,6 +689,7 @@ const LONG_RUN: [(&str, usize); 73] = [
     ("klein-bottle", 3600),
     ("mobius-ribbon", 3600),
     ("origami-polyhedra", 3600),
+    ("volcano-lightning", 3600),
 ];
 
 /// A cheap guard against flashing that only develops over time (for
