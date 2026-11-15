@@ -99,6 +99,16 @@ device, so just start your music and run it.
 | **Neon Koi Pond**: looking down into a dark pond at night, glowing koi in orange, white, crimson and gold swimming sinuous paths beneath lily pads and lotus flowers, every kick dropping a spreading ripple and making the koi dart | **Nebula Flythrough**: flying through a star nursery of glowing magenta and teal gas, past dark dust pillars and young stars burning in their cocoons, every kick surging the camera forward and flaring the stars |
 | ![Laser Cathedral](docs/images/laser-cathedral.png) | ![Spectrum Mountains](docs/images/spectrum-mountains.png) |
 | **Laser Cathedral**: a dark gothic nave full of haze, sliced by sweeping coloured laser beams from a stage beneath a glowing rose window, every kick firing a scanning laser fan and swinging the beams on | **Spectrum Mountains**: the live spectrum as a neon waterfall landscape, every moment of the music a glowing ridge rising at the horizon and marching toward the viewer, every kick raising a shockwave across the ridges |
+| ![Ink Bloom](docs/images/ink-bloom.png) | ![Bass Tunnel](docs/images/bass-tunnel.png) |
+| **Ink Bloom**: a glowing ring of ink that blooms and dissolves on every kick | **Bass Tunnel**: a fiery tunnel of petals that surges toward you with the bass |
+| ![Neon Orbit](docs/images/neon-orbit.png) | ![Aurora Sweep](docs/images/aurora-sweep.png) |
+| **Neon Orbit**: neon comets whirling round a bright core, trailing rings of light | **Aurora Sweep**: curtains of aurora rippling over a starry horizon |
+| ![Ember Rain](docs/images/ember-rain.png) | ![Kaleido Spin](docs/images/kaleido-spin.png) |
+| **Ember Rain**: glowing embers falling and curling through a dark red haze | **Kaleido Spin**: a spinning kaleidoscope of petals and starbursts |
+| ![Liquid Chrome](docs/images/liquid-chrome.png) | ![Prism Drift](docs/images/prism-drift.png) |
+| **Liquid Chrome**: a chrome ring rippling through a liquid metal surface | **Prism Drift**: threads of prismatic light drifting across shifting colour fields |
+| ![Pulse Grid](docs/images/pulse-grid.png) | ![Starfield Warp](docs/images/starfield-warp.png) |
+| **Pulse Grid**: a neon green grid swept by scanning lines that pulse with the beat | **Starfield Warp**: stars streaming out of a violet void at warp speed |
 
 These are single frames; every preset moves and changes with the music.
 
