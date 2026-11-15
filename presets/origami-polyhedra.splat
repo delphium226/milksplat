@@ -283,7 +283,7 @@ if (hit) {
     let gh = fract(sin(dot(floor(q * 18.0), vec3f(12.9898, 78.233, 37.719))) * 43758.5453);
     let tw = 0.5 + 0.5 * sin(u.time * (4.0 + 6.0 * gh) + gh * 30.0);
     let glint = step(0.75 - 0.15 * pt, gh) * tw * (0.6 * st + 3.5 * pt);
-    c = c * (1.0 - 0.35 * crease) + mix(vec3f(1.0, 0.95, 0.9), g2, 0.3) * crease * (0.5 + 1.4 * pb * min(1.0, sz.y / 720.0 + 0.3) + glint);
+    c = c * (1.0 - 0.35 * crease) + mix(vec3f(1.0, 0.95, 0.9), g2, 0.3) * crease * (0.5 + (1.4 * pb + glint) * min(1.0, 0.007 / ew));
     col = c;
 }
 let lm = dot(col, vec3f(0.3, 0.5, 0.2));
