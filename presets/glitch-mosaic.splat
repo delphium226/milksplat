@@ -1,0 +1,255 @@
+# Glitch Mosaic: a neon geometric mosaic torn apart by datamosh glitches.
+# A wall of dark tiles drifts past, each holding a spinning neon motif
+# (ring, square, triangle, diamond, double ring) in hot magenta, cyan,
+# gold, lime, orange or violet, round a big slowly turning triangle and
+# ring of white-pink light, on a faint grid. Then the signal breaks:
+# bands of the picture are cut into macroblocks that jump sideways,
+# pixelate into coarse mosaic or swap their colour channels, the red,
+# green and blue split apart, thin scanlines tear and slide, and runs of
+# pixels smear into pixel-sorted streaks. A torn band always wanders the
+# screen; every kick fires a burst of glitches in a band of its own.
+#
+# Everything is in the composite. First each pixel works out how the
+# glitches move it: each active band (the wandering one and up to four
+# kick bursts, each with its own height, block size, seed and strength)
+# hashes the pixel's block and scanline to a sideways jump, a pixelation,
+# a channel swap, a channel split and a sorted-streak smear. Then the
+# scene is drawn three times, once per colour channel at its own split
+# offset: the tile under the point, its motif's distance field rotated
+# by the tile's spin, lit as a neon line with a glow and a faint fill,
+# plus the big triangle and ring.
+#
+# The frame code accumulates the drift, the spins and the wandering
+# band, reseeds the bursts' blocks a few times a second so they chatter,
+# and runs the bursts. Each hit of the music is felt at once, through
+# pulses of the bass, mids and treble that rise in a tick or two and die
+# away over a fraction of a second (soft-limited, so a bigger hit still
+# means more): a kick fires a glitch burst in a band at a random height
+# (local, never the whole screen), punches the motifs bigger and pushes
+# the view in; the mids widen the channel split and strengthen the
+# wandering tear; the treble salts the glitched bands with static. Bass
+# brightens the neon (smoothed).
+version = 1
+
+[meta]
+name = "Glitch Mosaic"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+dr = 0; sp = 0; wy = 0; cd = 0; sl = 0; rs = 0; ws = 1;
+y1 = 0; g1 = 0.05; s1 = 1; a1 = 0;
+y2 = 0; g2 = 0.05; s2 = 2; a2 = 0;
+y3 = 0; g3 = 0.05; s3 = 3; a3 = 0;
+y4 = 0; g4 = 0.05; s4 = 4; a4 = 0;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+ob = pb;
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+kk = max(pb - ob, 0);
+// The drift, the spins and the wandering tear band.
+dr = dr + 0.0012 + 0.004 * pb; dr = dr - 1024 * floor(dr / 1024);
+sp = sp + 0.012 + 0.05 * pb + 0.01 * pm; sp = sp - 6283.1853 * floor(sp / 6283.1853);
+wy = wy + 0.0023 + 0.004 * pm; wy = wy - 6283.1853 * floor(wy / 6283.1853);
+// The bursts' blocks reseed a few times a second, so they chatter.
+rs = rs + 1;
+if(rs > 4, rs = 0; ws = ws + 1; ws = ws - 997 * floor(ws / 997);
+  s1 = s1 + 7; s2 = s2 + 11; s3 = s3 + 13; s4 = s4 + 17;
+  s1 = s1 - 991 * floor(s1 / 991); s2 = s2 - 991 * floor(s2 / 991);
+  s3 = s3 - 991 * floor(s3 / 991); s4 = s4 - 991 * floor(s4 / 991), 0);
+// A fresh kick fires a glitch burst in a band, in the next of four slots.
+cd = cd + 1;
+if(kk > 0.08 && cd > 6,
+  cd = 0; sl = (sl + 1) % 4;
+  ny = (rand(1000) / 1000 - 0.5) * 0.8; ng = 0.025 + 0.06 * rand(1000) / 1000;
+  if(sl == 0, y1 = ny; g1 = ng; a1 = 0.4, 0);
+  if(sl == 1, y2 = ny; g2 = ng; a2 = 0.4, 0);
+  if(sl == 2, y3 = ny; g3 = ng; a3 = 0.4, 0);
+  if(sl == 3, y4 = ny; g4 = ng; a4 = 0.4, 0),
+  0);
+// The newest burst follows the kick up; all of them fade quickly.
+na = min(0.4 + pb, 1.4);
+if(sl == 0, a1 = max(a1, na * if(cd < 6, 1, 0)), 0);
+if(sl == 1, a2 = max(a2, na * if(cd < 6, 1, 0)), 0);
+if(sl == 2, a3 = max(a3, na * if(cd < 6, 1, 0)), 0);
+if(sl == 3, a4 = max(a4, na * if(cd < 6, 1, 0)), 0);
+a1 = a1 * 0.9; a2 = a2 * 0.9; a3 = a3 * 0.9; a4 = a4 * 0.9;
+q1 = dr; q2 = sp; q3 = 0.38 * sin(wy) + 0.08 * sin(wy * 2.7); q4 = ws;
+q5 = pb; q6 = pm; q7 = pt; q8 = sb;
+q9 = y1; q10 = g1; q11 = s1; q12 = a1;
+q13 = y2; q14 = g2; q15 = s2; q16 = a2;
+q17 = y3; q18 = g3; q19 = s3; q20 = a3;
+q21 = y4; q22 = g4; q23 = s4; q24 = a4;
+'''
+
+[shader]
+comp = '''
+let sz = u.texsize.xy;
+let asp = sz.x / sz.y;
+let px = 1.0 / sz.y;
+let lw = max(1.0, sz.y / 540.0);
+let dr = u.q[0].x;
+let sp = u.q[0].y;
+let wy = u.q[0].z;
+let ws = u.q[0].w;
+let pb = u.q[1].x;
+let pm = u.q[1].y;
+let pt = u.q[1].z;
+let sb = min(u.q[1].w, 2.0) * 0.5;
+let gk = min(1.0, sz.y / 200.0);
+// On a tiny picture the lines are softened (same total light).
+let ls = max(1.0, 160.0 / sz.y);
+let zf = 1.0 / (1.0 + 0.05 * pb);
+let p = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y) * zf;
+// The glitches: how the bands move this pixel.
+var off = vec2f(0.0);
+var split = 0.004 + 0.008 * pm;
+var pix = 0.0;
+var swp = 0.0;
+var smear = 0.0;
+var stat = 0.0;
+for (var i = 0; i < 5; i++) {
+    var yc = wy;
+    var hh = 0.035 + 0.02 * pm;
+    var sd = ws;
+    var am = 0.25 + 0.5 * pm;
+    if (i > 0) {
+        let g = u.q[1 + i];
+        yc = g.x; hh = g.y; sd = g.z; am = g.w;
+    }
+    let inb = step(abs(p.y - yc), hh);
+    if (inb > 0.0 && am > 0.01) {
+        let fi = f32(i);
+        // Macroblocks: each jumps, pixelates or swaps its channels.
+        let bs = 0.03 + 0.05 * fract(sd * 0.137 + fi * 0.31);
+        let bc = floor(vec2f(p.x / (bs * 1.6), (p.y - yc) / bs));
+        let h0 = (u32(i32(bc.x) + 4096) * 1973u + u32(i32(bc.y) + 4096) * 9277u + u32(sd) * 26699u + u32(i) * 7919u) * 747796405u + 2891336453u;
+        let h = ((h0 >> ((h0 >> 28u) + 4u)) ^ h0) * 277803737u;
+        let ha = f32(h & 1023u) / 1023.0;
+        let hb = f32((h >> 10u) & 1023u) / 1023.0;
+        let hc = f32((h >> 20u) & 1023u) / 1023.0;
+        if (ha < 0.55) {
+            off.x += (hb - 0.5) * 0.5 * am;
+        }
+        if (hc > 0.7) {
+            pix = max(pix, 0.012 + 0.03 * hb);
+        }
+        if (hc < 0.12) {
+            swp = 1.0 + step(0.5, hb);
+        }
+        // Scanline tears: thin rows sliding far.
+        let rh = 3.0 * px * lw;
+        let rr = floor(p.y / rh);
+        let r0 = (u32(i32(rr) + 65536) * 104729u + u32(sd) * 31u) * 747796405u + 2891336453u;
+        let r1 = ((r0 >> ((r0 >> 28u) + 4u)) ^ r0) * 277803737u;
+        let ra = f32(r1 & 1023u) / 1023.0;
+        let rb = f32((r1 >> 10u) & 1023u) / 1023.0;
+        if (ra < 0.3) {
+            off.x += (rb - 0.5) * 0.8 * am;
+        }
+        // Pixel-sorted streaks on some rows.
+        if (ra > 0.75) {
+            smear = max(smear, 0.1 + 0.25 * rb);
+        }
+        split += 0.02 * am * hb;
+        stat = max(stat, am * step(0.6, hc));
+    }
+}
+// The scene, once per colour channel at its own offset.
+var res = vec3f(0.0);
+for (var ch = 0; ch < 3; ch++) {
+    var q = p + off + vec2f(split * f32(ch - 1), 0.0);
+    if (pix > 0.0) {
+        q = (floor(q / pix) + 0.5) * pix;
+    }
+    var bright = 1.0;
+    if (smear > 0.0) {
+        // A sorted run: the run's start smeared along it, fading.
+        let run = 0.18;
+        let x0 = floor(q.x / run) * run;
+        let t = (q.x - x0) / run;
+        q.x = x0 + t * smear * run;
+        bright = 1.25 - 0.6 * t;
+    }
+    // The tiles, drifting; the motif in each spins.
+    let ts = 1.0 / 5.0;
+    let g = q / ts + vec2f(dr, 0.0);
+    let c = floor(g);
+    let l0 = g - c - vec2f(0.5);
+    let h0 = (u32(i32(c.x) + 4096) * 7919u + u32(i32(c.y) + 4096) * 104729u + 31u) * 747796405u + 2891336453u;
+    let h = ((h0 >> ((h0 >> 28u) + 4u)) ^ h0) * 277803737u;
+    let hm = f32(h & 1023u) / 1023.0;
+    let hcl = f32((h >> 10u) & 1023u) / 1023.0;
+    let hr = f32((h >> 20u) & 1023u) / 1023.0;
+    let an = sp * select(-1.0, 1.0, hr > 0.5) * (0.6 + 0.8 * fract(hr * 7.0)) + hr * 6.2831853;
+    let ca = cos(an);
+    let sa = sin(an);
+    let sc = 1.0 / (1.0 + 0.12 * pb);
+    let l = vec2f(l0.x * ca - l0.y * sa, l0.x * sa + l0.y * ca) * sc;
+    let m = floor(hm * 5.0);
+    var d = abs(length(l) - 0.3);
+    if (m == 1.0) { d = abs(max(abs(l.x), abs(l.y)) - 0.27); }
+    if (m == 2.0) { d = abs(max(abs(l.x) * 0.866 + l.y * 0.5, -l.y) - 0.17); }
+    if (m == 3.0) { d = abs(abs(l.x) + abs(l.y) - 0.36); }
+    if (m == 4.0) { d = abs(abs(length(l) - 0.25) - 0.08); }
+    let k = floor(hcl * 6.0);
+    var nc = vec3f(1.0, 0.1, 0.75);
+    if (k == 1.0) { nc = vec3f(0.1, 0.85, 1.0); }
+    if (k == 2.0) { nc = vec3f(1.0, 0.8, 0.1); }
+    if (k == 3.0) { nc = vec3f(0.4, 1.0, 0.2); }
+    if (k == 4.0) { nc = vec3f(1.0, 0.4, 0.08); }
+    if (k == 5.0) { nc = vec3f(0.6, 0.3, 1.0); }
+    let dp = d * ts / sc / (px * lw * ls);
+    let line = exp(-dp * dp / 2.0) / ls;
+    let glow = exp(-dp / (10.0 * gk + 1.0)) * 0.35 * gk;
+    let nb = 0.85 + 0.3 * sb + 0.15 * pb;
+    var s = vec3f(0.018, 0.006, 0.04) + vec3f(0.04, 0.0, 0.08) * exp(-length(q) * 1.2);
+    // The tile's dim backing and the grid between tiles.
+    s += nc * 0.05 * (0.6 + 0.4 * hm);
+    let eg = min(0.5 - abs(l0.x), 0.5 - abs(l0.y)) * ts / (px * lw * ls);
+    s += vec3f(0.15, 0.3, 0.6) * exp(-eg * eg / 1.5) / ls * 0.35;
+    s += nc * (line * 1.4 + glow) * nb;
+    // The big triangle and ring.
+    let ba = -sp * 0.35;
+    let cb = cos(ba);
+    let sbb = sin(ba);
+    let bq = vec2f(q.x * cb - q.y * sbb, q.x * sbb + q.y * cb + 0.09) * (1.0 + 0.12 * pb);
+    let dt = abs(max(abs(bq.x) * 0.866 + bq.y * 0.5, -bq.y) - 0.18);
+    let drg = abs(length(q) - 0.42 - 0.03 * pb);
+    let dtp = dt / (px * lw * ls * 1.5);
+    let drp = drg / (px * lw * ls * 1.5);
+    s += vec3f(1.0, 0.75, 0.95) * (exp(-dtp * dtp / 2.0) / ls * 1.8 + exp(-dtp / (14.0 * gk + 1.0)) * 0.5 * gk) * (0.9 + 0.5 * pb);
+    s += vec3f(0.3, 0.9, 1.0) * (exp(-drp * drp / 2.0) / ls * 1.4 + exp(-drp / (14.0 * gk + 1.0)) * 0.4 * gk) * (0.8 + 0.5 * pm);
+    s *= bright;
+    let mk = vec3f(select(0.0, 1.0, ch == 0), select(0.0, 1.0, ch == 1), select(0.0, 1.0, ch == 2));
+    res += s * mk;
+}
+if (swp == 1.0) { res = res.gbr; }
+if (swp == 2.0) { res = res.brg; }
+// Static salted into the glitched bands by the treble.
+let sc0 = floor(uv * sz / (2.0 * lw));
+let n0 = (u32(sc0.x) * 1973u + u32(sc0.y) * 9277u + u32(ws) * 26699u + u32(u.frame) * 7u) * 747796405u + 2891336453u;
+let n1 = ((n0 >> ((n0 >> 28u) + 4u)) ^ n0) * 277803737u;
+let nz = f32(n1 & 1023u) / 1023.0;
+res += vec3f(0.7, 0.9, 1.0) * step(0.93, nz) * stat * (0.15 + 0.8 * pt) * gk;
+// Faint scanlines.
+res *= 0.88 + 0.12 * step(0.5, fract(uv.y * sz.y / (2.0 * lw)));
+let lm = dot(res, vec3f(0.3, 0.5, 0.2));
+res = max(vec3f(lm) + (res - vec3f(lm)) * 1.2, vec3f(0.0)) * 1.05;
+return res / (1.0 + 0.4 * res);
+'''
