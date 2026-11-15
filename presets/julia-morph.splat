@@ -1,0 +1,189 @@
+# Julia Morph: one Julia set after another, melting into each other. The
+# parameter c creeps round the edge of the Mandelbrot set's main cardioid,
+# and the Julia set follows it: a plump rabbit grows ears, the ears curl
+# into spirals, the spirals pinch into chains of beads and shatter into
+# dust, then knit up again into something else. The set's boundary glows
+# white-hot, and the plane round it is filled with smooth rings of neon
+# colour, closer and closer together as they near the set, on black.
+#
+# Everything is in the composite. Each pixel is iterated z -> z^2 + c up
+# to 140 times (bailing out at |z| = 256), keeping the derivative too.
+# The smooth iteration count (n + 1 - log2 log |z|) indexes the rings; the
+# distance estimate (|z| log |z| / |z'|), measured in pixels, draws the
+# glowing boundary at the same width at any size. c is
+# 0.5 e^(i t) - 0.25 e^(2 i t), the cardioid's edge, pushed a little in or
+# out by a slow wobble, so the set swings between connected and dust; t is
+# accumulated. The view turns slowly (accumulated).
+#
+# Each hit of the music is felt at once, through pulses of the bass, mids
+# and treble that rise in a tick or two and die away over a fraction of a
+# second (soft-limited, so a bigger hit still means more): a kick jolts c
+# along the edge (accumulated, so it never jumps back) and sends a bright
+# ring of colour sweeping in from outside to the set (in one of three
+# slots); the mids turn the palette (accumulated); the treble sparkles
+# along the boundary. Bass brightens the boundary (smoothed).
+version = 1
+
+[meta]
+name = "Julia Morph"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+ct = 2.3; wb = 6.0; vr = 0; hu = 0; sl = 2; cd = 0;
+r1 = 9; r2 = 9; r3 = 9;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+ob = pb;
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+// c creeps round the cardioid (a lap in 20 minutes on its own), each
+// kick jolting it on.
+ct = ct + 6.2831853 / 3600 / 60 + 0.0011 * pb;
+ct = ct - 6.2831853 * floor(ct / 6.2831853);
+wb = wb + 6.2831853 / 600 / 60 + 0.002 * pb;
+wb = wb - 6.2831853 * floor(wb / 6.2831853);
+// The view turns slowly, each kick turning it on.
+vr = vr + 6.2831853 / 1800 / 60 + 0.003 * pb;
+vr = vr - 6.2831853 * floor(vr / 6.2831853);
+// The palette turns, quicker with the mids.
+hu = hu + (0.004 + 0.3 * pm) / 60;
+hu = hu - floor(hu);
+// A fresh kick sends a ring in, in the next slot.
+kk = max(pb - ob, 0);
+cd = cd + 1;
+if(kk > 0.1 && cd > 10,
+  cd = 0; sl = (sl + 1) % 3;
+  if(sl == 0, r1 = 0; s1 = min(pb, 1.4), 0);
+  if(sl == 1, r2 = 0; s2 = min(pb, 1.4), 0);
+  if(sl == 2, r3 = 0; s3 = min(pb, 1.4), 0),
+  0);
+r1 = r1 + 1 / 60; r2 = r2 + 1 / 60; r3 = r3 + 1 / 60;
+// c on the cardioid's edge, pushed in or out by the wobble.
+rr = 1.008 + 0.022 * sin(wb);
+q1 = rr * (0.5 * cos(ct) - 0.25 * cos(2 * ct));
+q2 = rr * (0.5 * sin(ct) - 0.25 * sin(2 * ct));
+q3 = vr; q4 = hu;
+q5 = pb; q6 = pm; q7 = pt; q8 = sb;
+q9 = r1; q10 = r2; q11 = r3;
+q12 = s1; q13 = s2; q14 = s3;
+'''
+
+[shader]
+comp = '''
+let sz = u.texsize.xy;
+let asp = sz.x / sz.y;
+let cr = u.q[0].x;
+let ci = u.q[0].y;
+let vr = u.q[0].z;
+let hu = u.q[0].w;
+let pb = u.q[1].x;
+let pm = u.q[1].y;
+let pt = min(u.q[1].z, 1.5);
+let sb = min(u.q[1].w, 2.0) * 0.5;
+// The view: 2 units down the screen, turning.
+// A kick pushes the view in a little.
+let sc = 2.0 / (1.0 + 0.07 * pb);
+// A small picture is supersampled (2x2, or 3x3 when tiny), so the
+// set's fine detail does not alias into flicker; at full size one
+// sample a pixel.
+let ns = select(select(2, 3, sz.y < 100.0), 1, sz.y >= 400.0);
+var acc = vec3f(0.0);
+for (var si = 0; si < ns * ns; si++) {
+    let fx = f32(si % ns);
+    let fy = f32(si / ns);
+    let sp = (vec2f((uv.x - 0.5) * asp, 0.5 - uv.y) + (vec2f(fx, fy) - 0.5 * (f32(ns) - 1.0)) / (f32(ns) * sz.y)) * sc;
+    let cv = cos(vr);
+    let sv = sin(vr);
+    var zx = cv * sp.x - sv * sp.y;
+    var zy = sv * sp.x + cv * sp.y;
+    var dx = 1.0;
+    var dy = 0.0;
+    var n = 0.0;
+    var m2 = zx * zx + zy * zy;
+    var esc = false;
+    var tm = 1e9;
+    for (var i = 0; i < 140; i++) {
+        // z' -> 2 z z', z -> z^2 + c.
+        let ndx = 2.0 * (zx * dx - zy * dy);
+        let ndy = 2.0 * (zx * dy + zy * dx);
+        dx = ndx;
+        dy = ndy;
+        let nx = zx * zx - zy * zy + cr;
+        zy = 2.0 * zx * zy + ci;
+        zx = nx;
+        m2 = zx * zx + zy * zy;
+        tm = min(tm, m2);
+        n += 1.0;
+        if (m2 > 65536.0) {
+            esc = true;
+            break;
+        }
+    }
+    var col = vec3f(0.006, 0.003, 0.016);
+    // The pixel's size in the plane, for the boundary glow.
+    let pix = sc / sz.y;
+    let lw = max(1.0, sz.y / 540.0);
+    if (esc) {
+        let lz = 0.5 * log(m2);
+        let v = n + 1.0 - log2(lz);
+        let de = sqrt(m2) * lz / max(sqrt(dx * dx + dy * dy), 1e-20);
+        let dpx = de / pix / lw;
+        // The neon rings: hue along the smooth count, turned by the palette.
+        // (In the log of the count, so the rings keep their spacing on screen
+        // as they crowd toward the set.)
+        let lv = log2(max(v, 1.0));
+        // Neon hues only: cyan through blue and magenta to rose and back.
+        let hh = 0.45 + 0.5 * (0.5 + 0.5 * sin(6.2831853 * (hu + lv * 0.3)));
+        let hc = clamp(abs(fract(vec3f(hh) + vec3f(0.0, 0.6666667, 0.3333333)) * 6.0 - 3.0) - 1.0, vec3f(0.0), vec3f(1.0));
+        let ring = 0.6 + 0.4 * cos(6.2831853 * (lv * 2.2 - hu * 3.0));
+        // Brighter toward the set (the far plane fades to black).
+        let near = smoothstep(0.3, 4.2, lv);
+        col += hc * ring * (0.1 + near * near * (0.7 + 0.35 * pb));
+        // The kicks' rings sweeping in (in smooth-count units, faster as they
+        // go, fading).
+        for (var j = 0; j < 3; j++) {
+            let age = select(select(u.q[2].z, u.q[2].y, j == 1), u.q[2].x, j == 0);
+            let st = select(select(u.q[3].z, u.q[3].y, j == 1), u.q[3].x, j == 0);
+            if (age < 1.5) {
+                let rl = 2.0 + 3.5 * age;
+                let fd = (1.0 - smoothstep(0.6, 1.5, age)) * smoothstep(0.0, 0.06, age);
+                col += mix(hc, vec3f(1.0), 0.4) * exp(-pow((lv - rl) / 0.3, 2.0)) * fd * st * near * 1.5;
+            }
+        }
+        // The glowing boundary.
+        let edge = exp(-dpx * dpx / 1.5) * 0.75 + 0.2 * exp(-dpx / 6.0);
+        col += mix(vec3f(1.0, 0.95, 1.0), hc, 0.35) * edge * (0.7 + 0.3 * sb + 0.5 * pb);
+        // Treble: sparkles along the boundary.
+        let cell = floor(uv * sz / (2.0 * lw));
+        let sk = fract(sin(dot(cell, vec2f(41.3, 289.1)) + floor(u.time * 20.0) * 7.13) * 43758.5);
+        col += vec3f(1.0, 0.95, 0.85) * step(0.93 - 0.12 * pt, sk) * exp(-dpx / 4.0) * pt * 1.6 * smoothstep(150.0, 400.0, sz.y);
+    } else {
+        // The interior: dark, with faint violet and blue rings from the orbit's
+        // nearest approach to 0.
+        let ti = sqrt(tm);
+        let ih = 0.68 + 0.12 * sin(6.2831853 * (ti * 2.5 - hu * 2.0));
+        let ic = clamp(abs(fract(vec3f(ih) + vec3f(0.0, 0.6666667, 0.3333333)) * 6.0 - 3.0) - 1.0, vec3f(0.0), vec3f(1.0));
+        col += ic * (0.07 + 0.09 * (0.5 + 0.5 * cos(6.2831853 * ti * 5.0))) + vec3f(0.03, 0.01, 0.05);
+    }
+    acc += col;
+}
+var col = acc / f32(ns * ns);
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.25, vec3f(0.0));
+return col / (1.0 + 0.4 * col);
+'''
