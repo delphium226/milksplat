@@ -1,0 +1,223 @@
+# Desert Milky Way: a clear night over a sea of dunes, far from any
+# light. The Milky Way rises from the horizon: its core a blazing knot of
+# gold and rose, torn by black dust lanes, streaming up across the sky in
+# a river of blue-violet starlight. Faint green and red airglow lies in
+# slow waves along the horizon. A lone rock arch stands black against it
+# on the right, its rim catching the starlight, and the dunes roll away
+# beneath, their crests faintly lit. The sky wheels slowly round the
+# pole, and now and then a meteor streaks across it.
+#
+# Everything is in the composite. The sky is turned about a pole below
+# the horizon (the angle accumulated, swinging slowly back and forth).
+# The galaxy is a band about a great circle: its width, its glow and its
+# colour depend on the distance along it from the core, the dust lanes are
+# noise thresholded along the band's middle, and the star clouds are noise
+# at three scales. Stars are hashed cells at two sizes, thicker toward the
+# band. The airglow is two layers of sines along the horizon whose phase
+# the frame code accumulates. The dunes are two layers of sharp-crested
+# sines, the near one shaded by its slope; the arch is a rough annulus
+# standing on two legs. A meteor is a short segment with a fading tail,
+# in one of three slots.
+#
+# Each hit of the music is felt at once, through pulses of the bass,
+# mids and treble that rise in a tick or two and die away over a fraction
+# of a second (soft-limited, so a bigger hit still means more): a kick
+# launches a meteor (in the slot of the oldest) and makes the galactic
+# core pulse; the mids drift the airglow waves along the horizon and
+# brighten them; the treble twinkles the stars. Bass warms the core
+# (smoothed).
+version = 1
+
+[meta]
+name = "Desert Milky Way"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+sr = 0; ag = 0; sl = 2; cd = 0;
+a1 = 5; a2 = 5; a3 = 5;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+st = st + (min(treb_att, 2.5) - st) * 0.1;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+ob = pb;
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+// The sky's slow swing about the pole (a cycle in 4 minutes).
+sr = sr + 6.2831853 / 240 / 60;
+sr = sr - 6.2831853 * floor(sr / 6.2831853);
+// The airglow waves drift, faster with the mids (accumulated).
+ag = ag + (0.04 + 0.6 * pm) / 60;
+ag = ag - 64 * floor(ag / 64);
+// Meteors: a fresh kick (or a quiet spell) launches one in the next slot.
+dt = 1 / 60;
+a1 = a1 + dt; a2 = a2 + dt; a3 = a3 + dt;
+kk = max(pb - ob, 0);
+cd = cd + 1;
+fire = if(kk > 0.1 && cd > 12, 1, if(cd > 300, 1, 0));
+if(fire,
+  stg = if(cd > 300, 0.4, min(pb, 1.4));
+  cd = 0; sl = (sl + 1) % 3;
+  nx = (rand(1000) / 1000 - 0.5) * 1.4; ny = 0.12 + rand(1000) / 1000 * 0.3;
+  nd = 3.14159 + 0.5 + rand(1000) / 1000 * 2.2;
+  if(sl == 0, mx1 = nx; my1 = ny; md1 = nd; a1 = 0; ms1 = stg, 0);
+  if(sl == 1, mx2 = nx; my2 = ny; md2 = nd; a2 = 0; ms2 = stg, 0);
+  if(sl == 2, mx3 = nx; my3 = ny; md3 = nd; a3 = 0; ms3 = stg, 0),
+  0);
+q1 = mx1; q2 = my1; q3 = md1; q4 = a1;
+q5 = mx2; q6 = my2; q7 = md2; q8 = a2;
+q9 = mx3; q10 = my3; q11 = md3; q12 = a3;
+q13 = ms1; q14 = ms2; q15 = ms3; q16 = 0;
+q17 = sr; q18 = ag; q19 = pb; q20 = pm;
+q21 = pt; q22 = sb; q23 = st;
+'''
+
+[shader]
+comp = '''
+let sz = u.texsize.xy;
+let asp = sz.x / sz.y;
+let lw = max(1.0, sz.y / 540.0);
+let p = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
+let sr = u.q[4].x;
+let ag = u.q[4].y;
+let pb = u.q[4].z;
+let pm = u.q[4].w;
+let pt = min(u.q[5].x, 1.5);
+let sb = min(u.q[5].y, 2.0) * 0.5;
+let st = max(0.0, min(u.q[5].z, 2.5) - 0.3);
+// The sky, turned about a pole below the horizon.
+let pa = 0.22 * sin(sr);
+let ca = cos(pa);
+let sa = sin(pa);
+let dpx0 = p.x - 0.2;
+let dpy0 = p.y + 1.1;
+let q = vec2f(ca * dpx0 - sa * dpy0 + 0.2, sa * dpx0 + ca * dpy0 - 1.1);
+// The galaxy: a band through the core, rising to the upper left.
+let gq = q - vec2f(-0.02, -0.12);
+// (Its direction as scalars: naga rejects a constant vector swizzled.)
+let bdx = -0.52692;
+let bdy = 0.84987;
+let al = gq.x * bdx + gq.y * bdy;
+let ac = gq.x * bdy - gq.y * bdx;
+let cw = exp(-al * al / 0.03);
+let wd = 0.12 + 0.12 * cw;
+let x = ac / wd;
+let band = exp(-x * x);
+// Smooth noise (the small noise texture, a texel or more per 15 pixels).
+let n1 = textureSampleLevel(sampler_noise_lq, s_fw, q * 0.45 + vec2f(0.3, 0.7), 0.0).r;
+let n2 = textureSampleLevel(sampler_noise_lq, s_fw, q * 1.1 + vec2f(0.1, 0.2), 0.0).r;
+let n3 = textureSampleLevel(sampler_noise_lq, s_fw, q * 2.6 + vec2f(0.6, 0.4), 0.0).r;
+let cl = 0.3 + 1.2 * (0.45 * n1 + 0.35 * n2 + 0.2 * n3);
+// Dust lanes: dark rifts along the band's middle, thickest at the core.
+let rx = (ac + 0.03 * (n1 - 0.5)) / (wd * 0.55);
+// (Noise stretched along the band, so the lanes are long filaments.)
+let nl1 = textureSampleLevel(sampler_noise_lq, s_fw, vec2f(al * 0.7 + 0.17, ac * 2.6 + 0.5), 0.0).r;
+let nl2 = textureSampleLevel(sampler_noise_lq, s_fw, vec2f(al * 1.6 + 0.61, ac * 4.5 + 0.2), 0.0).r;
+let lane = smoothstep(0.42, 0.8, 0.6 * nl1 + 0.4 * nl2 + 0.25 * exp(-rx * rx)) * exp(-rx * rx * 0.5);
+let dust = 1.0 - 0.85 * lane;
+// Colours: a gold and rose core, blue-violet arms.
+let core = exp(-(al * al + ac * ac * 2.0) / 0.02);
+let armc = mix(vec3f(0.35, 0.4, 1.0), vec3f(0.7, 0.4, 1.0), 0.5 + 0.5 * sin(al * 6.0 + n1 * 3.0));
+let corec = mix(vec3f(1.0, 0.4, 0.65), vec3f(1.0, 0.75, 0.42), smoothstep(0.1, 0.8, core));
+var gal = mix(armc, corec, smoothstep(0.0, 0.7, cw)) * band * cl * dust * (0.5 + 0.6 * cw);
+gal += corec * core * (0.4 + 0.6 * dust) * (1.0 + 0.3 * sb + 1.1 * pb);
+// A wide faint glow round the band.
+gal += mix(vec3f(0.2, 0.2, 0.6), vec3f(0.6, 0.35, 0.4), cw) * exp(-x * x * 0.15) * 0.12;
+// Glowing nebulae: rose specks along the band.
+let nb = textureSampleLevel(sampler_noise_lq, s_fw, q * 6.0 + vec2f(0.3, 0.9), 0.0).r;
+gal += vec3f(1.0, 0.25, 0.55) * smoothstep(0.72, 0.85, nb * 0.7 + n2 * 0.3) * band * 0.5;
+// The sky's ground: deep blue, lighter toward the horizon.
+var col = vec3f(0.014, 0.016, 0.048) + vec3f(0.04, 0.05, 0.13) * exp(-(p.y + 0.15) / 0.25) + vec3f(0.03, 0.035, 0.08) * band * 0.6;
+col += gal;
+// Airglow: green low down, red above, in slow drifting waves.
+let hy = p.y + 0.17;
+let wv = 0.6 + 0.4 * sin(p.x * 5.0 + ag * 3.0 + n1 * 2.0) * sin(p.x * 2.3 - ag * 1.7);
+col += vec3f(0.1, 0.55, 0.25) * (1.0 - 0.7 * cw * band) * exp(-pow((hy - 0.07 - 0.02 * wv) / 0.06, 2.0)) * wv * (0.4 + 0.45 * pm);
+col += vec3f(0.6, 0.12, 0.25) * exp(-pow((hy - 0.2 - 0.03 * wv) / 0.09, 2.0)) * (1.1 - wv) * (0.2 + 0.25 * pm);
+// Stars, in two sizes, thicker toward the band, twinkling with the treble.
+for (var l = 0; l < 2; l++) {
+    let fl = f32(l);
+    let cs = (1.0 + fl * 1.6) * 2.0 * lw / sz.y;
+    let qc = q / cs + vec2f(fl * 91.0, fl * 37.0);
+    let cell = floor(qc);
+    let h0 = (u32(cell.x + 4096.0) * 1973u + u32(cell.y + 4096.0) * 9277u + u32(l) * 26699u) * 747796405u + 2891336453u;
+    let h1 = ((h0 >> ((h0 >> 28u) + 4u)) ^ h0) * 277803737u;
+    let hh = f32((h1 >> 9u) & 65535u) / 65535.0;
+    let hb = f32((h1 >> 3u) & 63u) / 63.0;
+    let dens = select(0.006, 0.05, l == 0) * (1.0 + 4.0 * band);
+    let off = vec2f(fract(hh * 37.1), fract(hh * 91.7));
+    let dd = length(qc - cell - off) * (1.0 + fl * 1.6) * 2.0;
+    let tw = 0.65 + 0.35 * sin(u.time * (2.0 + 5.0 * hb) + hh * 60.0) * min(st, 1.0) + 0.6 * pt * step(0.5, hb);
+    let sc = mix(vec3f(0.7, 0.8, 1.0), vec3f(1.0, 0.85, 0.7), hb);
+    col += sc * step(1.0 - dens, hh) * exp(-dd * dd / select(0.6, 1.8, l == 1)) * (0.35 + 0.65 * hb) * tw * (1.0 + fl);
+}
+// Meteors.
+for (var i = 0; i < 3; i++) {
+    let mv = u.q[i];
+    let age = mv.w;
+    if (age < 0.9) {
+        let ms = select(select(u.q[3].z, u.q[3].y, i == 1), u.q[3].x, i == 0);
+        let dir = vec2f(cos(mv.z), sin(mv.z));
+        let head = mv.xy + dir * age * 0.9;
+        let tl = min(age * 0.9, 0.18 + 0.12 * ms);
+        let v = p - head;
+        let tt = clamp(-dot(v, dir), 0.0, tl);
+        let dpx = length(v + dir * tt) * sz.y / lw;
+        let fade = smoothstep(0.0, 0.05, age) * (1.0 - smoothstep(0.45, 0.9, age));
+        let tail = 1.0 - tt / max(tl, 1e-3);
+        col += vec3f(0.75, 1.0, 0.85) * exp(-dpx * dpx / 1.6) * tail * fade * (1.0 + 1.5 * ms);
+        col += vec3f(0.4, 0.8, 1.0) * exp(-dpx / 5.0) * tail * tail * fade * 0.15 * (1.0 + ms);
+    }
+}
+// The dunes: a far range in blue haze, a near one shaded by its slope.
+let pw = 1.0 / sz.y;
+let h1 = -0.17 + 0.025 * (1.0 - abs(sin(p.x * 3.3 + 0.7))) + 0.012 * sin(p.x * 8.1 + 2.0);
+let h2 = -0.27 + 0.07 * (1.0 - abs(sin(p.x * 1.9 + 0.2))) + 0.02 * sin(p.x * 5.3 + 1.0) - 0.03 * p.x;
+let s2 = 0.07 * 1.9 * select(-1.0, 1.0, sin(p.x * 1.9 + 0.2) < 0.0) * cos(p.x * 1.9 + 0.2);
+let sky = col;
+if (p.y < h1) {
+    col = vec3f(0.05, 0.055, 0.12) + vec3f(0.07, 0.08, 0.17) * exp(-(h1 - p.y) / 0.03);
+    col += vec3f(0.2, 0.25, 0.5) * exp(-(h1 - p.y) * sz.y / (1.5 * lw)) * 0.6;
+}
+if (p.y < h2) {
+    let dep = h2 - p.y;
+    let lit = clamp(0.5 + 0.5 * s2, 0.0, 1.0);
+    col = mix(vec3f(0.04, 0.03, 0.06), vec3f(0.16, 0.12, 0.2), lit) * (0.55 + 0.45 * exp(-dep / 0.12));
+    col += vec3f(0.4, 0.35, 0.7) * exp(-dep * sz.y / (1.5 * lw)) * 0.45;
+    // The galaxy's glow on the sand.
+    col += vec3f(0.12, 0.08, 0.1) * exp(-pow((p.x + 0.05) / 0.4, 2.0)) * exp(-dep / 0.1);
+    // Ripples in the sand.
+    col *= 0.9 + 0.1 * sin((p.x * 40.0 + p.y * 160.0) + 3.0 * n3);
+}
+// The arch: a rough annulus on two legs, black against the sky.
+// The arch: a rough elliptical ring standing in the sand, thickest
+// where it meets the ground, on a low rocky base.
+let ap = (p - vec2f(0.56, -0.27)) * vec2f(1.0, 0.9);
+let ar = length(ap);
+let rn = textureSampleLevel(sampler_noise_lq, s_fw, p * 5.0, 0.0).r;
+let rough = 0.016 * (n3 - 0.5) + 0.004 * (rn - 0.5);
+let th = 0.028 + 0.05 * pow(smoothstep(0.14, -0.02, ap.y), 2.0);
+let ring = abs(ar - 0.2) - th + rough;
+let base = length((p - vec2f(0.56, -0.3)) * vec2f(0.72, 7.0)) - 0.2 + rough;
+let rock = min(select(1.0, ring, ap.y > -0.03), base);
+if (rock < 0.0) {
+    let rim = exp(rock * sz.y / (4.0 * lw));
+    col = vec3f(0.012, 0.01, 0.02) + vec3f(0.06, 0.05, 0.1) * (0.5 + 0.5 * n2) * 0.3 + vec3f(0.35, 0.4, 0.9) * rim * 0.9 * smoothstep(-0.3, 0.0, p.y);
+}
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.3, vec3f(0.0));
+return col / (1.0 + 0.4 * col);
+'''
