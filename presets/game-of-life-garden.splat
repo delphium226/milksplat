@@ -1,0 +1,224 @@
+# Game of Life Garden: Conway's Game of Life grown as a neon garden at
+# night. Every live cell is a flower, five or six glowing petals round a
+# golden heart, that opens as the cell is born; every cell that dies
+# leaves a coloured afterglow in the soil that fades over a second or
+# two, so gliders draw comet trails and the oscillators pulse in place.
+# Still lifes stand as little beds of flowers, R-pentominoes explode
+# into long chaotic blooms, and the board wraps round, so gliders sail
+# off one edge and come back on the other.
+#
+# The board lives in the fp16 feedback buffer, one texel a cell in its
+# top left corner: 48 cells down (or the buffer's height, if smaller) and
+# as many across as keep them square on screen. The red channel is the
+# cell (alive or dead), green its afterglow and blue how far its flower
+# has opened (it closes again as the cell dies). The frame code says when a generation is due (about ten a
+# second) and where to plant new patterns; on those ticks the warp
+# shader applies the rule (born with three neighbours, surviving with
+# two or three) and stamps in the patterns, and every tick it opens the
+# flowers and fades the afterglow. Reading a cell is a threshold, so a
+# resized buffer only scrambles the board, and it carries on. The garden
+# never dies out: on the first tick the board is sown with random soup,
+# a new pattern is planted every few seconds even in silence, and every
+# kick plants more. The composite draws each cell's flower (and its
+# neighbours', which may overlap it) and the afterglow.
+#
+# Bass brightens the garden (smoothed). Each hit of the music is felt at
+# once, through pulses of the bass, mids and treble that rise in a tick
+# or two and die away over a fraction of a second (soft-limited, so a
+# bigger hit still means more): a kick plants a burst of gliders and
+# R-pentominoes round a random spot (more for a bigger hit), quickens
+# the generations and swells every flower; the mids tint the petals
+# (accumulated); the treble twinkles the flowers' hearts.
+version = 1
+
+[meta]
+name = "Game of Life Garden"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+feedback_format = "fp16"
+decay = 1.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+gp = 0; hu = 0; fc = 0; cs = 0;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+st = st + (min(treb_att, 2.5) - st) * 0.1;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+ob = pb;
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+fc = fc + 1;
+// The board's size in cells.
+ny = min(48, pixelsy);
+nx = floor(ny * pixelsx / pixelsy);
+// A generation is due about eight times a second, quicker on the kicks
+// (accumulated).
+gp = gp + (1 + 1.5 * pb) / 7;
+stp = gp >= 1;
+gp = gp - floor(gp);
+// Planting: up to four patterns this tick, each a 3x3 bit mask (bit
+// y * 3 + x) with flips: 158 is the R-pentomino, 482 a glider. A kick
+// plants a burst round a random spot; every few seconds one comes
+// anyway.
+m1 = 0; m2 = 0; m3 = 0; m4 = 0;
+kk = max(pb - ob, 0);
+cd = cd + 1;
+cs = cs + 1;
+if(kk > 0.1 && cd > 10,
+  cd = 0;
+  bx = rand(1000) / 1000 * nx; by = rand(1000) / 1000 * ny;
+  m1 = 482 + 512 * floor(rand(2)) + 1024 * floor(rand(2)); x1 = bx - 4; y1 = by - 4;
+  m2 = 482 + 512 * floor(rand(2)) + 1024 * floor(rand(2)); x2 = bx + 3; y2 = by - 3;
+  m3 = if(pb > 0.5, 158, 482 + 1024); x3 = bx - 1; y3 = by + 2;
+  m4 = if(pb > 0.9, 158 + 512, 0); x4 = bx + 5; y4 = by + 4,
+  0);
+if(cs > 90,
+  cs = 0;
+  m4 = 158 + 512 * floor(rand(2)) + 1024 * floor(rand(2));
+  x4 = rand(1000) / 1000 * nx; y4 = rand(1000) / 1000 * ny,
+  0);
+// The petals' tint drifts (accumulated, quicker with the mids).
+hu = hu + (0.005 + 0.08 * pm) / 60;
+hu = hu - floor(hu);
+q1 = floor(x1); q2 = floor(y1); q3 = m1;
+q4 = floor(x2); q5 = floor(y2); q6 = m2;
+q7 = floor(x3); q8 = floor(y3); q9 = m3;
+q10 = floor(x4); q11 = floor(y4); q12 = m4;
+q13 = stp; q14 = fc < 3; q15 = ny; q16 = nx;
+q17 = hu; q18 = pb; q19 = pm; q20 = pt;
+q21 = sb; q22 = st;
+'''
+
+[shader]
+warp = '''
+let sz = u.texsize.xy;
+let ny = u.q[3].z;
+let nx = u.q[3].w;
+let c = floor(uv_orig * sz);
+if (c.x >= nx || c.y >= ny) {
+    return vec3f(0.0);
+}
+let here = textureLoad(sampler_main, vec2i(c), 0).rgb;
+var alive = here.r > 0.5;
+if (u.q[3].y > 0.5) {
+    // The first tick: random soup.
+    let h = fract(sin(dot(c, vec2f(12.9898, 78.233))) * 43758.5453);
+    alive = h < 0.22;
+} else if (u.q[3].x > 0.5) {
+    // A generation: count the eight neighbours (the board wraps round).
+    var n = 0;
+    for (var dy = -1; dy <= 1; dy++) {
+        for (var dx = -1; dx <= 1; dx++) {
+            if (dx != 0 || dy != 0) {
+                var q = c + vec2f(f32(dx), f32(dy));
+                q = q - vec2f(nx, ny) * floor(q / vec2f(nx, ny));
+                if (textureLoad(sampler_main, vec2i(q), 0).r > 0.5) {
+                    n += 1;
+                }
+            }
+        }
+    }
+    alive = n == 3 || (alive && n == 2);
+}
+// The patterns planted this tick.
+for (var i = 0; i < 4; i++) {
+    let base = i * 3;
+    let px = u.q[base / 4][base % 4];
+    let py = u.q[(base + 1) / 4][(base + 1) % 4];
+    let mk = u32(u.q[(base + 2) / 4][(base + 2) % 4]);
+    if (mk == 0u) {
+        continue;
+    }
+    var r = c - vec2f(px, py);
+    r = r - vec2f(nx, ny) * floor(r / vec2f(nx, ny));
+    if (r.x < 3.0 && r.y < 3.0) {
+        let rx = select(u32(r.x), 2u - u32(r.x), (mk & 512u) != 0u);
+        let ry = select(u32(r.y), 2u - u32(r.y), (mk & 1024u) != 0u);
+        if (((mk >> (ry * 3u + rx)) & 1u) != 0u) {
+            alive = true;
+        }
+    }
+}
+let glow = select(here.g * 0.975, 1.0, alive);
+// Flowers open as a cell is born and close (a little faster) as it dies.
+let bloom = select(max(here.b - 0.16, 0.0), min(here.b + 0.12, 1.0), alive);
+return vec3f(select(0.0, 1.0, alive), glow, bloom);
+'''
+comp = '''
+let sz = u.texsize.xy;
+let ny = u.q[3].z;
+let nx = u.q[3].w;
+let nc = vec2f(nx, ny);
+let hu = u.q[4].x;
+let pb = u.q[4].y;
+let be = min(pb, 1.5);
+let pt = min(u.q[4].w, 1.5);
+let sb = min(u.q[5].x, 2.0) * 0.5;
+let st = max(0.0, min(u.q[5].y, 2.5) - 0.3);
+// Cells across the whole screen.
+let cp = uv * nc;
+let c0 = floor(cp);
+let cpx = sz.y / ny;
+let aa = 1.2 / cpx;
+// Dark soil with a faint grid.
+let fr = cp - c0;
+let gd = min(min(fr.x, 1.0 - fr.x), min(fr.y, 1.0 - fr.y));
+var col = vec3f(0.012, 0.02, 0.018) + vec3f(0.02, 0.05, 0.04) * (1.0 - smoothstep(0.0, 1.5 * aa, gd)) * smoothstep(3.0, 6.0, cpx);
+var pet = vec3f(0.0);
+var aft = vec3f(0.0);
+let tq = floor(u.time * 10.0);
+for (var dy = -1; dy <= 1; dy++) {
+    for (var dx = -1; dx <= 1; dx++) {
+        var n = c0 + vec2f(f32(dx), f32(dy));
+        n = n - nc * floor(n / nc);
+        let sv = textureLoad(sampler_main, vec2i(n), 0).rgb;
+        let lp = cp - (c0 + vec2f(f32(dx), f32(dy)) + vec2f(0.5));
+        let r = length(lp);
+        let h = fract(sin(dot(n, vec2f(41.3, 289.1))) * 43758.5453);
+        // Petal colours drift across the garden in broad beds, each flower a
+        // little different.
+        let hh = 6.2831853 * (hu + h * 0.3 + 0.45 * (n.x / nx) + 0.2 * sin(n.y * 0.21 + n.x * 0.07) + 0.75);
+        let pc = 0.5 + 0.5 * vec3f(cos(hh), cos(hh - 2.094), cos(hh + 2.094));
+        // The afterglow of the dead (and under the living): a soft glow.
+        aft += (pc * pc + vec3f(0.05, 0.12, 0.1)) * sv.g * exp(-r * r / 0.35) * 0.42;
+        if (sv.b > 0.005) {
+            // A flower: five or six petals round a golden heart, opening.
+            let bl = sv.b * sv.b * (3.0 - 2.0 * sv.b);
+            let k = select(5.0, 6.0, h > 0.5);
+            let th = atan2(lp.y, lp.x) + h * 6.2831853 + u.time * (0.2 + 0.2 * h);
+            let R = 0.78 * bl * (1.0 + 0.32 * be);
+            let rr = R * (0.45 + 0.55 * abs(cos(k * th * 0.5)));
+            let petal = smoothstep(rr, rr - aa * 1.5, r);
+            let vein = 0.75 + 0.25 * smoothstep(0.0, rr, r);
+            let heart = smoothstep(0.13 * bl + aa, 0.13 * bl, r);
+            let tw = fract(sin(dot(n + vec2f(tq * 1.7, tq * 3.1), vec2f(12.9898, 78.233))) * 43758.5453);
+            let spark = step(1.0 - 0.15 * (0.3 * min(st, 1.0) + pt), tw) * smoothstep(80.0, 300.0, sz.y);
+            var fc = pc * pc * 1.6 * vein * petal * (0.9 + 0.25 * sb + 0.35 * be);
+            fc = mix(fc, vec3f(1.0, 0.8, 0.25) * (1.3 + 0.4 * be) + vec3f(0.6) * spark * (1.0 + pt), heart);
+            fc += pc * exp(-r * r / 0.18) * 0.25 * bl;
+            // Cells only a few pixels wide show a soft blob of the
+            // flower's average colour instead (its petals would shimmer).
+            let avg = (pc * pc * 1.6 * 0.5 + vec3f(0.25, 0.2, 0.06)) * bl * exp(-r * r / (0.3 * R * R + 0.05)) * (0.9 + 0.35 * be);
+            fc = mix(avg, fc, smoothstep(3.0, 7.0, cpx));
+            pet = max(pet, fc);
+        }
+    }
+}
+col += aft * (1.0 + 0.3 * be);
+col = col * (1.0 - min(dot(pet, vec3f(0.33)), 1.0) * 0.5) + pet;
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.15, vec3f(0.0));
+return col / (1.0 + 0.3 * col);
+'''
