@@ -83,8 +83,8 @@ device, so just start your music and run it.
 | **Lichtenberg Figures**: electric-blue and violet discharge trees branching across a dark acrylic block, each kick firing a fresh one that forks out from a new strike point | **Desert Milky Way**: the blazing core of the Milky Way rising over moonless dunes and a lone rock arch, airglow drifting along the horizon, a meteor streaking down on each kick |
 | ![Mandelbulb](docs/images/mandelbulb.png) | ![Julia Morph](docs/images/julia-morph.png) |
 | **Mandelbulb**: the ray-marched three-dimensional Mandelbrot set in glowing neon orbit-trap colours, the camera circling it and pushing in on each kick as its buds morph | **Julia Morph**: a Julia set melting from shape to shape as its parameter creeps round the Mandelbrot cardioid, neon rings on black, each kick jolting it on and sweeping a ring of light in to its glowing edge |
-| ![Truchet Maze](docs/images/truchet-maze.png) | |
-| **Truchet Maze**: a scrolling maze of neon quarter-arc tubes with pulses of light racing along them, each kick sending a wave of tiles spinning to rewire the paths | |
+| ![Truchet Maze](docs/images/truchet-maze.png) | ![Hex Hive](docs/images/hex-hive.png) |
+| **Truchet Maze**: a scrolling maze of neon quarter-arc tubes with pulses of light racing along them, each kick sending a wave of tiles spinning to rewire the paths | **Hex Hive**: a vast glowing honeycomb brimming with amber, magenta and cyan nectar as bees of light dart over it, each kick sending a ripple of cells lighting outward |
 
 These are single frames; every preset moves and changes with the music.
 

@@ -1,0 +1,236 @@
+# Hex Hive: a vast glowing honeycomb seen at a low angle, stretching away
+# to a warm haze on the horizon. Its hexagonal cells brim with luminous
+# nectar, amber, magenta and cyan, each filled to its own level and
+# slowly rising and falling, behind glowing wax walls, while bees of
+# light dart and weave low over the comb trailing sparks.
+#
+# Everything is in the composite. Each pixel's ray meets the plane of the
+# comb, and the plane is cut into hexagons (unit spacing between cell
+# centres). A cell's nectar glows from its middle out to its fill level,
+# with a bright meniscus at the rim, its colour taken from a cycle of the
+# three nectar hues by a hash of the cell; the walls are drawn by their
+# distance in plane units against the pixel's footprint there (from the
+# ray's screen derivatives), and where the cells shrink to a few pixels
+# toward the horizon they fade to their average glow, so they never
+# shimmer. The bees are points flying low over the comb on wandering
+# paths, projected to the screen and drawn in pixels, each with two
+# fading trail points behind it.
+#
+# Each hit of the music is felt at once, through pulses of the bass, mids
+# and treble that rise in a tick or two and die away over a fraction of a
+# second (soft-limited, so a bigger hit still means more): a kick sends a
+# ripple of cells lighting outward across the comb from a point near the
+# middle of the view (up to three at once), pushes the camera on over the
+# comb (accumulated) and dips it lower, and sets the bees darting faster
+# (accumulated); the mids shift the nectar hues (accumulated); the treble
+# makes the bees sparkle with starbursts. Bass brightens the nectar
+# (smoothed).
+version = 1
+
+[meta]
+name = "Hex Hive"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+cz = 0; sw = 0; bp = 0; fl = 0; hu = 0; sl = 0; cd = 0;
+a1 = 9; a2 = 9; a3 = 9;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+ob = pb;
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+// The camera glides on over the comb, a kick pushing it on. The comb
+// repeats every 200 rows along z, so the position wraps there (and the
+// ripples' origins with it).
+cz = cz + (0.3 + 3.0 * pb) / 60;
+if(cz > 346.41016,
+  cz = cz - 346.41016; w1y = w1y - 346.41016; w2y = w2y - 346.41016; w3y = w3y - 346.41016,
+  0);
+sw = sw + (0.012 + 0.03 * pm) / 60;
+sw = sw - floor(sw);
+cx = 2.5 * sin(sw * 6.2831853);
+yaw = 0.16 * sin(sw * 6.2831853 * 2 + 1);
+hh = 3.0 - 0.45 * pb;
+// The look point (where the middle of the view meets the comb).
+lpx = cx + 5.0 * sin(yaw);
+lpz = cz + 5.0 * cos(yaw);
+// The bees' flight phase, the nectar's slow rise and fall, the hues.
+bp = bp + (0.35 + 2.5 * pb + 0.6 * pt) / 60;
+bp = bp - 6283.1853 * floor(bp / 6283.1853);
+fl = fl + (0.02 + 0.15 * pb) / 60;
+fl = fl - floor(fl);
+hu = hu + (0.004 + 0.25 * pm) / 60;
+hu = hu - floor(hu);
+// A fresh kick starts a ripple near the middle of the view, in the next
+// of three slots.
+dt = 1 / 60;
+a1 = min(a1 + dt, 9); a2 = min(a2 + dt, 9); a3 = min(a3 + dt, 9);
+kk = max(pb - ob, 0);
+cd = cd + 1;
+if(kk > 0.1 && cd > 10,
+  cd = 0; sl = (sl + 1) % 3;
+  nx = lpx + (rand(1000) / 1000 - 0.5) * 7; nz = lpz + (rand(1000) / 1000 - 0.3) * 5;
+  if(sl == 0, w1x = nx; w1y = nz; a1 = 0; s1 = min(pb, 1.4), 0);
+  if(sl == 1, w2x = nx; w2y = nz; a2 = 0; s2 = min(pb, 1.4), 0);
+  if(sl == 2, w3x = nx; w3y = nz; a3 = 0; s3 = min(pb, 1.4), 0),
+  0);
+q1 = cx; q2 = cz; q3 = yaw; q4 = hh;
+q5 = bp; q6 = fl; q7 = hu; q8 = pb;
+q9 = pm; q10 = pt; q11 = sb; q12 = lpx;
+q13 = lpz;
+q17 = w1x; q18 = w1y; q19 = a1; q20 = s1;
+q21 = w2x; q22 = w2y; q23 = a2; q24 = s2;
+q25 = w3x; q26 = w3y; q27 = a3; q28 = s3;
+'''
+
+[shader]
+comp = '''
+let asp = u.texsize.x * u.texsize.w;
+let lw = max(1.0, u.texsize.y / 540.0);
+let pb = u.q[1].w;
+let pm = u.q[2].x;
+let pt = min(u.q[2].y, 1.5);
+let sb = min(u.q[2].z, 2.0) * 0.5;
+let hu = u.q[1].z;
+let fl = u.q[1].y;
+let bp = u.q[1].x;
+// The camera: above the comb, pitched down, turning gently.
+let yaw = u.q[0].z;
+let ch = u.q[0].w;
+let pit = 0.5;
+let cy = cos(yaw);
+let sy0 = sin(yaw);
+let cp = cos(pit);
+let sp = sin(pit);
+let fw = vec3f(sy0 * cp, -sp, cy * cp);
+let rt = vec3f(cy, 0.0, -sy0);
+let up = vec3f(sy0 * sp, cp, cy * sp);
+let ro = vec3f(u.q[0].x, ch, u.q[0].y);
+let fov = 0.62;
+let sx = (uv.x - 0.5) * asp * 2.0 * fov;
+let syc = (0.5 - uv.y) * 2.0 * fov;
+let pa = 2.0 * fov * u.texsize.w;
+let rd = normalize(fw + rt * sx + up * syc);
+// The comb plane (y = 0), the ray clamped near the horizon.
+let dn = -rd.y;
+let t = ch / max(dn, 0.012);
+let p = vec2f(ro.x + rd.x * t, ro.z + rd.z * t);
+let fp = max(max(fwidth(p.x), fwidth(p.y)), 1e-4);
+let hz = smoothstep(0.0, 0.06, dn);
+// The hexagons: the nearer of two offset lattices' centres.
+let ax = p.x - floor(p.x) - 0.5;
+let ay = p.y - 1.7320508 * floor(p.y / 1.7320508) - 0.8660254;
+let qx = p.x - 0.5;
+let qy = p.y - 0.8660254;
+let bx = qx - floor(qx) - 0.5;
+let by = qy - 1.7320508 * floor(qy / 1.7320508) - 0.8660254;
+let useA = ax * ax + ay * ay < bx * bx + by * by;
+let gx = select(bx, ax, useA);
+let gy = select(by, ay, useA);
+let id = vec2f(p.x - gx, p.y - gy);
+let hd = max(abs(gx), abs(gx) * 0.5 + abs(gy) * 0.8660254);
+let edge = 0.5 - hd;
+// The cell's hash, from its integer lattice coordinates.
+let ix = u32(i32(round(id.x * 2.0)) + 100000);
+let iy = u32(i32(round(id.y / 0.8660254)) + 100000);
+let h0 = (ix * 1973u + iy * 9277u) * 747796405u + 2891336453u;
+let h1 = ((h0 >> ((h0 >> 28u) + 4u)) ^ h0) * 277803737u;
+let h = f32(((h1 >> 22u) ^ h1) >> 8u) / 16777216.0;
+let h2 = fract(h * 91.7 + 0.31);
+// The nectar's colour: a cycle of amber, magenta and cyan.
+let tc = fract(h2 * 0.8 + hu) * 3.0;
+let i0 = floor(tc);
+let fc = smoothstep(0.75, 1.0, fract(tc));
+let amber = vec3f(1.0, 0.55, 0.08);
+let mag = vec3f(1.0, 0.12, 0.62);
+let cyan = vec3f(0.08, 0.85, 1.0);
+let ca = select(select(cyan, mag, i0 < 1.5), amber, i0 < 0.5);
+let cb = select(select(amber, cyan, i0 < 1.5), mag, i0 < 0.5);
+let nc = mix(ca, cb, fc);
+// The fill level, rising and falling slowly; a few cells empty, a few capped.
+let fill = 0.35 + 0.55 * (0.5 + 0.5 * sin(6.2831853 * (fl + h)));
+let empty = step(h, 0.12);
+let capped = step(0.9, h);
+let rf = fill * 0.47;
+let inside = 1.0 - smoothstep(rf - fp, rf + fp, hd);
+let core = 1.0 - hd / 0.5;
+let men = exp(-pow((hd - rf) / max(0.03, fp), 2.0));
+// The kicks' ripples, measured from the cell's centre.
+var lit = 0.0;
+for (var k = 0; k < 3; k++) {
+    let wv = u.q[4 + k];
+    if (wv.z < 2.0) {
+        let dc = length(id - wv.xy) - wv.z * 12.0;
+        let ring = exp(-dc * dc / 2.5) + select(0.0, 0.35 * exp(dc / 4.0), dc < 0.0);
+        lit += ring * wv.w * (1.0 - smoothstep(0.9, 1.9, wv.z));
+    }
+}
+let nb = 0.7 + 0.35 * sb + 2.2 * lit;
+var cell = nc * (0.25 + 0.95 * core) * inside * nb + mix(nc, vec3f(1.0), 0.5) * men * inside * 0.55 * nb;
+cell = cell * (1.0 - empty) + vec3f(0.45, 0.28, 0.06) * capped * (0.35 + 0.3 * core) * (1.0 + lit);
+cell += nc * 0.05 * (1.0 - inside);
+// The wax walls, glowing at their edges, white-hot where a ripple passes.
+let ww = 0.055;
+let wall = 1.0 - smoothstep(ww - fp, ww + fp, edge);
+let wcol = vec3f(0.55, 0.3, 0.06) * (0.35 + 0.4 * exp(-edge / 0.03)) + vec3f(1.0, 0.85, 0.6) * lit * 0.8;
+var comb = mix(cell, wcol, wall);
+// Toward the horizon the cells fade to their average glow.
+let lod = smoothstep(0.05, 0.16, fp);
+let avg = nc * 0.42 * nb * (1.0 - empty) + vec3f(0.12, 0.07, 0.015) + vec3f(0.3, 0.25, 0.15) * lit * 0.3;
+comb = mix(comb, avg, lod);
+// Distance haze, warm, and the glowing horizon above.
+let fog = exp(-t * 0.035);
+let haze = vec3f(0.32, 0.13, 0.12);
+let sky = mix(vec3f(0.12, 0.03, 0.14), vec3f(0.01, 0.005, 0.03), smoothstep(0.0, 0.4, -dn)) + vec3f(0.9, 0.4, 0.2) * exp(max(dn, -1.0) / 0.035) * 0.5;
+var col = mix(haze, comb, fog) * hz + sky * (1.0 - hz);
+// The bees: points low over the comb, projected to the screen, each
+// with two trail points behind it.
+var bees = vec3f(0.0);
+for (var i = 0; i < 9; i++) {
+    let fi = f32(i);
+    for (var j = 0; j < 3; j++) {
+        let fj = f32(j);
+        let a = (bp - fj * 0.035) * (0.6 + 0.07 * fi) + fi * 1.7;
+        let b = vec3f(u.q[2].w + 5.0 * sin(a + fi) + 1.3 * sin(a * 3.7 + fi * 2.3), 0.45 + 0.25 * sin(a * 2.1 + fi), u.q[3].x + 3.0 * sin(a * 0.83 + fi * 0.7) + 1.1 * cos(a * 2.9 + fi));
+        let v = b - ro;
+        let z = dot(v, fw);
+        if (z > 0.3) {
+            let dx = (sx - dot(v, rt) / z) / pa;
+            let dy = (syc - dot(v, up) / z) / pa;
+            // Sized with the picture; below a pixel the glow keeps its
+            // energy but not its size, so small pictures do not twinkle.
+            let sr = u.texsize.y / 540.0 * clamp(14.0 / z, 1.5, 5.0) * (1.0 - 0.3 * fj);
+            let sc = max(sr, 0.9);
+            let r2 = (dx * dx + dy * dy) / (sc * sc);
+            let w = (1.0 - 0.35 * fj) * (sr * sr) / (sc * sc);
+            var g = exp(-r2 / 2.0) * 1.6 + exp(-sqrt(r2) / 3.0) * 0.25;
+            if (j == 0) {
+                // Treble: a starburst.
+                let ax2 = abs(dx) / sc;
+                let ay2 = abs(dy) / sc;
+                g += pt * 1.4 * (exp(-ax2 / 0.7 - ay2 / 9.0) + exp(-ay2 / 0.7 - ax2 / 9.0));
+            }
+            bees += mix(vec3f(1.0, 0.85, 0.45), vec3f(1.0, 1.0, 1.0), 0.4 * pt) * g * w * (1.0 + 0.6 * pt);
+        }
+    }
+}
+col += bees;
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.2, vec3f(0.0));
+return col / (1.0 + 0.45 * col);
+'''
