@@ -7,113 +7,6 @@ device, so just start your music and run it.
 
 It comes with 100 presets and also runs as a Windows screensaver.
 
-## Gallery
-
-| | |
-|---|---|
-| ![Infinite Coil](docs/images/infinite-coil.png) | ![Turing Reef](docs/images/turing-reef.png) |
-| **Infinite Coil**: an endless spiral zoom | **Turing Reef**: coral that grows and melts with the music |
-| ![Lumen Cathedral](docs/images/lumen-cathedral.png) | ![Ebru Tide](docs/images/ebru-tide.png) |
-| **Lumen Cathedral**: a rose window pouring out light | **Ebru Tide**: live paper marbling |
-| ![Tesseract Drift](docs/images/tesseract-drift.png) | ![Interstice](docs/images/interstice.png) |
-| **Tesseract Drift**: a 4D hypercube turning inside out | **Interstice**: an endless flight through gates between dimensions |
-| ![Event Horizon](docs/images/event-horizon.png) | ![Singing Sand](docs/images/singing-sand.png) |
-| **Event Horizon**: a black hole bends a nebula into an Einstein ring round its blazing disc | **Singing Sand**: luminous sand settling into the nodal lines of a ringing Chladni plate |
-| ![Silk Attractor](docs/images/silk-attractor.png) | ![Indra's Pearls](docs/images/indras-pearls.png) |
-| **Silk Attractor**: a Clifford strange attractor spun into iridescent silk | **Indra's Pearls**: jewelled circles nested in circles, sinking forever toward a limit point |
-| ![Harmonograph](docs/images/harmonograph.png) | ![Complex Poles](docs/images/complex-poles.png) |
-| **Harmonograph**: damped pendulums tracing glowing Lissajous spirals | **Complex Poles**: neon contours of a complex function whose zeros and poles wander |
-| ![Hyperbolic Tiling](docs/images/hyperbolic-tiling.png) | ![Spiral Galaxy](docs/images/spiral-galaxy.png) |
-| **Hyperbolic Tiling**: a glowing Poincare disc of tiles drifting toward the infinite rim | **Spiral Galaxy**: stars on turning ellipses crowding into density-wave arms |
-| ![Bubble Chamber](docs/images/bubble-chamber.png) | ![Fractal Reliquary](docs/images/fractal-reliquary.png) |
-| **Bubble Chamber**: particle tracks curling into spirals in a magnetic field | **Fractal Reliquary**: an orbiting flight through the carved halls of a breathing Mandelbox |
-| ![Cosmic Web](docs/images/cosmic-web.png) | ![Quantum Orbitals](docs/images/quantum-orbitals.png) |
-| **Cosmic Web**: a flight through glowing filaments of galaxies streaming into their clusters | **Quantum Orbitals**: glowing hydrogen electron clouds melting from one quantum state to the next |
-| ![Ferrofluid](docs/images/ferrofluid.png) | ![Cymatics](docs/images/cymatics.png) |
-| **Ferrofluid**: black magnetic fluid rising into a hexagonal forest of glossy spikes with the bass | **Cymatics**: ringing water focusing light into a caustic mandala of rings and petals |
-| ![Three Body Problem](docs/images/three-body.png) | ![Boreal Veil](docs/images/boreal-veil.png) |
-| **Three Body Problem**: three chaotic orbiting masses weaving luminous gravitational field lines | **Boreal Veil**: northern-lights curtains folding over a dark ridge and a mirror lake |
-| ![Plasma Globe](docs/images/plasma-globe.png) | ![Soap Film](docs/images/soap-film.png) |
-| **Plasma Globe**: branching violet lightning writhing from a hot electrode to the glass | **Soap Film**: rainbow interference bands swirling through a draining soap film |
-| ![Frost Bloom](docs/images/frost-bloom.png) | ![Vortex Street](docs/images/vortex-street.png) |
-| **Frost Bloom**: a glowing snowflake growing fern-like branches, then melting away to regrow | **Vortex Street**: glowing smoke wires winding into swirls shed by a pillar in the stream |
-| ![Apollonian Gasket](docs/images/apollonian-gasket.png) | ![Pulsar](docs/images/pulsar.png) |
-| **Apollonian Gasket**: an endless spiralling fall into circles packed inside circles | **Pulsar**: a spinning neutron star in looping field lines, its two beams sweeping slowly round |
-| ![Penrose Quasicrystal](docs/images/penrose-quasicrystal.png) | ![Solar Surface](docs/images/solar-surface.png) |
-| **Penrose Quasicrystal**: a never-repeating rhombus tiling in glowing gold, its tiles flipping as it drifts | **Solar Surface**: the sun's boiling granulation and sunspots, with plasma loops arching off the limb |
-| ![Lorenz Butterfly](docs/images/lorenz-butterfly.png) | ![Double Pendulum](docs/images/double-pendulum.png) |
-| **Lorenz Butterfly**: the Lorenz strange attractor traced as a glowing ribbon, its two wings turning slowly in 3D | **Double Pendulum**: three chaotic double pendulums started a hair apart, peeling away from each other in long neon trails |
-| ![Mandelbrot Dive](docs/images/mandelbrot-dive.png) | ![Gravitational Waves](docs/images/gravitational-waves.png) |
-| **Mandelbrot Dive**: an endless zoom onto a branch point of the Mandelbrot set, its feathered filaments glowing in neon | **Gravitational Waves**: two black holes spiral in and merge, the spacetime grid rippling outward in a two-armed spiral |
-| ![Kelvin-Helmholtz Clouds](docs/images/kelvin-helmholtz.png) | ![Hopf Fibration](docs/images/hopf-fibration.png) |
-| **Kelvin-Helmholtz Clouds**: a sunset cloud layer under a fast wind, its top rolling up into glowing breaking-wave curls | **Hopf Fibration**: the 3-sphere unwound into linked circles, nested tori of glowing fibres turning slowly in 4D |
-| ![Lindenmayer Garden](docs/images/lindenmayer-garden.png) | ![Double Slit](docs/images/double-slit.png) |
-| **Lindenmayer Garden**: L-system ferns, trees and seaweed growing branch by branch in neon, swaying, fading and regrowing as new species | **Double Slit**: Young's experiment: waves through two slits interfere in glowing fringes while a detector builds the pattern dot by dot |
-| ![Supernova Remnant](docs/images/supernova-remnant.png) | ![Knot Theory](docs/images/knot-theory.png) |
-| **Supernova Remnant**: a slowly expanding shell of tangled filaments in hydrogen red, oxygen teal and sulphur gold around a pulsing pulsar wind nebula | **Knot Theory**: glowing neon tubes tied in torus knots, trefoil to cinquefoil and beyond, morphing from one to the next as they turn |
-| ![Newton Fractal](docs/images/newton-fractal.png) | ![Wormhole](docs/images/wormhole.png) |
-| **Newton Fractal**: the basins of Newton's method as dark jewels, their fractal borders glowing in beaded lace around five wandering star-roots | **Wormhole**: a ray-traced Ellis wormhole lensing two universes' stars and nebulae, the camera drifting through its throat and back |
-| ![Ising Model](docs/images/ising-model.png) | ![Abelian Sandpile](docs/images/sandpile.png) |
-| **Ising Model**: a magnet at its critical point, dark spin domains of every size merging and melting behind glowing neon walls | **Abelian Sandpile**: grains poured on the centre topple outward into the sandpile fractal's octagon of nested triangles and patches, in four neon colours |
-| ![Saturn's Rings](docs/images/saturns-rings.png) | ![Fourier Epicycles](docs/images/fourier-epicycles.png) |
-| **Saturn's Rings**: a view across hundreds of glowing ringlets, the Cassini Division, density waves, drifting spokes and shepherd moons, beside the planet's dim crescent | **Fourier Epicycles**: a chain of ten spinning circles draws a glowing heart, star, rose or knot, the coefficients gliding from one figure to the next |
-| ![Double Helix](docs/images/double-helix.png) | ![Quantum Tunnel](docs/images/quantum-tunnel.png) |
-| **Double Helix**: a ray-marched strand of DNA turning and receding into blue fog, its cyan and violet backbones bridged by base pairs in four colours, among drifting motes and bokeh | **Quantum Tunnel**: exact Gaussian wave packets in four lanes hit potential barriers, part reflecting in rippling interference and part tunnelling through, phase as rainbow hue and probability as glow |
-| ![Kuramoto Fireflies](docs/images/kuramoto-fireflies.png) | ![Voronoi Crystals](docs/images/voronoi-crystals.png) |
-| **Kuramoto Fireflies**: hundreds of fireflies in a moonlit clearing, each nudging its rhythm toward its neighbours', so patches fall into step, drift apart and sync again, the total light held steady | **Voronoi Crystals**: a polycrystal recrystallising under a polarising microscope, new grains nucleating and growing into a Johnson-Mehl tessellation of glowing boundaries and iridescent striations, then coarsening |
-| ![Synthwave Drive](docs/images/synthwave-drive.png) | ![Mercury Metaballs](docs/images/mercury-metaballs.png) |
-| **Synthwave Drive**: a night drive down an endless neon grid toward a striped retro sun, past wireframe mountains and palm silhouettes | **Mercury Metaballs**: liquid chrome drops mirroring a neon studio, flung apart by every kick and flowing back together |
-| ![Lava Lamp](docs/images/lava-lamp.png) | ![Girih Lattice](docs/images/girih-lattice.png) |
-| **Lava Lamp**: a giant lava lamp, glowing wax rising, stretching, pinching off and sinking through deep violet as the bass heats the bulb | **Girih Lattice**: an Islamic star-and-polygon pattern in gold strapwork and turquoise inlay, its stars unfolding and refolding as light races along the bands |
-| ![Starling Murmuration](docs/images/starling-murmuration.png) | ![Hyperspace Jump](docs/images/hyperspace-jump.png) |
-| **Starling Murmuration**: thousands of starlings swirling in a shape-shifting cloud over a dusk reed bed, rippling round a striking hawk | **Hyperspace Jump**: stars stretch into streaks as the ship punches into a swirling blue-white tunnel of energy filaments, then drops out into a new star field and nebula |
-| ![Neural Storm](docs/images/neural-storm.png) | ![Mycelium](docs/images/mycelium.png) |
-| **Neural Storm**: layers of glowing neurons joined by arcing axons, sparks racing along them and firing cascades spreading from cell to cell | **Mycelium**: luminous cyan and violet fungal threads forking outward through dark soil, nutrient pulses racing along them as glowing fruiting bodies push up, then crumbling away to regrow |
-| ![Dyson Swarm](docs/images/dyson-swarm.png) | ![Abyssal Jellyfish](docs/images/abyssal-jellyfish.png) |
-| **Dyson Swarm**: thousands of collector panels in inclined rings round a blazing star, glinting gold and silhouetted on its face, beaming energy to a distant receiver | **Abyssal Jellyfish**: bioluminescent jellyfish pulsing up through the deep, every kick squeezing their glowing bells, among marine snow and beaded siphonophore chains |
-| ![Blazar Jet](docs/images/blazar-jet.png) | ![Fireworks Symphony](docs/images/fireworks-symphony.png) |
-| **Blazar Jet**: a black hole's relativistic jet beamed almost straight at you, wound by magnetic helices, as each kick fires a knot of plasma up it | **Fireworks Symphony**: peonies, golden willows, crossettes and ring shells bursting over a mirror-still lake, a shell launched on every kick |
-| ![Bioluminescent Surf](docs/images/bioluminescent-surf.png) | ![Circuit City](docs/images/circuit-city.png) |
-| **Bioluminescent Surf**: night waves breaking in electric-blue plankton glow, foam sheets sliding up the sand under the Milky Way, a wave breaking on each kick | **Circuit City**: a low flight over an endless circuit-board metropolis of LED-studded chip towers, data packets racing along the traces as kicks send pulse waves through the grid |
-| ![Crystal Geode](docs/images/crystal-geode.png) | ![Klein Bottle](docs/images/klein-bottle.png) |
-| **Crystal Geode**: inside a giant geode, a turning cluster of amethyst and quartz lit from within, rainbow fringes on its facets, as each kick sends a flare of light up through the crystals | **Klein Bottle**: a glowing glass Klein bottle turning in a violet void, its neck plunging back through its own side, iridescent bands flowing round its one surface and every kick racing a pulse through the self-intersection |
-| ![Möbius Ribbon](docs/images/mobius-ribbon.png) | ![Origami Polyhedra](docs/images/origami-polyhedra.png) |
-| **Möbius Ribbon**: a fat neon Möbius strip turning through deep space, chevrons of light chasing round its one side, every kick wrenching its twist and launching a fresh arrow of light round the loop | **Origami Polyhedra**: paper polyhedra under coloured theatre gels folding from icosahedron to dodecahedron to spiky stellated star and back, every kick snapping the next fold and flaring the creases |
-| ![Volcano Lightning](docs/images/volcano-lightning.png) | ![Galaxy Collision](docs/images/galaxy-collision.png) |
-| **Volcano Lightning**: a volcano erupting at night, lava fountains and glowing rivers under a towering ash plume, every kick hurling a burst of lava and forking lightning through the ash | **Galaxy Collision**: two spiral galaxies wheeling round each other in a slow merger, tidal tails flung wide and strung with pink and blue star-forming knots, every kick setting off starbursts in both cores and a ripple through the disks |
-| ![Lichtenberg Figures](docs/images/lichtenberg-figures.png) | ![Desert Milky Way](docs/images/desert-milky-way.png) |
-| **Lichtenberg Figures**: electric-blue and violet discharge trees branching across a dark acrylic block, each kick firing a fresh one that forks out from a new strike point | **Desert Milky Way**: the blazing core of the Milky Way rising over moonless dunes and a lone rock arch, airglow drifting along the horizon, a meteor streaking down on each kick |
-| ![Mandelbulb](docs/images/mandelbulb.png) | ![Julia Morph](docs/images/julia-morph.png) |
-| **Mandelbulb**: the ray-marched three-dimensional Mandelbrot set in glowing neon orbit-trap colours, the camera circling it and pushing in on each kick as its buds morph | **Julia Morph**: a Julia set melting from shape to shape as its parameter creeps round the Mandelbrot cardioid, neon rings on black, each kick jolting it on and sweeping a ring of light in to its glowing edge |
-| ![Truchet Maze](docs/images/truchet-maze.png) | ![Spirograph Engine](docs/images/spirograph-engine.png) |
-| **Truchet Maze**: a scrolling maze of neon quarter-arc tubes with pulses of light racing along them, each kick sending a wave of tiles spinning to rewire the paths | **Spirograph Engine**: four glowing pens on rolling gears tracing neon hypotrochoid and epitrochoid rosettes that build up loop by loop and fade, every kick racing the pens forward and flaring their tips into stars |
-| ![Topographic Map](docs/images/topographic-map.png) | ![Smoke Rings](docs/images/smoke-rings.png) |
-| **Topographic Map**: a slow flight over dark mountains drawn as glowing neon contour lines coloured by height, every kick raising a swell that rolls out through the land as the isolines crowd and flare | **Smoke Rings**: luminous vortex rings of gel-lit smoke puffed out of the dark toward the viewer, their tubes curling as they swell and fray into swirling wisps, every kick puffing a new ring and pushing the rest on |
-| ![Game of Life Garden](docs/images/game-of-life-garden.png) | ![Slime Mold](docs/images/slime-mold.png) |
-| **Game of Life Garden**: Conway's Game of Life grown as a neon garden at night, every live cell a glowing flower opening as it is born and every death leaving a fading coloured afterglow, every kick planting a burst of gliders and R-pentominoes | **Slime Mold**: a Physarum network spread across a dark dish, fat yellow-green veins and a fine cyan mesh linking golden food sources, every kick sending a peristaltic pulse bulging out through the tubes and growing new tendrils |
-| ![Hex Hive](docs/images/hex-hive.png) | ![Demoscene Plasma](docs/images/demoscene-plasma.png) |
-| **Hex Hive**: a vast glowing honeycomb brimming with amber, magenta and cyan nectar as bees of light dart over it, each kick sending a ripple of cells lighting outward | **Demoscene Plasma**: a 90s demo-scene homage done hi-fi: a sum-of-sines plasma under a rotozoomed checkerboard, swinging copper bars and a sine dot scroller, each kick punching the zoom and sliding the palette |
-| ![Impossible Geometry](docs/images/impossible-geometry.png) | ![Clockwork](docs/images/clockwork.png) |
-| **Impossible Geometry**: a neon Penrose triangle between two Escher cubes in an isometric void, light running round their edges, each kick snapping them round a twelfth of a turn | **Clockwork**: an exploded clock movement of brass and neon wheels meshing in parallax layers, a pendulum swinging over the escapement, each kick ticking the whole train on a tooth |
-| ![Op Art Waves](docs/images/op-art-waves.png) | ![Wireframe Planet](docs/images/wireframe-planet.png) |
-| **Op Art Waves**: Riley-style neon bands rippling over black round a Vasarely bulging sphere, each kick swelling the sphere and sending a ring wave through the bands | **Wireframe Planet**: a huge neon globe drawn in glowing grid lines and coastlines turning over a starfield, satellites trailing light round it and cities glittering on its night side, every kick sending a ring of light from pole to pole and spinning it on |
-| ![Neon Koi Pond](docs/images/neon-koi-pond.png) | ![Nebula Flythrough](docs/images/nebula-flythrough.png) |
-| **Neon Koi Pond**: looking down into a dark pond at night, glowing koi in orange, white, crimson and gold swimming sinuous paths beneath lily pads and lotus flowers, every kick dropping a spreading ripple and making the koi dart | **Nebula Flythrough**: flying through a star nursery of glowing magenta and teal gas, past dark dust pillars and young stars burning in their cocoons, every kick surging the camera forward and flaring the stars |
-| ![Laser Cathedral](docs/images/laser-cathedral.png) | ![Spectrum Mountains](docs/images/spectrum-mountains.png) |
-| **Laser Cathedral**: a dark gothic nave full of haze, sliced by sweeping coloured laser beams from a stage beneath a glowing rose window, every kick firing a scanning laser fan and swinging the beams on | **Spectrum Mountains**: the live spectrum as a neon waterfall landscape, every moment of the music a glowing ridge rising at the horizon and marching toward the viewer, every kick raising a shockwave across the ridges |
-| ![Ink Bloom](docs/images/ink-bloom.png) | ![Bass Tunnel](docs/images/bass-tunnel.png) |
-| **Ink Bloom**: neon inks billowing and curling through black water, a new drop blooming on every kick | **Bass Tunnel**: a dark tunnel of crisp neon petals and hoops that surges you forward with the bass |
-| ![Neon Orbit](docs/images/neon-orbit.png) | ![Aurora Sweep](docs/images/aurora-sweep.png) |
-| **Neon Orbit**: a swarm of neon comets streaking round a blazing core and its accretion disc, flung outward by every kick | **Aurora Sweep**: green, violet and red aurora curtains over black mountains, a ripple sweeping along them on every kick |
-| ![Ember Rain](docs/images/ember-rain.png) | ![Kaleido Spin](docs/images/kaleido-spin.png) |
-| **Ember Rain**: hot embers curling down through the dark onto a bed of glowing coals that throws up sparks on every kick | **Kaleido Spin**: a jewel-bright stained-glass kaleidoscope on black, its symmetry shifting, snapping round on every kick |
-| ![Liquid Chrome](docs/images/liquid-chrome.png) | ![Prism Drift](docs/images/prism-drift.png) |
-| **Liquid Chrome**: a black liquid-metal sea mirroring neon signs, kicks dropping splashes of chrome droplets | **Prism Drift**: white beams split by drifting glass prisms into vivid spectra in the dark |
-| ![Pulse Grid](docs/images/pulse-grid.png) | ![Starfield Warp](docs/images/starfield-warp.png) |
-| **Pulse Grid**: a dark wall of crisp neon grid, scanning pulses and square pulse rings racing out on the kicks | **Starfield Warp**: streaks of coloured stars and nebula wisps rushing past, every kick punching the warp |
-
-These are single frames; every preset moves and changes with the music.
-
 ## Requirements
 
 - Windows 10 or 11
@@ -298,3 +191,110 @@ The full format and language are specified in sections 4 and 5 of
 ## Licence
 
 MIT OR Apache-2.0, at your option. See `LICENSE-MIT` and `LICENSE-APACHE`.
+
+## Gallery
+
+| | |
+|---|---|
+| ![Infinite Coil](docs/images/infinite-coil.png) | ![Turing Reef](docs/images/turing-reef.png) |
+| **Infinite Coil**: an endless spiral zoom | **Turing Reef**: coral that grows and melts with the music |
+| ![Lumen Cathedral](docs/images/lumen-cathedral.png) | ![Ebru Tide](docs/images/ebru-tide.png) |
+| **Lumen Cathedral**: a rose window pouring out light | **Ebru Tide**: live paper marbling |
+| ![Tesseract Drift](docs/images/tesseract-drift.png) | ![Interstice](docs/images/interstice.png) |
+| **Tesseract Drift**: a 4D hypercube turning inside out | **Interstice**: an endless flight through gates between dimensions |
+| ![Event Horizon](docs/images/event-horizon.png) | ![Singing Sand](docs/images/singing-sand.png) |
+| **Event Horizon**: a black hole bends a nebula into an Einstein ring round its blazing disc | **Singing Sand**: luminous sand settling into the nodal lines of a ringing Chladni plate |
+| ![Silk Attractor](docs/images/silk-attractor.png) | ![Indra's Pearls](docs/images/indras-pearls.png) |
+| **Silk Attractor**: a Clifford strange attractor spun into iridescent silk | **Indra's Pearls**: jewelled circles nested in circles, sinking forever toward a limit point |
+| ![Harmonograph](docs/images/harmonograph.png) | ![Complex Poles](docs/images/complex-poles.png) |
+| **Harmonograph**: damped pendulums tracing glowing Lissajous spirals | **Complex Poles**: neon contours of a complex function whose zeros and poles wander |
+| ![Hyperbolic Tiling](docs/images/hyperbolic-tiling.png) | ![Spiral Galaxy](docs/images/spiral-galaxy.png) |
+| **Hyperbolic Tiling**: a glowing Poincare disc of tiles drifting toward the infinite rim | **Spiral Galaxy**: stars on turning ellipses crowding into density-wave arms |
+| ![Bubble Chamber](docs/images/bubble-chamber.png) | ![Fractal Reliquary](docs/images/fractal-reliquary.png) |
+| **Bubble Chamber**: particle tracks curling into spirals in a magnetic field | **Fractal Reliquary**: an orbiting flight through the carved halls of a breathing Mandelbox |
+| ![Cosmic Web](docs/images/cosmic-web.png) | ![Quantum Orbitals](docs/images/quantum-orbitals.png) |
+| **Cosmic Web**: a flight through glowing filaments of galaxies streaming into their clusters | **Quantum Orbitals**: glowing hydrogen electron clouds melting from one quantum state to the next |
+| ![Ferrofluid](docs/images/ferrofluid.png) | ![Cymatics](docs/images/cymatics.png) |
+| **Ferrofluid**: black magnetic fluid rising into a hexagonal forest of glossy spikes with the bass | **Cymatics**: ringing water focusing light into a caustic mandala of rings and petals |
+| ![Three Body Problem](docs/images/three-body.png) | ![Boreal Veil](docs/images/boreal-veil.png) |
+| **Three Body Problem**: three chaotic orbiting masses weaving luminous gravitational field lines | **Boreal Veil**: northern-lights curtains folding over a dark ridge and a mirror lake |
+| ![Plasma Globe](docs/images/plasma-globe.png) | ![Soap Film](docs/images/soap-film.png) |
+| **Plasma Globe**: branching violet lightning writhing from a hot electrode to the glass | **Soap Film**: rainbow interference bands swirling through a draining soap film |
+| ![Frost Bloom](docs/images/frost-bloom.png) | ![Vortex Street](docs/images/vortex-street.png) |
+| **Frost Bloom**: a glowing snowflake growing fern-like branches, then melting away to regrow | **Vortex Street**: glowing smoke wires winding into swirls shed by a pillar in the stream |
+| ![Apollonian Gasket](docs/images/apollonian-gasket.png) | ![Pulsar](docs/images/pulsar.png) |
+| **Apollonian Gasket**: an endless spiralling fall into circles packed inside circles | **Pulsar**: a spinning neutron star in looping field lines, its two beams sweeping slowly round |
+| ![Penrose Quasicrystal](docs/images/penrose-quasicrystal.png) | ![Solar Surface](docs/images/solar-surface.png) |
+| **Penrose Quasicrystal**: a never-repeating rhombus tiling in glowing gold, its tiles flipping as it drifts | **Solar Surface**: the sun's boiling granulation and sunspots, with plasma loops arching off the limb |
+| ![Lorenz Butterfly](docs/images/lorenz-butterfly.png) | ![Double Pendulum](docs/images/double-pendulum.png) |
+| **Lorenz Butterfly**: the Lorenz strange attractor traced as a glowing ribbon, its two wings turning slowly in 3D | **Double Pendulum**: three chaotic double pendulums started a hair apart, peeling away from each other in long neon trails |
+| ![Mandelbrot Dive](docs/images/mandelbrot-dive.png) | ![Gravitational Waves](docs/images/gravitational-waves.png) |
+| **Mandelbrot Dive**: an endless zoom onto a branch point of the Mandelbrot set, its feathered filaments glowing in neon | **Gravitational Waves**: two black holes spiral in and merge, the spacetime grid rippling outward in a two-armed spiral |
+| ![Kelvin-Helmholtz Clouds](docs/images/kelvin-helmholtz.png) | ![Hopf Fibration](docs/images/hopf-fibration.png) |
+| **Kelvin-Helmholtz Clouds**: a sunset cloud layer under a fast wind, its top rolling up into glowing breaking-wave curls | **Hopf Fibration**: the 3-sphere unwound into linked circles, nested tori of glowing fibres turning slowly in 4D |
+| ![Lindenmayer Garden](docs/images/lindenmayer-garden.png) | ![Double Slit](docs/images/double-slit.png) |
+| **Lindenmayer Garden**: L-system ferns, trees and seaweed growing branch by branch in neon, swaying, fading and regrowing as new species | **Double Slit**: Young's experiment: waves through two slits interfere in glowing fringes while a detector builds the pattern dot by dot |
+| ![Supernova Remnant](docs/images/supernova-remnant.png) | ![Knot Theory](docs/images/knot-theory.png) |
+| **Supernova Remnant**: a slowly expanding shell of tangled filaments in hydrogen red, oxygen teal and sulphur gold around a pulsing pulsar wind nebula | **Knot Theory**: glowing neon tubes tied in torus knots, trefoil to cinquefoil and beyond, morphing from one to the next as they turn |
+| ![Newton Fractal](docs/images/newton-fractal.png) | ![Wormhole](docs/images/wormhole.png) |
+| **Newton Fractal**: the basins of Newton's method as dark jewels, their fractal borders glowing in beaded lace around five wandering star-roots | **Wormhole**: a ray-traced Ellis wormhole lensing two universes' stars and nebulae, the camera drifting through its throat and back |
+| ![Ising Model](docs/images/ising-model.png) | ![Abelian Sandpile](docs/images/sandpile.png) |
+| **Ising Model**: a magnet at its critical point, dark spin domains of every size merging and melting behind glowing neon walls | **Abelian Sandpile**: grains poured on the centre topple outward into the sandpile fractal's octagon of nested triangles and patches, in four neon colours |
+| ![Saturn's Rings](docs/images/saturns-rings.png) | ![Fourier Epicycles](docs/images/fourier-epicycles.png) |
+| **Saturn's Rings**: a view across hundreds of glowing ringlets, the Cassini Division, density waves, drifting spokes and shepherd moons, beside the planet's dim crescent | **Fourier Epicycles**: a chain of ten spinning circles draws a glowing heart, star, rose or knot, the coefficients gliding from one figure to the next |
+| ![Double Helix](docs/images/double-helix.png) | ![Quantum Tunnel](docs/images/quantum-tunnel.png) |
+| **Double Helix**: a ray-marched strand of DNA turning and receding into blue fog, its cyan and violet backbones bridged by base pairs in four colours, among drifting motes and bokeh | **Quantum Tunnel**: exact Gaussian wave packets in four lanes hit potential barriers, part reflecting in rippling interference and part tunnelling through, phase as rainbow hue and probability as glow |
+| ![Kuramoto Fireflies](docs/images/kuramoto-fireflies.png) | ![Voronoi Crystals](docs/images/voronoi-crystals.png) |
+| **Kuramoto Fireflies**: hundreds of fireflies in a moonlit clearing, each nudging its rhythm toward its neighbours', so patches fall into step, drift apart and sync again, the total light held steady | **Voronoi Crystals**: a polycrystal recrystallising under a polarising microscope, new grains nucleating and growing into a Johnson-Mehl tessellation of glowing boundaries and iridescent striations, then coarsening |
+| ![Synthwave Drive](docs/images/synthwave-drive.png) | ![Mercury Metaballs](docs/images/mercury-metaballs.png) |
+| **Synthwave Drive**: a night drive down an endless neon grid toward a striped retro sun, past wireframe mountains and palm silhouettes | **Mercury Metaballs**: liquid chrome drops mirroring a neon studio, flung apart by every kick and flowing back together |
+| ![Lava Lamp](docs/images/lava-lamp.png) | ![Girih Lattice](docs/images/girih-lattice.png) |
+| **Lava Lamp**: a giant lava lamp, glowing wax rising, stretching, pinching off and sinking through deep violet as the bass heats the bulb | **Girih Lattice**: an Islamic star-and-polygon pattern in gold strapwork and turquoise inlay, its stars unfolding and refolding as light races along the bands |
+| ![Starling Murmuration](docs/images/starling-murmuration.png) | ![Hyperspace Jump](docs/images/hyperspace-jump.png) |
+| **Starling Murmuration**: thousands of starlings swirling in a shape-shifting cloud over a dusk reed bed, rippling round a striking hawk | **Hyperspace Jump**: stars stretch into streaks as the ship punches into a swirling blue-white tunnel of energy filaments, then drops out into a new star field and nebula |
+| ![Neural Storm](docs/images/neural-storm.png) | ![Mycelium](docs/images/mycelium.png) |
+| **Neural Storm**: layers of glowing neurons joined by arcing axons, sparks racing along them and firing cascades spreading from cell to cell | **Mycelium**: luminous cyan and violet fungal threads forking outward through dark soil, nutrient pulses racing along them as glowing fruiting bodies push up, then crumbling away to regrow |
+| ![Dyson Swarm](docs/images/dyson-swarm.png) | ![Abyssal Jellyfish](docs/images/abyssal-jellyfish.png) |
+| **Dyson Swarm**: thousands of collector panels in inclined rings round a blazing star, glinting gold and silhouetted on its face, beaming energy to a distant receiver | **Abyssal Jellyfish**: bioluminescent jellyfish pulsing up through the deep, every kick squeezing their glowing bells, among marine snow and beaded siphonophore chains |
+| ![Blazar Jet](docs/images/blazar-jet.png) | ![Fireworks Symphony](docs/images/fireworks-symphony.png) |
+| **Blazar Jet**: a black hole's relativistic jet beamed almost straight at you, wound by magnetic helices, as each kick fires a knot of plasma up it | **Fireworks Symphony**: peonies, golden willows, crossettes and ring shells bursting over a mirror-still lake, a shell launched on every kick |
+| ![Bioluminescent Surf](docs/images/bioluminescent-surf.png) | ![Circuit City](docs/images/circuit-city.png) |
+| **Bioluminescent Surf**: night waves breaking in electric-blue plankton glow, foam sheets sliding up the sand under the Milky Way, a wave breaking on each kick | **Circuit City**: a low flight over an endless circuit-board metropolis of LED-studded chip towers, data packets racing along the traces as kicks send pulse waves through the grid |
+| ![Crystal Geode](docs/images/crystal-geode.png) | ![Klein Bottle](docs/images/klein-bottle.png) |
+| **Crystal Geode**: inside a giant geode, a turning cluster of amethyst and quartz lit from within, rainbow fringes on its facets, as each kick sends a flare of light up through the crystals | **Klein Bottle**: a glowing glass Klein bottle turning in a violet void, its neck plunging back through its own side, iridescent bands flowing round its one surface and every kick racing a pulse through the self-intersection |
+| ![Möbius Ribbon](docs/images/mobius-ribbon.png) | ![Origami Polyhedra](docs/images/origami-polyhedra.png) |
+| **Möbius Ribbon**: a fat neon Möbius strip turning through deep space, chevrons of light chasing round its one side, every kick wrenching its twist and launching a fresh arrow of light round the loop | **Origami Polyhedra**: paper polyhedra under coloured theatre gels folding from icosahedron to dodecahedron to spiky stellated star and back, every kick snapping the next fold and flaring the creases |
+| ![Volcano Lightning](docs/images/volcano-lightning.png) | ![Galaxy Collision](docs/images/galaxy-collision.png) |
+| **Volcano Lightning**: a volcano erupting at night, lava fountains and glowing rivers under a towering ash plume, every kick hurling a burst of lava and forking lightning through the ash | **Galaxy Collision**: two spiral galaxies wheeling round each other in a slow merger, tidal tails flung wide and strung with pink and blue star-forming knots, every kick setting off starbursts in both cores and a ripple through the disks |
+| ![Lichtenberg Figures](docs/images/lichtenberg-figures.png) | ![Desert Milky Way](docs/images/desert-milky-way.png) |
+| **Lichtenberg Figures**: electric-blue and violet discharge trees branching across a dark acrylic block, each kick firing a fresh one that forks out from a new strike point | **Desert Milky Way**: the blazing core of the Milky Way rising over moonless dunes and a lone rock arch, airglow drifting along the horizon, a meteor streaking down on each kick |
+| ![Mandelbulb](docs/images/mandelbulb.png) | ![Julia Morph](docs/images/julia-morph.png) |
+| **Mandelbulb**: the ray-marched three-dimensional Mandelbrot set in glowing neon orbit-trap colours, the camera circling it and pushing in on each kick as its buds morph | **Julia Morph**: a Julia set melting from shape to shape as its parameter creeps round the Mandelbrot cardioid, neon rings on black, each kick jolting it on and sweeping a ring of light in to its glowing edge |
+| ![Truchet Maze](docs/images/truchet-maze.png) | ![Spirograph Engine](docs/images/spirograph-engine.png) |
+| **Truchet Maze**: a scrolling maze of neon quarter-arc tubes with pulses of light racing along them, each kick sending a wave of tiles spinning to rewire the paths | **Spirograph Engine**: four glowing pens on rolling gears tracing neon hypotrochoid and epitrochoid rosettes that build up loop by loop and fade, every kick racing the pens forward and flaring their tips into stars |
+| ![Topographic Map](docs/images/topographic-map.png) | ![Smoke Rings](docs/images/smoke-rings.png) |
+| **Topographic Map**: a slow flight over dark mountains drawn as glowing neon contour lines coloured by height, every kick raising a swell that rolls out through the land as the isolines crowd and flare | **Smoke Rings**: luminous vortex rings of gel-lit smoke puffed out of the dark toward the viewer, their tubes curling as they swell and fray into swirling wisps, every kick puffing a new ring and pushing the rest on |
+| ![Game of Life Garden](docs/images/game-of-life-garden.png) | ![Slime Mold](docs/images/slime-mold.png) |
+| **Game of Life Garden**: Conway's Game of Life grown as a neon garden at night, every live cell a glowing flower opening as it is born and every death leaving a fading coloured afterglow, every kick planting a burst of gliders and R-pentominoes | **Slime Mold**: a Physarum network spread across a dark dish, fat yellow-green veins and a fine cyan mesh linking golden food sources, every kick sending a peristaltic pulse bulging out through the tubes and growing new tendrils |
+| ![Hex Hive](docs/images/hex-hive.png) | ![Demoscene Plasma](docs/images/demoscene-plasma.png) |
+| **Hex Hive**: a vast glowing honeycomb brimming with amber, magenta and cyan nectar as bees of light dart over it, each kick sending a ripple of cells lighting outward | **Demoscene Plasma**: a 90s demo-scene homage done hi-fi: a sum-of-sines plasma under a rotozoomed checkerboard, swinging copper bars and a sine dot scroller, each kick punching the zoom and sliding the palette |
+| ![Impossible Geometry](docs/images/impossible-geometry.png) | ![Clockwork](docs/images/clockwork.png) |
+| **Impossible Geometry**: a neon Penrose triangle between two Escher cubes in an isometric void, light running round their edges, each kick snapping them round a twelfth of a turn | **Clockwork**: an exploded clock movement of brass and neon wheels meshing in parallax layers, a pendulum swinging over the escapement, each kick ticking the whole train on a tooth |
+| ![Op Art Waves](docs/images/op-art-waves.png) | ![Wireframe Planet](docs/images/wireframe-planet.png) |
+| **Op Art Waves**: Riley-style neon bands rippling over black round a Vasarely bulging sphere, each kick swelling the sphere and sending a ring wave through the bands | **Wireframe Planet**: a huge neon globe drawn in glowing grid lines and coastlines turning over a starfield, satellites trailing light round it and cities glittering on its night side, every kick sending a ring of light from pole to pole and spinning it on |
+| ![Neon Koi Pond](docs/images/neon-koi-pond.png) | ![Nebula Flythrough](docs/images/nebula-flythrough.png) |
+| **Neon Koi Pond**: looking down into a dark pond at night, glowing koi in orange, white, crimson and gold swimming sinuous paths beneath lily pads and lotus flowers, every kick dropping a spreading ripple and making the koi dart | **Nebula Flythrough**: flying through a star nursery of glowing magenta and teal gas, past dark dust pillars and young stars burning in their cocoons, every kick surging the camera forward and flaring the stars |
+| ![Laser Cathedral](docs/images/laser-cathedral.png) | ![Spectrum Mountains](docs/images/spectrum-mountains.png) |
+| **Laser Cathedral**: a dark gothic nave full of haze, sliced by sweeping coloured laser beams from a stage beneath a glowing rose window, every kick firing a scanning laser fan and swinging the beams on | **Spectrum Mountains**: the live spectrum as a neon waterfall landscape, every moment of the music a glowing ridge rising at the horizon and marching toward the viewer, every kick raising a shockwave across the ridges |
+| ![Ink Bloom](docs/images/ink-bloom.png) | ![Bass Tunnel](docs/images/bass-tunnel.png) |
+| **Ink Bloom**: neon inks billowing and curling through black water, a new drop blooming on every kick | **Bass Tunnel**: a dark tunnel of crisp neon petals and hoops that surges you forward with the bass |
+| ![Neon Orbit](docs/images/neon-orbit.png) | ![Aurora Sweep](docs/images/aurora-sweep.png) |
+| **Neon Orbit**: a swarm of neon comets streaking round a blazing core and its accretion disc, flung outward by every kick | **Aurora Sweep**: green, violet and red aurora curtains over black mountains, a ripple sweeping along them on every kick |
+| ![Ember Rain](docs/images/ember-rain.png) | ![Kaleido Spin](docs/images/kaleido-spin.png) |
+| **Ember Rain**: hot embers curling down through the dark onto a bed of glowing coals that throws up sparks on every kick | **Kaleido Spin**: a jewel-bright stained-glass kaleidoscope on black, its symmetry shifting, snapping round on every kick |
+| ![Liquid Chrome](docs/images/liquid-chrome.png) | ![Prism Drift](docs/images/prism-drift.png) |
+| **Liquid Chrome**: a black liquid-metal sea mirroring neon signs, kicks dropping splashes of chrome droplets | **Prism Drift**: white beams split by drifting glass prisms into vivid spectra in the dark |
+| ![Pulse Grid](docs/images/pulse-grid.png) | ![Starfield Warp](docs/images/starfield-warp.png) |
+| **Pulse Grid**: a dark wall of crisp neon grid, scanning pulses and square pulse rings racing out on the kicks | **Starfield Warp**: streaks of coloured stars and nebula wisps rushing past, every kick punching the warp |
+
+These are single frames; every preset moves and changes with the music.
