@@ -1,0 +1,237 @@
+# Spirograph Engine: four glowing pens tracing neon rosettes on black,
+# the toy's geared rings turning faintly behind them. A big hypotrochoid
+# (a gear rolling inside a ring) and an epitrochoid (one rolling round
+# the outside) overlap in the middle in magenta and cyan, and two small
+# rosettes, gold and lime, spin at the sides. Each pen leaves a trail
+# that lingers a few seconds and fades, so the figures build up loop by
+# loop into dense lace, and the gear ratios drift slowly, so the petals
+# open, multiply and close again.
+#
+# A pen on a gear of radius k rolling inside a ring of radius 1, held at
+# l k from the gear's centre, is at
+#   (1 - k) e^(i t) + l k e^(-i s),   s = (1 - k) / k t,
+# and outside it, (1 + k) e^(i t) - l k e^(i s) with s = (1 + k) / k t.
+# The frame code accumulates t and s separately for each pen (s by its
+# own rate times t's step), so a changing ratio bends the figure without
+# the pen ever jumping. The warp shader keeps the trails in the fp16
+# feedback buffer: each tick it fades them a little and draws each pen's
+# path since the last tick as ten short segments, keeping the brighter
+# of the old and the new ink. On the first tick it draws the last
+# second and a half of every path at once, already faded along it, so
+# the screen is never bare. The composite adds the ink, its glow, the
+# faint rings and rolling gears, and the pens' bright tips.
+#
+# Bass brightens the ink (smoothed). Each hit of the music is felt at
+# once, through pulses of the bass, mids and treble that rise in a tick
+# or two and die away over a fraction of a second (soft-limited, so a
+# bigger hit still means more): a kick throws every pen forward (its
+# angles are accumulated, so the pens race and settle), flares the pen
+# tips into four-pointed stars and lays down brighter ink; the mids turn
+# the gear ratios (accumulated) and shift the colours; the treble
+# sparkles along the trails.
+version = 1
+
+[meta]
+name = "Spirograph Engine"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+feedback_format = "fp16"
+decay = 1.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+b1n = 0.0
+b1x = 3.0
+b2n = 0.0
+b2x = 3.0
+b3n = 0.0
+b3x = 3.0
+
+[code]
+init = '''
+g = 0; hu = 0; fc = 0;
+t0 = 0; t1 = 1; t2 = 2; t3 = 3; s0 = 0; s1 = 0.5; s2 = 1; s3 = 1.5;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+st = st + (min(treb_att, 2.5) - st) * 0.1;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+es = es + (pb - es) * 0.01;
+// The gear ratios drift (accumulated), quicker with the mids.
+g = g + (0.05 + 0.6 * pm) / 60;
+g = g - 6.2831853 * 64 * floor(g / (6.2831853 * 64));
+k0 = 0.29 + 0.07 * sin(g);
+k1 = 0.27 + 0.07 * sin(g * 1.31 + 2);
+k2 = 0.37 + 0.09 * sin(g * 0.73 + 4);
+k3 = 0.23 + 0.06 * sin(g * 1.67 + 1);
+// The pens' step this tick: a kick throws them all forward.
+d = min(0.06 + 0.9 * pb, 1.4);
+d0 = d; d1 = d * 0.83; d2 = d * 1.21; d3 = d * 1.09;
+e0 = d0 * (1 - k0) / k0; e1 = d1 * (1 + k1) / k1;
+e2 = d2 * (1 - k2) / k2; e3 = d3 * (1 + k3) / k3;
+t0 = t0 + d0; t0 = t0 - 6.2831853 * floor(t0 / 6.2831853);
+t1 = t1 + d1; t1 = t1 - 6.2831853 * floor(t1 / 6.2831853);
+t2 = t2 + d2; t2 = t2 - 6.2831853 * floor(t2 / 6.2831853);
+t3 = t3 + d3; t3 = t3 - 6.2831853 * floor(t3 / 6.2831853);
+s0 = s0 + e0; s0 = s0 - 6.2831853 * floor(s0 / 6.2831853);
+s1 = s1 + e1; s1 = s1 - 6.2831853 * floor(s1 / 6.2831853);
+s2 = s2 + e2; s2 = s2 - 6.2831853 * floor(s2 / 6.2831853);
+s3 = s3 + e3; s3 = s3 - 6.2831853 * floor(s3 / 6.2831853);
+// The colours drift (accumulated, quicker with the mids).
+hu = hu + (0.006 + 0.05 * pm) / 60;
+hu = hu - floor(hu);
+fc = min(fc + 1, 10);
+q1 = t0; q2 = s0; q3 = d0; q4 = e0;
+q5 = t1; q6 = s1; q7 = d1; q8 = e1;
+q9 = t2; q10 = s2; q11 = d2; q12 = e2;
+q13 = t3; q14 = s3; q15 = d3; q16 = e3;
+q17 = k0; q18 = k1; q19 = k2; q20 = k3;
+q21 = hu; q22 = pb; q23 = pm; q24 = pt;
+q25 = st; q26 = sb; q27 = fc < 2; q28 = es;
+'''
+
+[shader]
+warp = '''
+let sz = u.texsize.xy;
+let asp = sz.x / sz.y;
+// The plane: 2 units down the screen, y up.
+let p = vec2f((uv_orig.x - 0.5) * asp, 0.5 - uv_orig.y) * 2.0;
+let px = 2.0 / sz.y;
+let lw = max(1.0, sz.y / 540.0);
+let mx = vec2i(sz) - vec2i(1);
+let prev = textureLoad(sampler_main, clamp(vec2i(uv_orig * sz), vec2i(0), mx), 0).rgb;
+let hu = u.q[5].x;
+let pb = u.q[5].y;
+let sb = min(u.q[6].y, 2.0) * 0.5;
+let first = u.q[6].z > 0.5;
+// The first tick draws the last 90 ticks of every path at once.
+let n = select(10, 360, first);
+let span = select(1.0, 90.0, first);
+var nw = vec3f(0.0);
+for (var i = 0; i < 4; i++) {
+    let pa = u.q[i];
+    let k = u.q[4][i];
+    let epi = (i & 1) == 1;
+    let sg = select(1.0, -1.0, epi);
+    let ll = select(select(0.8, 0.9, epi), select(0.85, 0.75, epi), i >= 2);
+    let cx = select(select(-1.22, 1.22, i == 3), 0.0, i < 2);
+    let cy = select(0.0, -0.05, i >= 2);
+    let scl0 = select(select(0.94, 0.58, epi), 0.44, i >= 2);
+    let rr = 1.0 + sg * k;
+    let scl = scl0 / (rr + ll * k);
+    let q = (p - vec2f(cx, cy)) / scl;
+    // Skip pixels outside this pen's reach.
+    if (length(q) > rr + ll * k + 6.0 * lw * px / scl) {
+        continue;
+    }
+    var best = 0.0;
+    var bs = 0.0;
+    var a = vec2f(0.0);
+    for (var j = 0; j <= n; j++) {
+        let f = span * (1.0 - f32(j) / f32(n));
+        let t = pa.x - pa.z * f;
+        let s = pa.y - pa.w * f;
+        let z = rr * vec2f(cos(t), sin(t)) + ll * k * vec2f(cos(s), -sg * sin(s)) * sg;
+        if (j > 0) {
+            let ab = z - a;
+            let h = clamp(dot(q - a, ab) / max(dot(ab, ab), 1e-12), 0.0, 1.0);
+            let dd = length(q - a - ab * h) * scl / px;
+            let age = (1.0 - (f32(j) - 1.0 + h) / f32(n)) * span;
+            let v = exp(-dd * dd / (2.2 * lw * lw)) * select(1.0, pow(0.985, age), first);
+            if (v > best) {
+                best = v;
+                bs = s;
+            }
+        }
+        a = z;
+    }
+    // Each pen's ink, its colour shimmering with the gear's turn.
+    let hh = 6.2831853 * (hu + f32(i) * 0.27) + 0.5 * sin(bs);
+    let ink = 0.5 + 0.5 * vec3f(cos(hh), cos(hh - 2.094), cos(hh + 2.094));
+    nw = max(nw, (ink * ink * 1.5 + vec3f(0.12)) * best);
+}
+nw *= 1.0 + 0.3 * sb + 0.7 * min(pb, 1.5);
+return max(prev * 0.988, nw);
+'''
+comp = '''
+let sz = u.texsize.xy;
+let asp = sz.x / sz.y;
+let p = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y) * 2.0;
+let px = 2.0 / sz.y;
+let lw = max(1.0, sz.y / 540.0);
+let hu = u.q[5].x;
+let pb = u.q[5].y;
+let be = min(pb, 1.5);
+let pm = u.q[5].z;
+let pt = min(u.q[5].w, 1.5);
+let st = max(0.0, min(u.q[6].x, 2.5) - 0.3);
+let sb = min(u.q[6].y, 2.0) * 0.5;
+let es = u.q[6].w;
+let tr = textureSampleLevel(sampler_main, s_fc, uv, 0.0).rgb;
+let b1 = GetBlur1(uv);
+let b2 = GetBlur2(uv);
+let b3 = GetBlur3(uv);
+// The backdrop: near black with a deep violet heart.
+let r = length(p);
+var col = vec3f(0.012, 0.008, 0.03) + vec3f(0.05, 0.02, 0.1) * exp(-r * r * 0.8) * (0.7 + 0.3 * sb);
+col += (vec3f(1.0) - exp(-b3 * 2.5)) * 0.45;
+col += (vec3f(1.0) - exp(-b2 * 1.5)) * (0.4 + 0.15 * es);
+col += (vec3f(1.0) - exp(-b1 * 1.2)) * 0.3;
+// The machine: each pen's fixed ring, its rolling gear and the arm to
+// the pen, faint; then the pen's tip.
+var tips = vec3f(0.0);
+for (var i = 0; i < 4; i++) {
+    let pa = u.q[i];
+    let k = u.q[4][i];
+    let epi = (i & 1) == 1;
+    let sg = select(1.0, -1.0, epi);
+    let ll = select(select(0.8, 0.9, epi), select(0.85, 0.75, epi), i >= 2);
+    let cx = select(select(-1.22, 1.22, i == 3), 0.0, i < 2);
+    let cy = select(0.0, -0.05, i >= 2);
+    let scl0 = select(select(0.94, 0.58, epi), 0.44, i >= 2);
+    let rr = 1.0 + sg * k;
+    let scl = scl0 / (rr + ll * k);
+    let c0 = vec2f(cx, cy);
+    let hh = 6.2831853 * (hu + f32(i) * 0.27);
+    let pc = 0.5 + 0.5 * vec3f(cos(hh), cos(hh - 2.094), cos(hh + 2.094));
+    let gc = c0 + rr * scl * vec2f(cos(pa.x), sin(pa.x));
+    let tip = gc + ll * k * scl * sg * vec2f(cos(pa.y), -sg * sin(pa.y));
+    let dRing = abs(length(p - c0) - scl) / px;
+    let dGear = abs(length(p - gc) - k * scl) / px;
+    let ab = tip - gc;
+    let h = clamp(dot(p - gc, ab) / max(dot(ab, ab), 1e-12), 0.0, 1.0);
+    let dArm = length(p - gc - ab * h) / px;
+    let mach = exp(-dRing * dRing / (0.8 * lw * lw)) * 0.5 + exp(-dGear * dGear / (0.8 * lw * lw)) + exp(-dArm * dArm / (0.6 * lw * lw)) * 0.6;
+    col += mix(vec3f(0.35, 0.4, 0.8), pc, 0.5) * mach * (0.14 + 0.1 * be);
+    // The tip: a white-hot core, a halo in the pen's colour and, on a
+    // kick, a four-pointed star (sized on the plane, not in pixels).
+    let dv = p - tip;
+    let dp = length(dv) / px;
+    let dl = length(dv);
+    let star = exp(-abs(dv.x) / (0.006 + 0.03 * be)) * exp(-dv.y * dv.y / 0.00004) + exp(-abs(dv.y) / (0.006 + 0.03 * be)) * exp(-dv.x * dv.x / 0.00004);
+    tips += vec3f(1.0) * exp(-dp * dp / (5.0 * lw * lw)) * 1.6;
+    tips += mix(pc, vec3f(1.0), 0.35) * (exp(-dl / (0.02 + 0.03 * be)) * (0.35 + 0.9 * be) + star * 0.8 * be);
+}
+col += tips;
+// The ink, sparkling with the treble.
+let il = dot(tr, vec3f(0.3, 0.5, 0.2));
+let cell = floor(uv * sz / (2.0 * lw));
+let tq = floor(u.time * 15.0);
+let hs = fract(sin(dot(cell + vec2f(tq * 7.13, tq * 3.71), vec2f(12.9898, 78.233))) * 43758.5453);
+let spark = step(1.0 - 0.05 * (0.4 * min(st, 1.0) + pt), hs) * smoothstep(0.08, 0.4, il);
+col = col * (1.0 - 0.5 * min(tr, vec3f(1.0))) + (vec3f(1.0) - exp(-tr * 1.3)) * (1.0 + 0.25 * be);
+// Fewer, fainter sparkles in a tiny frame, where each is a big share.
+col += vec3f(1.0, 0.95, 1.0) * spark * (0.4 + 1.2 * pt) * clamp(sz.y / 540.0, 0.15, 1.0);
+let lc = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lc) + (col - vec3f(lc)) * 1.25, vec3f(0.0));
+return col / (1.0 + 0.3 * col);
+'''

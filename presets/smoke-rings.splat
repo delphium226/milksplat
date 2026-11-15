@@ -1,0 +1,227 @@
+# Smoke Rings: luminous vortex rings of smoke puffed out of the dark
+# toward the viewer, lit by coloured theatre gels. Each ring starts small
+# and far off, a fat curling torus of magenta, cyan, amber, violet or
+# lime smoke, tilted a little and wobbling, and swells as it comes on,
+# its tube rolling round itself, ragged with turbulence, until it frays
+# into wisps and drifts apart just before it reaches the camera. The
+# wisps it sheds linger, swirl and slowly fade, and two gel spotlights
+# rake down through the haze from the top corners.
+#
+# The frame code runs five rings (spawn, flight, dissipation), each a
+# torus at a depth that closes on the camera, its radius growing as it
+# goes, and hands the shaders each ring's place and size on the screen
+# and a seed (its tilt and colour) with its opacity. The composite draws
+# each ring as an ellipse, the tilted torus seen in perspective: the
+# smoke density across the tube is a Gaussian, ragged by two octaves of
+# noise wrapped round the ring and rolling across the tube (the vortex
+# turning), and fraying further as the ring dissipates, with a brighter
+# core. The warp shader keeps the wisps in the feedback buffer: each tick
+# it lays a faint copy of each ring into it, then lets everything drift
+# outward, swirl in a noise flow and fade.
+#
+# Bass thickens the haze (smoothed). Each hit of the music is felt at
+# once, through pulses of the bass, mids and treble that rise in a tick
+# or two and die away over a fraction of a second (soft-limited, so a
+# bigger hit still means more): a kick puffs a new ring (a bigger one for
+# a bigger hit; one comes every few seconds even in silence), pushes all
+# the rings on toward the camera, churns their tubes and makes the smoke
+# glow up; the mids
+# twist the smoke, rolling the rings' tubes faster and swirling the
+# wisps; the treble lights glints in the smoke.
+version = 1
+
+[meta]
+name = "Smoke Rings"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+feedback_format = "fp16"
+decay = 1.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+b1n = 0.0
+b1x = 3.0
+b2n = 0.0
+b2x = 3.0
+
+[code]
+init = '''
+rl = 0; sw = 0; hu = 0; sl = 0; cd = 200;
+z1 = 0; z2 = 0; z3 = 0; z4 = 0; z5 = 0;
+// Two rings already in flight, so the screen is never bare.
+z1 = 2.2; x1 = -0.12; y1 = 0.05; r1 = 0.36; g1 = 200; s1 = 17;
+z2 = 3.8; x2 = 0.15; y2 = -0.04; r2 = 0.31; g2 = 60; s2 = 431;
+sl = 2;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+st = st + (min(treb_att, 2.5) - st) * 0.1;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+ob = pb;
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+// A fresh kick puffs a ring, in the first of five slots that is free
+// (one whose ring has gone), and one comes every two seconds anyway.
+kk = max(pb - ob, 0);
+cd = cd + 1;
+fs = if(z1 < 0.8, 0, if(z2 < 0.8, 1, if(z3 < 0.8, 2, if(z4 < 0.8, 3, if(z5 < 0.8, 4, -1)))));
+if(((kk > 0.08 && cd > 20) || cd > 110) && fs >= 0,
+  cd = 0; sl = fs;
+  nx = (rand(1000) / 1000 - 0.5) * 1.3; ny = (rand(1000) / 1000 - 0.5) * 0.6;
+  nr = 0.27 + 0.08 * min(pb, 1.5) + 0.04 * rand(1000) / 1000; ns = floor(rand(997));
+  if(sl == 0, z1 = 3.4; x1 = nx; y1 = ny; r1 = nr; g1 = 0; s1 = ns, 0);
+  if(sl == 1, z2 = 3.4; x2 = nx; y2 = ny; r2 = nr; g2 = 0; s2 = ns, 0);
+  if(sl == 2, z3 = 3.4; x3 = nx; y3 = ny; r3 = nr; g3 = 0; s3 = ns, 0);
+  if(sl == 3, z4 = 3.4; x4 = nx; y4 = ny; r4 = nr; g4 = 0; s4 = ns, 0);
+  if(sl == 4, z5 = 3.4; x5 = nx; y5 = ny; r5 = nr; g5 = 0; s5 = ns, 0),
+  0);
+// The flight: every ring closes on the camera, a kick pushing them on,
+// and swells as it goes.
+dz = 0.007 + 0.035 * pb;
+z1 = max(z1 - dz, 0); z2 = max(z2 - dz, 0); z3 = max(z3 - dz, 0); z4 = max(z4 - dz, 0); z5 = max(z5 - dz, 0);
+r1 = r1 + 0.0008; r2 = r2 + 0.0008; r3 = r3 + 0.0008; r4 = r4 + 0.0008; r5 = r5 + 0.0008;
+g1 = g1 + 1; g2 = g2 + 1; g3 = g3 + 1; g4 = g4 + 1; g5 = g5 + 1;
+// Opacity: in over a tenth of a second, slowly dissipating, gone as it
+// reaches the camera.
+a1 = min(g1 / 6, 1) * min(max((z1 - 0.8) / 0.9, 0), 1) * exp(-g1 / 500);
+a2 = min(g2 / 6, 1) * min(max((z2 - 0.8) / 0.9, 0), 1) * exp(-g2 / 500);
+a3 = min(g3 / 6, 1) * min(max((z3 - 0.8) / 0.9, 0), 1) * exp(-g3 / 500);
+a4 = min(g4 / 6, 1) * min(max((z4 - 0.8) / 0.9, 0), 1) * exp(-g4 / 500);
+a5 = min(g5 / 6, 1) * min(max((z5 - 0.8) / 0.9, 0), 1) * exp(-g5 / 500);
+// The tubes roll and the wisps swirl (accumulated), quicker with the mids.
+rl = rl + (0.004 + 0.03 * pm + 0.035 * pb);
+rl = rl - 64 * floor(rl / 64);
+sw = sw + (0.002 + 0.012 * pm);
+sw = sw - 6.2831853 * floor(sw / 6.2831853);
+q1 = x1 / max(z1, 0.1); q2 = y1 / max(z1, 0.1); q3 = r1 / max(z1, 0.1); q4 = s1 + 0.99 * a1;
+q5 = x2 / max(z2, 0.1); q6 = y2 / max(z2, 0.1); q7 = r2 / max(z2, 0.1); q8 = s2 + 0.99 * a2;
+q9 = x3 / max(z3, 0.1); q10 = y3 / max(z3, 0.1); q11 = r3 / max(z3, 0.1); q12 = s3 + 0.99 * a3;
+q13 = x4 / max(z4, 0.1); q14 = y4 / max(z4, 0.1); q15 = r4 / max(z4, 0.1); q16 = s4 + 0.99 * a4;
+q17 = x5 / max(z5, 0.1); q18 = y5 / max(z5, 0.1); q19 = r5 / max(z5, 0.1); q20 = s5 + 0.99 * a5;
+q21 = pb; q22 = pm; q23 = pt; q24 = sb;
+q25 = rl; q26 = 0.0015 + 0.008 * pm; q27 = st; q28 = sw;
+'''
+
+[shader]
+warp = '''
+let sz = u.texsize.xy;
+let asp = sz.x / sz.y;
+let rl = u.q[6].x;
+let tw = u.q[6].y;
+// Drift outward from the middle, twist and swirl in a slow noise flow.
+let c = uv_orig - vec2f(0.5);
+let ct = cos(tw);
+let stw = sin(tw);
+var src = vec2f(c.x * ct - c.y * stw, c.x * stw + c.y * ct) * 0.994;
+let nf = textureSampleLevel(sampler_noise_mq, s_fw, uv_orig * vec2f(asp, 1.0) * 0.7 + vec2f(rl * 0.01, -rl * 0.007), 0.0).rg - vec2f(0.5);
+src += nf * 0.004;
+let prev = textureSampleLevel(sampler_main, s_fc, src + vec2f(0.5), 0.0).rgb;
+// A faint copy of each ring, laid into the wisps.
+let p = vec2f(c.x * asp, -c.y);
+var inj = vec3f(0.0);
+for (var i = 0; i < 5; i++) {
+    let rq = u.q[i];
+    let sd = floor(rq.w);
+    let al = fract(rq.w) / 0.99;
+    if (al < 0.01) {
+        continue;
+    }
+    let ph = sd * 2.39996;
+    let th = 0.3 + 0.35 * fract(sd * 0.618034);
+    let d = p - rq.xy;
+    var qa = vec2f(d.x * cos(ph) + d.y * sin(ph), -d.x * sin(ph) + d.y * cos(ph));
+    qa.y /= cos(th);
+    let rr = (length(qa) - rq.z) / (rq.z * 0.24);
+    let gi = sd - 5.0 * floor(sd / 5.0);
+    let gel = select(select(select(select(vec3f(0.5, 1.0, 0.2), vec3f(0.6, 0.2, 1.0), gi < 3.5), vec3f(1.0, 0.5, 0.08), gi < 2.5), vec3f(0.1, 0.8, 1.0), gi < 1.5), vec3f(1.0, 0.12, 0.55), gi < 0.5);
+    inj += gel * exp(-rr * rr) * al;
+}
+return prev * 0.965 + inj * (0.022 + 0.025 * min(u.q[5].x, 1.5));
+'''
+comp = '''
+let sz = u.texsize.xy;
+let asp = sz.x / sz.y;
+let pb = u.q[5].x;
+let be = min(pb, 1.5);
+let pm = u.q[5].y;
+let pt = min(u.q[5].z, 1.5);
+let sb = min(u.q[5].w, 2.0) * 0.5;
+let rl = u.q[6].x;
+let st = max(0.0, min(u.q[6].z, 2.5) - 0.3);
+let swl = u.q[6].w;
+let lw = max(1.0, sz.y / 540.0);
+let p = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
+// The dark stage, and two gel spotlights raking down through the haze.
+let hz = textureSampleLevel(sampler_noise_mq, s_fw, p * 0.6 + vec2f(rl * 0.004, rl * 0.002), 0.0).r;
+var col = vec3f(0.012, 0.01, 0.028) + vec3f(0.03, 0.015, 0.05) * exp(-dot(p, p) * 2.0);
+let l1 = p - vec2f(-0.95, 0.62);
+let l2 = p - vec2f(0.95, 0.62);
+let b1d = abs(atan2(l1.x, -l1.y) - 0.75);
+let b2d = abs(atan2(l2.x, -l2.y) + 0.75);
+let haze = (0.5 + 0.9 * hz) * (0.8 + 0.5 * sb);
+col += vec3f(1.0, 0.2, 0.6) * exp(-b1d * b1d / 0.02) * exp(-length(l1) * 0.8) * 0.22 * haze;
+col += vec3f(0.15, 0.6, 1.0) * exp(-b2d * b2d / 0.02) * exp(-length(l2) * 0.8) * 0.22 * haze;
+// The wisps in the feedback buffer, and their glow.
+let wsp = textureSampleLevel(sampler_main, s_fc, uv, 0.0).rgb;
+let bl = GetBlur2(uv);
+col += (vec3f(1.0) - exp(-wsp * 1.6)) * (0.8 + 0.15 * be) + (vec3f(1.0) - exp(-bl * 1.5)) * 0.35;
+// The rings.
+let cell = floor(uv * sz / (2.0 * lw));
+let tq = floor(u.time * 14.0);
+let hs = fract(sin(dot(cell + vec2f(tq * 5.13, tq * 2.71), vec2f(12.9898, 78.233))) * 43758.5453);
+let gsc = smoothstep(100.0, 300.0, sz.y);
+for (var i = 0; i < 5; i++) {
+    let rq = u.q[i];
+    let sd = floor(rq.w);
+    let al = fract(rq.w) / 0.99;
+    if (al < 0.01) {
+        continue;
+    }
+    let ph = sd * 2.39996 + 0.15 * sin(rl * 0.7 + sd);
+    let th = 0.3 + 0.35 * fract(sd * 0.618034) + 0.08 * sin(rl * 0.5 + sd * 1.3);
+    let d = p - rq.xy;
+    let cp = cos(ph);
+    let sp = sin(ph);
+    var qa = vec2f(d.x * cp + d.y * sp, -d.x * sp + d.y * cp);
+    qa.y /= cos(th);
+    let tk = rq.z * 0.15;
+    let rr = (length(qa) - rq.z) / tk;
+    if (abs(rr) > 4.5) {
+        continue;
+    }
+    let an = atan2(qa.y, qa.x);
+    // Smoke: two octaves of noise wrapped round the ring, rolling across
+    // the tube (the vortex turning), fraying as the ring dissipates.
+    let n1 = textureSampleLevel(sampler_noise_mq, s_fw, vec2f(an / 6.2831853 + sd * 0.137, rr * 0.06 - rl * 0.05 + sd * 0.071), 0.0).r;
+    let n2 = textureSampleLevel(sampler_noise_mq, s_fw, vec2f(an / 6.2831853 * 4.0 + sd * 0.311, rr * 0.1 - rl * 0.11 + sd * 0.23), 0.0).r;
+    let tb = n1 * 0.6 + n2 * 0.4;
+    let rp = rr + (tb - 0.5) * (1.0 + 2.5 * (1.0 - al));
+    // A round tube: thickest through its middle, lit from above and
+    // brighter on its rim, streaked along its length by the finer noise.
+    let tube = sqrt(max(1.0 - rp * rp / 6.0, 0.0));
+    let dens = exp(-rp * rp * 0.55) * (0.3 + 1.1 * tb) * (0.55 + 0.6 * tube) * al;
+    let core = exp(-rp * rp * 2.0) * (0.5 + n2) * al;
+    // The near half of the tilted tube is lit a little more.
+    let sh = 0.8 + 0.35 * sin(an) * sin(th);
+    let gi = sd - 5.0 * floor(sd / 5.0);
+    let gel = select(select(select(select(vec3f(0.5, 1.0, 0.2), vec3f(0.6, 0.2, 1.0), gi < 3.5), vec3f(1.0, 0.5, 0.08), gi < 2.5), vec3f(0.1, 0.8, 1.0), gi < 1.5), vec3f(1.0, 0.12, 0.55), gi < 0.5);
+    // Lit also by the spotlights, magenta from the left, blue from the right.
+    let side = clamp(p.x * 0.6 + 0.5, 0.0, 1.0);
+    let lit = gel + mix(vec3f(0.35, 0.05, 0.2), vec3f(0.05, 0.2, 0.4), side);
+    // A kick glows the small far rings most: a near one fills the frame.
+    let kg = be / (1.0 + 5.0 * rq.z);
+    col = col * (1.0 - 0.45 * min(dens, 1.0)) + lit * dens * sh * (0.7 + 1.2 * kg) + mix(lit, vec3f(1.0), 0.5) * core * 0.3 * (1.0 + 2.5 * kg);
+    // Treble glints in the thick of the smoke.
+    col += vec3f(1.0, 0.95, 0.9) * step(1.0 - 0.025 * (0.3 * min(st, 1.0) + pt), hs) * smoothstep(0.3, 0.8, dens) * (0.5 + 1.2 * pt) * gsc;
+}
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.2, vec3f(0.0));
+return col / (1.0 + 0.35 * col);
+'''

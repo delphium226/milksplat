@@ -83,8 +83,12 @@ device, so just start your music and run it.
 | **Lichtenberg Figures**: electric-blue and violet discharge trees branching across a dark acrylic block, each kick firing a fresh one that forks out from a new strike point | **Desert Milky Way**: the blazing core of the Milky Way rising over moonless dunes and a lone rock arch, airglow drifting along the horizon, a meteor streaking down on each kick |
 | ![Mandelbulb](docs/images/mandelbulb.png) | ![Julia Morph](docs/images/julia-morph.png) |
 | **Mandelbulb**: the ray-marched three-dimensional Mandelbrot set in glowing neon orbit-trap colours, the camera circling it and pushing in on each kick as its buds morph | **Julia Morph**: a Julia set melting from shape to shape as its parameter creeps round the Mandelbrot cardioid, neon rings on black, each kick jolting it on and sweeping a ring of light in to its glowing edge |
-| ![Truchet Maze](docs/images/truchet-maze.png) | |
-| **Truchet Maze**: a scrolling maze of neon quarter-arc tubes with pulses of light racing along them, each kick sending a wave of tiles spinning to rewire the paths | |
+| ![Truchet Maze](docs/images/truchet-maze.png) | ![Spirograph Engine](docs/images/spirograph-engine.png) |
+| **Truchet Maze**: a scrolling maze of neon quarter-arc tubes with pulses of light racing along them, each kick sending a wave of tiles spinning to rewire the paths | **Spirograph Engine**: four glowing pens on rolling gears tracing neon hypotrochoid and epitrochoid rosettes that build up loop by loop and fade, every kick racing the pens forward and flaring their tips into stars |
+| ![Topographic Map](docs/images/topographic-map.png) | ![Smoke Rings](docs/images/smoke-rings.png) |
+| **Topographic Map**: a slow flight over dark mountains drawn as glowing neon contour lines coloured by height, every kick raising a swell that rolls out through the land as the isolines crowd and flare | **Smoke Rings**: luminous vortex rings of gel-lit smoke puffed out of the dark toward the viewer, their tubes curling as they swell and fray into swirling wisps, every kick puffing a new ring and pushing the rest on |
+| ![Game of Life Garden](docs/images/game-of-life-garden.png) | ![Slime Mold](docs/images/slime-mold.png) |
+| **Game of Life Garden**: Conway's Game of Life grown as a neon garden at night, every live cell a glowing flower opening as it is born and every death leaving a fading coloured afterglow, every kick planting a burst of gliders and R-pentominoes | **Slime Mold**: a Physarum network spread across a dark dish, fat yellow-green veins and a fine cyan mesh linking golden food sources, every kick sending a peristaltic pulse bulging out through the tubes and growing new tendrils |
 
 These are single frames; every preset moves and changes with the music.
 

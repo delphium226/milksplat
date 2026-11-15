@@ -1,0 +1,232 @@
+# Topographic Map: a slow flight over dark, unknown mountains drawn as a
+# glowing survey map. The terrain is all contour lines, neon isolines
+# that bunch on the steep slopes and open out across the valleys,
+# coloured by height from deep violet lowlands through cyan and green to
+# hot gold and rose summits, with every fifth line a brighter, thicker
+# index contour. Beneath them the land is faintly hill-shaded, so the
+# ridges stand out, and it fades into a violet haze toward the horizon.
+#
+# Everything is in the composite. The height is a few octaves of
+# rotated value noise, stretched so the peaks are sharp and the valleys
+# broad. The camera looks down at the land at about 45 degrees, and
+# each ray finds the terrain by four rounds of parallax refinement (the
+# ground point under the ray at the last height found), so the hills
+# really rise toward the viewer and slide over each other as it flies.
+# Two more samples give the slope, for the hill-shading. The contours
+# are the height times a spacing, drawn a constant width in pixels from
+# the screen-space change of that value, and fading with distance.
+#
+# The frame code flies the camera (position and heading accumulated)
+# and runs the swells. Bass lifts the hill-shading (smoothed). Each hit
+# of the music is felt at once, through pulses of the bass, mids and
+# treble that rise in a tick or two and die away over a fraction of a
+# second (soft-limited, so a bigger hit still means more): a kick raises
+# a swell in the land below the camera that rolls outward as a ring (up
+# to three at once), the contours crowding and glowing as it passes,
+# surges the flight forward and brightens every contour; the mids widen
+# the contour spacing and turn the colours (accumulated); the treble
+# glints along the index contours.
+version = 1
+
+[meta]
+name = "Topographic Map"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+fx = 3.1; fy = 1.7; fa = 0.4; hu = 0.0;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+st = st + (min(treb_att, 2.5) - st) * 0.1;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+ob = pb;
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+es = es + (pb - es) * 0.01;
+// The flight: the heading turns once in about four minutes, and a kick
+// surges the camera forward (both accumulated).
+fa = fa + 6.2831853 / 240 / 60;
+fa = fa - 6.2831853 * floor(fa / 6.2831853);
+sp = 0.004 + 0.01 * pb;
+fx = fx + cos(fa) * sp;
+fy = fy + sin(fa) * sp;
+// A fresh kick raises a swell in the land below the camera, in the next
+// of three slots; each rolls outward and fades.
+kk = max(pb - ob, 0);
+cd = cd + 1;
+if(kk > 0.12 && cd > 8,
+  cd = 0; sl = (sl + 1) % 3;
+  if(sl == 0, c1x = fx + cos(fa) * 1.5; c1y = fy + sin(fa) * 1.5; r1 = 0; a1 = min(pb, 1.5), 0);
+  if(sl == 1, c2x = fx + cos(fa) * 1.5; c2y = fy + sin(fa) * 1.5; r2 = 0; a2 = min(pb, 1.5), 0);
+  if(sl == 2, c3x = fx + cos(fa) * 1.5; c3y = fy + sin(fa) * 1.5; r3 = 0; a3 = min(pb, 1.5), 0),
+  0);
+r1 = min(r1 + 0.04, 8); r2 = min(r2 + 0.04, 8); r3 = min(r3 + 0.04, 8);
+a1 = a1 * 0.97; a2 = a2 * 0.97; a3 = a3 * 0.97;
+// The colours turn (accumulated, quicker with the mids).
+hu = hu + (0.004 + 0.06 * pm) / 60;
+hu = hu - floor(hu);
+q1 = fx; q2 = fy; q3 = fa; q4 = hu;
+q5 = pb; q6 = pm; q7 = pt; q8 = sb;
+q9 = c1x; q10 = c1y; q11 = r1; q12 = a1;
+q13 = c2x; q14 = c2y; q15 = r2; q16 = a2;
+q17 = c3x; q18 = c3y; q19 = r3; q20 = a3;
+q21 = 13 * (1 + 0.3 * pm); q22 = st; q23 = es;
+'''
+
+[shader]
+comp = '''
+let sz = u.texsize.xy;
+let asp = sz.x / sz.y;
+let fa = u.q[0].z;
+let hu = u.q[0].w;
+let pb = u.q[1].x;
+let be = min(pb, 1.5);
+let pm = u.q[1].y;
+let pt = min(u.q[1].z, 1.5);
+let sb = min(u.q[1].w, 2.0) * 0.5;
+let nc = u.q[5].x;
+let st = max(0.0, min(u.q[5].y, 2.5) - 0.3);
+let es = u.q[5].z;
+let lw = max(1.0, sz.y / 540.0);
+// The camera: 1.5 above the land, looking ahead and 45 degrees down.
+let fwd = vec3f(cos(fa), 0.0, sin(fa));
+let rt = vec3f(-sin(fa), 0.0, cos(fa));
+let cp = 0.7071;
+let fw = vec3f(fwd.x * cp, -cp, fwd.z * cp);
+let up = vec3f(fwd.x * cp, cp, fwd.z * cp);
+// In a small frame each pixel takes four samples (nine in a tiny one),
+// so the moving land does not shimmer.
+let ng = select(1, select(2, 3, sz.y < 100.0), sz.y < 200.0);
+let ns = ng * ng;
+var acc = vec3f(0.0);
+for (var ss = 0; ss < ns; ss++) {
+let jx = ((f32(ss % ng) + 0.5) / f32(ng) - 0.5) / sz.x;
+let jy = ((f32(ss / ng) + 0.5) / f32(ng) - 0.5) / sz.y;
+let sx = (uv.x + jx - 0.5) * asp;
+let sy = 0.5 - uv.y - jy;
+let rd = normalize(fw * 1.3 + rt * sx + up * sy);
+let oy = 1.5;
+let amp = 0.25;
+// Find the terrain: four rounds of parallax, then two more samples for
+// the slope.
+var g = vec2f(u.q[0].x, u.q[0].y);
+let o = g;
+var hg = 0.5 * amp;
+var h0 = 0.5;
+var hx = 0.5;
+var hz = 0.5;
+let e = 0.01;
+for (var it = 0; it < 6; it++) {
+    var pp = g;
+    if (it < 4) {
+        g = o + rd.xz * ((oy - hg) / -rd.y);
+        pp = g;
+    } else if (it == 4) {
+        pp = g + vec2f(e, 0.0);
+    } else {
+        pp = g + vec2f(0.0, e);
+    }
+    var f = 0.0;
+    var a = 0.5;
+    var q = pp * 0.05;
+    // Finer octaves fade out with distance (they would only alias).
+    let fd = length(pp - o);
+    for (var oc = 0; oc < 4; oc++) {
+        let fq = exp2(f32(oc));
+        // Value noise smoothed between texels (quintic), so the contours
+        // curve instead of kinking at the texel edges.
+        let tx = q * 64.0 + vec2f(0.5);
+        let ti = floor(tx);
+        var tf = tx - ti;
+        tf = tf * tf * tf * (tf * (tf * 6.0 - vec2f(15.0)) + vec2f(10.0));
+        let nv = textureSampleLevel(sampler_noise_mq, s_fw, (ti + tf - vec2f(0.5)) / 64.0, 0.0).r;
+        f += a * nv * exp(-fd * fq * 0.035) + a * 0.5 * (1.0 - exp(-fd * fq * 0.035));
+        q = vec2f(q.x * 1.6 - q.y * 1.2, q.x * 1.2 + q.y * 1.6) + vec2f(0.31, 0.17);
+        a *= 0.42;
+    }
+    // Stretched and softly squashed into 0..1 (no flat plateaus).
+    let hx0 = (f - 0.45) * 5.5;
+    var hv = 0.5 + 0.5 * hx0 / (1.0 + abs(hx0));
+    // The kicks' swells, rolling outward.
+    for (var j = 0; j < 3; j++) {
+        let sw = u.q[2 + j];
+        let d = length(pp - sw.xy);
+        let x = (d - sw.z) / 0.45;
+        // (Eased in as it leaves its centre, so the land never jumps.)
+        hv += sw.w * smoothstep(0.0, 1.2, sw.z) * 0.22 * exp(-x * x);
+    }
+    if (it < 4) {
+        hg = hv * amp;
+        h0 = hv;
+    } else if (it == 4) {
+        hx = hv;
+    } else {
+        hz = hv;
+    }
+}
+let dist = length(vec3f(g.x - o.x, hg - oy, g.y - o.y));
+let fog = exp(-max(dist - 1.6, 0.0) * 0.32);
+// Hill-shading from the slope, lit from the upper left.
+let nrm = normalize(vec3f(-(hx - h0) / e * amp, 1.0, -(hz - h0) / e * amp));
+let lt = normalize(vec3f(-0.5 * sin(fa) - 0.4 * cos(fa), 0.8, 0.5 * cos(fa) - 0.4 * sin(fa)));
+let shade = max(dot(nrm, lt), 0.0);
+let slope = 1.0 - nrm.y;
+// The hypsometric colour by height.
+let hh = 6.2831853 * (hu + 0.62 - 0.9 * h0);
+let pc = 0.5 + 0.5 * vec3f(cos(hh), cos(hh - 2.094), cos(hh + 2.094));
+let ink = pc * pc * 1.3 + vec3f(0.05);
+// The contours: a constant width in pixels.
+let cv = h0 * nc;
+let fwv = max(fwidth(cv), 1e-4);
+let dl = abs(fract(cv + 0.5) - 0.5) / fwv;
+let ix = floor(cv + 0.5);
+let isx = abs(ix - 5.0 * floor(ix / 5.0 + 0.5)) < 0.5;
+let wl = select(0.9, 1.6, isx) * lw;
+let crowd = clamp(1.6 - fwv * 2.0, 0.0, 1.0);
+// Where the contours crowd to a few pixels apart, each fades toward
+// its average over a spacing, so they never shimmer as they move.
+// (In a tiny frame they all do: lines there are a pixel or less.)
+let ka = clamp(sz.y / 540.0, 0.05, 1.0);
+let aa = smoothstep(0.12 * ka, 0.45 * ka, fwv);
+let line = mix(exp(-dl * dl / (wl * wl)), min(wl * 1.77 * fwv, 1.0), aa) * crowd;
+let halo = mix(exp(-dl / (4.0 * lw)), min(8.0 * lw * fwv, 1.0), aa) * crowd;
+// The kicks' rings of light, where the swells are passing.
+var wv = 0.0;
+for (var j = 0; j < 3; j++) {
+    let sw = u.q[2 + j];
+    let x = (length(g - sw.xy) - sw.z) / 0.35;
+    wv += sw.w * smoothstep(0.0, 1.2, sw.z) * exp(-x * x);
+}
+// The treble's glints running along the index contours.
+let gc = floor(g * 9.0);
+let tq = floor(u.time * 12.0);
+let hs = fract(sin(dot(gc + vec2f(tq * 3.17, tq * 1.37), vec2f(12.9898, 78.233))) * 43758.5453);
+let glint = step(1.0 - 0.25 * (0.3 * min(st, 1.0) + pt), hs) * select(0.0, 1.0, isx) * smoothstep(120.0, 400.0, sz.y);
+var col = vec3f(0.01, 0.008, 0.03);
+col += ink * (0.02 + 0.08 * shade * shade) * (0.8 + 0.4 * sb) + vec3f(0.03, 0.01, 0.06) * slope;
+let lb = select(0.85, 1.5, isx) * (1.0 + 0.08 * be + 0.25 * es + 1.5 * wv);
+col += ink * (line * lb + halo * 0.18 * (1.0 + wv));
+col += vec3f(1.0, 0.95, 0.9) * line * glint * (0.8 + 1.5 * pt);
+// The haze toward the horizon.
+let haze = vec3f(0.07, 0.035, 0.13) * (1.0 + 0.3 * sb);
+col = mix(haze, col, fog);
+acc += col;
+}
+var col = acc / f32(ns);
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.2, vec3f(0.0));
+return col / (1.0 + 0.35 * col);
+'''
