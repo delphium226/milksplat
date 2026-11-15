@@ -1,0 +1,219 @@
+# Impossible Geometry: neon impossible objects turning in an isometric
+# void. A great Penrose triangle hangs in the middle, three square beams
+# meeting at right angles round a loop that cannot close but does, and on
+# either side an Escher cube, a cube frame with one back edge passing in
+# front of a front one. Light runs round their edges in pulses (round the
+# triangle's loop forever), their corners glint, and a faint isometric
+# grid recedes behind them.
+#
+# Everything is in the composite, and the objects are real 3D beams. Each
+# is drawn by casting parallel rays (an orthographic view) at its beams,
+# axis-aligned boxes, and keeping the nearest hit, with one exception
+# that makes it impossible. The triangle's three beams run along x, then
+# y, then z, so its two ends lie on the same line of sight (the view is
+# along the cube diagonal) and its last beam would really pass in front
+# of its first; the rule is turned round there, so the first stays in
+# front and the loop closes. The cubes are seen a little off the
+# diagonal, where a back edge crosses a front one, and there the back
+# edge wins. Each beam face is shaded by its direction, its edges drawn
+# by their distance in pixels, and the pulses of light run along each
+# beam by the distance along the loop. The figures turn only about the
+# line of sight, which keeps the illusion whole.
+#
+# Each hit of the music is felt at once, through pulses of the bass, mids
+# and treble that rise in a tick or two and die away over a fraction of a
+# second (soft-limited, so a bigger hit still means more): a kick snaps
+# every figure round a twelfth of a turn (accumulated), fires a burst of
+# light round the edges (accumulated) and swells them a little; the mids
+# turn them slowly (accumulated) and drift the hues; the treble glints
+# their corners. Bass brightens the edges (smoothed).
+version = 1
+
+[meta]
+name = "Impossible Geometry"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+ang = 0; tg = 0; ph = 0; hu = 0; gd = 0; cd = 0;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+ob = pb;
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+// The turn: a fresh kick snaps the target on a twelfth of a turn and the
+// figures swing quickly after it; the mids turn both slowly.
+kk = max(pb - ob, 0);
+cd = cd + 1;
+if(kk > 0.1 && cd > 12, cd = 0; tg = tg + 0.5235988, 0);
+sl = (0.04 + 0.35 * pm) / 60;
+tg = tg + sl;
+ang = ang + sl + (tg - ang) * 0.18;
+if(ang > 6.2831853, ang = ang - 6.2831853; tg = tg - 6.2831853, 0);
+// The light running round the edges, a kick firing a burst on.
+ph = ph + (0.3 + 3.0 * pb) / 60; ph = ph - 64 * floor(ph / 64);
+hu = hu + (0.006 + 0.08 * pm) / 60; hu = hu - floor(hu);
+// The grid's slow drift.
+gd = gd + (0.01 + 0.05 * pb) / 60; gd = gd - floor(gd);
+q1 = ang; q2 = ph; q3 = hu; q4 = gd;
+q5 = pb; q6 = pm; q7 = pt; q8 = sb;
+'''
+
+[shader]
+comp = '''
+let asp = u.texsize.x * u.texsize.w;
+let hp = u.texsize.y;
+let lw = max(hp / 540.0, 0.25);
+let tang = u.q[0].x;
+let ph = u.q[0].y;
+let hu = u.q[0].z;
+let pb = u.q[1].x;
+let pm = u.q[1].y;
+let pt = min(u.q[1].z, 1.5);
+let sb = min(u.q[1].w, 2.0) * 0.5;
+let sp = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
+// The void: a deep violet glow and a faint isometric grid, drifting.
+var col = mix(vec3f(0.12, 0.05, 0.2), vec3f(0.015, 0.008, 0.04), smoothstep(0.0, 1.0, length(sp)));
+let gs = 0.09;
+var gl = 0.0;
+for (var k = 0; k < 3; k++) {
+    let a = f32(k) * 2.0943951 + 0.5235988;
+    let gv = dot(sp, vec2f(cos(a), sin(a))) / gs + u.q[0].w * select(1.0, -1.0, k == 1);
+    let gdd = abs(fract(gv) - 0.5) * gs * hp / lw;
+    gl += exp(-gdd * gdd / 1.5);
+}
+col += vec3f(0.15, 0.25, 0.6) * gl * 0.08 * smoothstep(4.0, 10.0, gs * hp);
+for (var o = 0; o < 3; o++) {
+    let isT = o == 0;
+    let side = select(1.0, -1.0, o == 1);
+    let ctr = select(vec2f(side * 0.6, -0.04), vec2f(0.0, 0.02), isT);
+    let sc = select(0.25, 0.5, isT) * (1.0 + 0.06 * pb);
+    let rot = select(-tang * 1.3 * side + side * 0.4, tang, isT);
+    let d0 = sp - ctr;
+    if (length(d0) > sc * 2.3) {
+        continue;
+    }
+    let cr = cos(rot);
+    let sr = sin(rot);
+    let q = vec2f(cr * d0.x + sr * d0.y, -sr * d0.x + cr * d0.y) / sc;
+    // The view: along the diagonal for the triangle, a little off it for
+    // the cubes.
+    let vv = select(normalize(vec3f(1.0, 1.3, 0.75)), vec3f(0.57735027), isT);
+    let rt = normalize(cross(vec3f(0.0, 0.0, 1.0), vv));
+    let up = cross(vv, rt);
+    let wd = select(0.2, 0.25, isT);
+    let cen = select(vec3f(0.5), vec3f(0.6666667, 0.3333333, 0.0), isT);
+    let ro = cen + rt * q.x + up * q.y + vv * 6.0;
+    let rd = -vv;
+    let ird = 1.0 / rd;
+    let nb = select(12, 3, isT);
+    var bt = 1e9;
+    var bj = -1;
+    var bna = 0;
+    var bax = 0;
+    var bmn = vec3f(0.0);
+    var bmx = vec3f(0.0);
+    for (var j = 0; j < nb; j++) {
+        var axis = j;
+        var st = vec3f(0.0);
+        if (isT) {
+            st.x = select(0.0, 1.0, j >= 1);
+            st.y = select(0.0, 1.0, j >= 2);
+        } else {
+            axis = j / 4;
+            let m = j % 4;
+            st[(axis + 1) % 3] = f32(m & 1);
+            st[(axis + 2) % 3] = f32(m >> 1u);
+        }
+        var en = st;
+        en[axis] = en[axis] + 1.0;
+        let mn = min(st, en) - vec3f(wd * 0.5);
+        let mx = max(st, en) + vec3f(wd * 0.5);
+        let t1 = (mn - ro) * ird;
+        let t2 = (mx - ro) * ird;
+        let tn3 = min(t1, t2);
+        let tf3 = max(t1, t2);
+        let tn = max(max(tn3.x, tn3.y), tn3.z);
+        let tf = min(min(tf3.x, tf3.y), tf3.z);
+        if (tn < tf && tn > 0.0) {
+            var win = tn < bt - 1e-4;
+            // The impossible rules.
+            if (isT && j == 2 && bj == 0) {
+                win = false;
+            }
+            if (!isT && j == 8 && bj == 3) {
+                win = true;
+            }
+            if (win) {
+                bt = tn;
+                bj = j;
+                bax = axis;
+                bmn = mn;
+                bmx = mx;
+                bna = select(select(2, 1, tn3.y >= tn), 0, tn3.x >= tn);
+            }
+        }
+    }
+    let hb = fract(hu + f32(o) * 0.29);
+    let hc = clamp(abs(fract(vec3f(hb) + vec3f(0.0, 0.6666667, 0.3333333)) * 6.0 - 3.0) - 1.0, vec3f(0.0), vec3f(1.0));
+    let hb2 = fract(hb + 0.45);
+    let hc2 = clamp(abs(fract(vec3f(hb2) + vec3f(0.0, 0.6666667, 0.3333333)) * 6.0 - 3.0) - 1.0, vec3f(0.0), vec3f(1.0));
+    if (bj >= 0) {
+        var p = ro + rd * bt;
+        let a1 = (bna + 1) % 3;
+        let a2 = (bna + 2) % 3;
+        let e = min(min(p[a1] - bmn[a1], bmx[a1] - p[a1]), min(p[a2] - bmn[a2], bmx[a2] - p[a2]));
+        let epx = e * sc * hp / lw;
+        // The faces, shaded by their direction.
+        let shade = select(select(0.55, 0.3, bna == 1), 1.0, bna == 2);
+        let fillc = mix(hc * 0.6, hc2 * 0.65, select(0.0, 1.0, bna == 0)) * (0.3 + 0.7 * shade);
+        // The light running along the beams (by the distance round the loop).
+        let al = p[bax] - bmn[bax] - wd * 0.5 + select(f32(bj % 4) * 0.37 + f32(bj / 4), f32(bj), isT);
+        let s1 = fract(al * 1.5 - ph);
+        let pulse = exp(-s1 * 6.0) * (0.8 + 1.4 * pb) + 0.25;
+        let core = exp(-epx * epx / 3.0);
+        let glow = exp(-epx / 4.0);
+        let ec = mix(hc, vec3f(1.0), 0.25);
+        col = fillc * (1.0 + 0.7 * exp(-s1 * 5.0) * (0.4 + pb)) + ec * (core * 1.1 + glow * 0.35) * (0.6 + 0.3 * sb + 1.2 * pulse);
+    }
+    // Treble: the corners glint.
+    let nv = select(8, 3, isT);
+    for (var k = 0; k < nv; k++) {
+        var pv = vec3f(f32(k & 1), f32((k >> 1u) & 1), f32((k >> 2u) & 1));
+        if (isT) {
+            pv = vec3f(select(0.0, 1.0, k >= 1), select(0.0, 1.0, k >= 2), 0.0);
+        }
+        let dv = pv - cen;
+        let qv = vec2f(dot(dv, rt), dot(dv, up)) * sc;
+        let svp = ctr + vec2f(cr * qv.x - sr * qv.y, sr * qv.x + cr * qv.y);
+        let dd = (sp - svp) * hp;
+        // (Sized with the picture: on a tiny one they keep their energy
+        // in a single pixel and fade.)
+        let sz0 = 3.0 * hp / 540.0;
+        let sz = max(sz0, 1.0);
+        let en2 = (sz0 / sz) * (sz0 / sz);
+        let ax = abs(dd.x) / sz;
+        let ay = abs(dd.y) / sz;
+        let tw = 0.5 + 0.5 * sin(ph * 6.2831853 + f32(k) * 2.3 + f32(o) * 1.1);
+        let star = exp(-(ax * ax + ay * ay) / 2.0) + exp(-ax / 0.5 - ay / 8.0) + exp(-ay / 0.5 - ax / 8.0);
+        col += vec3f(1.0, 0.95, 1.0) * star * (pt * 1.4 + 0.08 * tw) * en2;
+    }
+}
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.15, vec3f(0.0));
+return col / (1.0 + 0.4 * col);
+'''

@@ -85,8 +85,8 @@ device, so just start your music and run it.
 | **Mandelbulb**: the ray-marched three-dimensional Mandelbrot set in glowing neon orbit-trap colours, the camera circling it and pushing in on each kick as its buds morph | **Julia Morph**: a Julia set melting from shape to shape as its parameter creeps round the Mandelbrot cardioid, neon rings on black, each kick jolting it on and sweeping a ring of light in to its glowing edge |
 | ![Truchet Maze](docs/images/truchet-maze.png) | ![Hex Hive](docs/images/hex-hive.png) |
 | **Truchet Maze**: a scrolling maze of neon quarter-arc tubes with pulses of light racing along them, each kick sending a wave of tiles spinning to rewire the paths | **Hex Hive**: a vast glowing honeycomb brimming with amber, magenta and cyan nectar as bees of light dart over it, each kick sending a ripple of cells lighting outward |
-| ![Demoscene Plasma](docs/images/demoscene-plasma.png) | |
-| **Demoscene Plasma**: a 90s demo-scene homage done hi-fi: a sum-of-sines plasma under a rotozoomed checkerboard, swinging copper bars and a sine dot scroller, each kick punching the zoom and sliding the palette | |
+| ![Demoscene Plasma](docs/images/demoscene-plasma.png) | ![Impossible Geometry](docs/images/impossible-geometry.png) |
+| **Demoscene Plasma**: a 90s demo-scene homage done hi-fi: a sum-of-sines plasma under a rotozoomed checkerboard, swinging copper bars and a sine dot scroller, each kick punching the zoom and sliding the palette | **Impossible Geometry**: a neon Penrose triangle between two Escher cubes in an isometric void, light running round their edges, each kick snapping them round a twelfth of a turn |
 
 These are single frames; every preset moves and changes with the music.
 
