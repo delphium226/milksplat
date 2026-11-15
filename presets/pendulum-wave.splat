@@ -1,0 +1,199 @@
+# Pendulum Wave: sixteen glowing pendulums hang in a row from a bar of
+# light, seen from a little above, each a shade shorter than the last
+# and so a little quicker. Released together they swing toward and away
+# from you in one line; then the quicker ones pull ahead and the row
+# rolls through its patterns, a travelling wave, a slithering snake, two
+# and three interleaved rows, apparent chaos, and back through them all
+# until, every 48 seconds, the whole row swings together again. Each bob
+# is a jewel of light in its own colour, red through gold, green, cyan
+# and blue to violet, drawing a short comet trail behind it, and the
+# dark polished floor below mirrors the row with a pool of coloured
+# light under each bob.
+#
+# Everything is in the composite. Pendulum i makes 24 + i swings every
+# 48 seconds (so its length goes as 1 / (24 + i)^2), and its angle is
+# exact: amplitude times cos(2 pi (24 + i) t / 48), with t the preset's
+# own clock, wrapped every 48 seconds, so the pattern never drifts. Each
+# bob, its string and its trail (its positions over the last fraction of
+# a second, joined as glowing segments) are projected with a gentle
+# perspective; a pixel looks only at the three pendulums nearest it. The
+# reflections are the same bobs mirrored in the floor plane, stretched
+# and rippled.
+#
+# The frame code accumulates the clock and the swing. Each hit of the
+# music is felt at once, through pulses of the bass, mids and treble that
+# rise in a tick or two and die away over a fraction of a second
+# (soft-limited, so a bigger hit still means more): a kick pushes every
+# pendulum's swing wider (easing back over a second or so), flares the
+# bobs and their pools of light and pushes the view in; the mids lengthen
+# and brighten the trails; the treble glints the bobs. Bass brightens the
+# bar and the floor (smoothed).
+version = 1
+
+[meta]
+name = "Pendulum Wave"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+tc = 0; sw = 0;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+// The swing: pushed wider by each kick, easing back over a second or so.
+sw = sw + (pb - sw) * if(pb > sw, 0.3, 0.035);
+// The clock, wrapped every 48 s (a whole number of swings for every
+// pendulum, so the wrap is seamless).
+tc = tc + 1 / 60; tc = tc - 48 * floor(tc / 48);
+q1 = tc; q2 = 0.42 + 0.3 * min(sw, 1.5); q3 = pb; q4 = pm;
+q5 = pt; q6 = sb; q7 = sw;
+'''
+
+[shader]
+comp = '''
+let sz = u.texsize.xy;
+let asp = sz.x / sz.y;
+let px = 1.0 / sz.y;
+let lw = max(1.0, sz.y / 540.0);
+let tc = u.q[0].x;
+let amp = u.q[0].y;
+let pb = u.q[0].z;
+let pm = u.q[0].w;
+let pt = u.q[1].x;
+let sb = min(u.q[1].y, 2.0) * 0.5;
+let sw = u.q[1].z;
+let gk = min(1.0, sz.y / 200.0);
+// Point sizes never under about a pixel on a tiny picture.
+let ps = max(px * lw, 1.4 / sz.y);
+let zf = 1.0 / (1.0 + 0.05 * pb);
+let p = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y) * zf;
+// The camera: a little above, looking slightly down.
+let ce = cos(0.38);
+let se = sin(0.38);
+let dd = 3.2;
+let yo = 0.0;
+let by = 0.4;
+let fy = -0.52;
+let n = 16.0;
+let sp = 0.105;
+// The backdrop: a deep violet dusk fading to black.
+var col = vec3f(0.01, 0.006, 0.03) + vec3f(0.05, 0.015, 0.09) * smoothstep(-0.4, 0.5, p.y);
+// The floor: where the floor plane projects, dark and polished.
+// Floor point (x, fy, z): Y' = fy ce - z se, Z' = fy se + z ce.
+// Screen sy = Y' dd / (dd - Z') + yo; solve for z.
+let syf = p.y - yo;
+let zfl = (syf * dd - fy * ce * dd - syf * fy * se) / (syf * ce - dd * se);
+let onfloor = select(0.0, 1.0, zfl > -0.8 && zfl < 3.0);
+let wsc = (dd - (fy * se + zfl * ce)) / dd;
+let fx = p.x * wsc;
+if (onfloor > 0.0) {
+    let fade = exp(-max(-zfl, 0.0) * 0.8);
+    col = vec3f(0.01, 0.008, 0.02) + vec3f(0.02, 0.015, 0.04) * fade * (0.8 + 0.4 * sb);
+    // Faint grid lines on the floor.
+    let gl = abs(fract(fx / sp + 0.5) - 0.5) * sp / (wsc * px * lw);
+    let gz = abs(fract(zfl * 4.0) - 0.5) / 4.0 / (wsc * px * lw * 1.5);
+    col += vec3f(0.15, 0.1, 0.35) * (exp(-gl * gl) + exp(-gz * gz)) * 0.12 * fade;
+}
+// The pendulums: the three nearest this pixel.
+let ic = clamp(floor(p.x / (sp * 1.04) + n * 0.5), 0.0, n - 1.0);
+var glowc = vec3f(0.0);
+for (var k = -2; k <= 2; k++) {
+    let fi = ic + f32(k);
+    if (fi < 0.0 || fi > n - 1.0) {
+        continue;
+    }
+    let x = (fi - n * 0.5 + 0.5) * sp;
+    let w = 6.2831853 * (24.0 + fi) / 48.0;
+    let ln = 0.8 * pow(24.0 / (24.0 + fi), 2.0);
+    let hue = fi / (n - 1.0) * 5.0;
+    let pc = 0.5 + 0.5 * cos(vec3f(hue, hue - 2.1, hue - 4.2) + vec3f(0.0, 0.0, 0.0));
+    let bc = normalize(pc * pc + vec3f(0.02)) * 1.2;
+    // The pivot.
+    let piv = vec2f(x * dd / (dd - by * se), by * ce * dd / (dd - by * se) + yo);
+    // The bob, now and over the last fraction of a second.
+    var prev = vec2f(0.0);
+    var tr = 0.0;
+    var bob = vec2f(0.0);
+    var bz = 0.0;
+    for (var j = 0; j < 8; j++) {
+        let th = amp * cos(w * (tc - f32(j) * (0.03 + 0.015 * pm)));
+        let wy = by - ln * cos(th);
+        let wz = ln * sin(th);
+        let yy = wy * ce - wz * se;
+        let zz = wy * se + wz * ce;
+        let s = dd / (dd - zz);
+        let sp2 = vec2f(x * s, yy * s + yo);
+        if (j == 0) {
+            bob = sp2;
+            bz = zz;
+        } else {
+            let ab = sp2 - prev;
+            let ap = p - prev;
+            let h = clamp(dot(ap, ab) / max(dot(ab, ab), 1e-8), 0.0, 1.0);
+            let dl = length(ap - ab * h) / ps;
+            let fj = (f32(j) - h) / 8.0;
+            tr += (exp(-dl * dl / 3.0) * 0.8 + exp(-dl / 6.0) * 0.15 * gk) * (1.0 - fj) * (1.0 - fj);
+        }
+        prev = sp2;
+    }
+    col += bc * tr * (0.5 + 0.8 * pm);
+    // The string.
+    let ab = bob - piv;
+    let ap = p - piv;
+    let h = clamp(dot(ap, ab) / dot(ab, ab), 0.0, 1.0);
+    let ds = length(ap - ab * h) / ps;
+    col += mix(vec3f(0.4, 0.4, 0.55), bc, 0.4) * exp(-ds * ds / 0.6) * 0.25;
+    // The bob: a jewel of light, bigger near, flaring with the kicks.
+    let bs = dd / (dd - bz);
+    let rb = 0.012 * bs * (1.0 + 0.35 * pb);
+    let db = length(p - bob);
+    let core = smoothstep(rb, rb - 1.5 * px, db);
+    let hl = exp(-dot(p - bob - vec2f(-0.35, 0.35) * rb, p - bob - vec2f(-0.35, 0.35) * rb) / (rb * rb * 0.12));
+    col = mix(col, bc * 0.9 + vec3f(0.25), core);
+    col += vec3f(1.0) * hl * core * (0.5 + 1.2 * pt);
+    glowc += bc * (exp(-db / (0.03 + 0.015 * pb)) * 0.4 * (1.0 + 0.6 * pb) + exp(-db / 0.07) * 0.1) * (1.0 - core);
+    // On the floor: the bob's reflection and its pool of light.
+    if (onfloor > 0.0) {
+        let th = amp * cos(w * tc);
+        let wz = ln * sin(th);
+        let wy = by - ln * cos(th);
+        let ry = 2.0 * fy - wy;
+        let yy = ry * ce - wz * se;
+        let zz = ry * se + wz * ce;
+        let s = dd / (dd - zz);
+        let rp = vec2f(x * s, yy * s + yo);
+        let rip = 0.004 * sin(p.y * 160.0 + tc * 9.0 + fi);
+        let rd = vec2f(p.x - rp.x + rip, (p.y - rp.y) * 0.45);
+        let rr = length(rd);
+        col += bc * (smoothstep(rb * 1.3, rb * 0.5, rr) * 0.45 + exp(-rr / 0.035) * 0.25 * (1.0 + 0.6 * pb)) * 0.8;
+        // The pool: on the floor straight under the bob.
+        let pd = vec2f((fx - x) / 0.05, (zfl - wz) / 0.12);
+        let height = (wy - fy);
+        col += bc * exp(-dot(pd, pd)) * 0.3 * (1.0 + 0.8 * pb) / (0.6 + height);
+    }
+}
+col += glowc;
+// The bar of light the pendulums hang from.
+let bary = by * ce * dd / (dd - by * se) + yo;
+let bdy = (p.y - bary) / ps;
+let bx = smoothstep(n * 0.5 * sp * 1.1, n * 0.5 * sp, abs(p.x));
+col += vec3f(0.75, 0.8, 1.0) * (exp(-bdy * bdy / 2.0) * 0.9 + exp(-abs(bdy) / 10.0) * 0.12 * gk) * bx * (0.7 + 0.4 * sb);
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.15, vec3f(0.0)) * 1.4;
+return col / (1.0 + 0.4 * col);
+'''

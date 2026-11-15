@@ -303,5 +303,7 @@ MIT OR Apache-2.0, at your option. See `LICENSE-MIT` and `LICENSE-APACHE`.
 | **Black Smoker**: glowing hydrothermal chimneys on a pitch-black seabed billowing shimmering heat plumes over swaying bioluminescent tube worms, every kick erupting a vent | **Glitch Mosaic**: a neon geometric mosaic torn by datamosh glitches, block jumps, RGB splits, scanline tears and pixel-sorted streaks bursting in bands on the kicks |
 | ![Total Eclipse](docs/images/total-eclipse.png) | ![Neon Rain Window](docs/images/neon-rain-window.png) |
 | **Total Eclipse**: a black moon in a pearly corona of streamers and magenta prominences, with Baily's beads and a diamond ring, kicks swelling the corona and flaring the limb | **Neon Rain Window**: rain beading and trickling down a fogged window onto blurred neon city bokeh, every drop a tiny lens, kicks shaking fresh drops onto the glass |
+| ![Pendulum Wave](docs/images/pendulum-wave.png) | |
+| **Pendulum Wave**: sixteen glowing pendulums rolling through waves, snakes and chaos above a mirror floor, kicks pushing every swing wider | |
 
 These are single frames; every preset moves and changes with the music.
