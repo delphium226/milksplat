@@ -1,7 +1,32 @@
-# Prism Drift: a slowly turning line of light drifts across the screen and
-# smears into feedback; the composite splits it through a prism (the red,
-# green and blue channels pulled apart by the bass) and adds a soft glow;
-# the treble brightens the line and the glow.
+# Prism Drift: light through prisms in the dark. Three glass prisms drift
+# and turn slowly in black space, their edges catching a faint gleam.
+# Beams of white light cross the dark from beyond the edge of the frame,
+# strike the prisms and are bent and split: out of each prism's far face
+# fans a vivid spectrum, red through orange, yellow, green, cyan and blue
+# to violet, laced with seven bright threads of pure colour, sweeping
+# across the dark as the prism turns. Each kick fires a new beam from
+# somewhere round the edge into one of the prisms, a fresh fan blazing
+# out of it and fading.
+#
+# Everything is in the composite, in two dimensions. For each beam the
+# prism's faces are tested to find where the beam enters; it is refracted
+# into the glass (Snell's law) once for red light and once for violet,
+# each refracted ray traced to the face where it leaves and refracted out
+# again, with the dispersion exaggerated so the fan is wide. The fan is
+# drawn between the red and violet rays leaving the prism, its colour
+# running through the spectrum with the angle across it and its threads
+# at seven fixed angles, each a constant width in pixels however far it
+# runs; it dims with the distance from the prism. Inside the glass the
+# light is a pale wedge between the two refracted rays.
+#
+# The frame code accumulates the prisms' drift and turning and fires the
+# beams. Each hit of the music is felt at once, through pulses of the
+# bass, mids and treble that rise in a tick or two and die away over a
+# fraction of a second (soft-limited, so a bigger hit still means more):
+# a kick fires a new beam (two can blaze at once) and jolts the prisms'
+# turning so the fans swing; the mids spread the spectra wider (more
+# dispersion) and brighten the threads; the treble glints the prism
+# edges and the threads. Bass brightens the beams (smoothed).
 version = 1
 
 [meta]
@@ -10,54 +35,281 @@ author = "Milksplat"
 license = "MIT OR Apache-2.0"
 
 [params]
-decay = 0.97
+decay = 0.0
 zoom = 1.0
-warp = 0.6
-wave_mode = 6
-wave_a = 0.85
-wave_thick = 1
-wave_additive = 1
-mesh = [48, 36]
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
 
 [code]
+init = '''
+ra1 = 0; ra2 = 1.3; ra3 = 2.6; rv = 0; sl = 0; cd = 0;
+ax = 0.5; ay = 2.4; at = 0; ai = 0; aa = 0;
+bx = 2.5; by = 4.0; bt = 1; bi = 0; ba = 0;
+dp = 0.13; ph = 0;
+'''
 frame = '''
-wave_mystery = sin(time * 0.17);
-wave_x = 0.5 + 0.25 * sin(time * 0.23);
-wave_y = 0.5 + 0.2 * cos(time * 0.19);
-wave_r = 0.6 + 0.4 * sin(time * 0.9);
-wave_g = 0.6 + 0.4 * sin(time * 0.9 + 2.1);
-wave_b = 0.6 + 0.4 * sin(time * 0.9 + 4.2);
-zoom = 0.995 + 0.01 * min(bass_att, 2);
-rot = 0.004 * sin(time * 0.13);
-dx = 0.0015 * sin(time * 0.29);
-dy = 0.0015 * cos(time * 0.37);
-warp = 0.4 + 0.6 * min(mid_att, 2);
-q1 = 0.004 + 0.012 * min(bass, 2);
-q2 = time * 0.05;
-// The hats brighten the line and its glow.
-wave_a = 0.55 + 0.4 * min(treb, 1.5) / 1.5;
-q3 = 0.4 + 0.45 * min(treb_att, 2) / 2;
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+ob = pb;
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+kk = max(pb - ob, 0);
+// The prisms turn slowly, each its own way; a kick jolts them (the jolt
+// settles over half a second).
+rv = min(rv * 0.92 + 0.03 * kk, 0.012);
+ra1 = ra1 + 0.0021 + rv + 0.004 * pm; ra1 = ra1 - 6.2831853 * floor(ra1 / 6.2831853);
+ra2 = ra2 - 0.0017 - rv * 0.8 - 0.003 * pm; ra2 = ra2 - 6.2831853 * floor(ra2 / 6.2831853);
+ra3 = ra3 + 0.0013 + rv * 1.2 + 0.003 * pm; ra3 = ra3 - 6.2831853 * floor(ra3 / 6.2831853);
+// Their slow drift, and the steady beams' wander.
+ph = ph + 0.0025 + 0.01 * pb; ph = ph - 6283.1853 * floor(ph / 6283.1853);
+// The dispersion: wider with the mids (smoothed over a second or so,
+// as it moves every fan).
+dp = dp + (0.13 + 0.1 * pm - dp) * 0.04;
+// A fresh kick fires a beam from round the edge into a prism, in a
+// slot that has faded out (so a beam never jumps); it blazes up over a
+// few ticks and fades.
+cd = cd + 1;
+if(kk > 0.1 && cd > 10 && min(aa, ba) < 0.03,
+  cd = 0; sl = if(aa < ba, 0, 1);
+  na = 1.8 + rand(1000) / 1000 * 2.7; nt = rand(3);
+  if(sl == 0, ax = na; at = nt; ai = min(pb, 1.5); aa = 0, 0);
+  if(sl == 1, bx = na; bt = nt; bi = min(pb, 1.5); ba = 0, 0),
+  0);
+// While a beam is young its strength follows the kick up.
+if(cd < 4 && sl == 0, ai = max(ai, min(pb, 1.5)), 0);
+if(cd < 4 && sl == 1, bi = max(bi, min(pb, 1.5)), 0);
+aa = aa + (ai - aa) * 0.12; ai = ai * 0.95;
+ba = ba + (bi - ba) * 0.12; bi = bi * 0.95;
+q1 = -0.42 + 0.06 * sin(ph * 0.71); q2 = 0.12 + 0.07 * sin(ph * 0.53 + 1.0); q3 = ra1;
+q4 = 0.08 + 0.07 * sin(ph * 0.61 + 2.0); q5 = -0.16 + 0.06 * sin(ph * 0.83 + 0.4); q6 = ra2;
+q7 = 0.52 + 0.05 * sin(ph * 0.47 + 3.0); q8 = 0.17 + 0.06 * sin(ph * 0.67 + 4.0); q9 = ra3;
+q10 = 3.14159 + 0.12 * sin(ph * 0.37); q11 = 3.85 + 0.1 * sin(ph * 0.41 + 1.0); q12 = 2.45 + 0.1 * sin(ph * 0.29 + 2.0);
+q13 = ax; q14 = at; q15 = aa; q16 = 1.85 + 0.1 * sin(ph * 0.33 + 3.0);
+q17 = bx; q18 = bt; q19 = ba; q20 = 4.45 + 0.1 * sin(ph * 0.43 + 4.0);
+q21 = pb; q22 = pm; q23 = pt; q24 = sb;
+q25 = dp;
 '''
 
 [shader]
 comp = '''
-// Pull the channels apart radially; the split grows with the bass.
-let d = (uv - vec2f(0.5)) * u.q[0].x;
-let r = GetMain(uv + d).r;
-let g = GetMain(uv).g;
-let b = GetMain(uv - d).b;
-var c = vec3f(r, g, b);
-// A slow hue rotation (about the grey axis).
-let a = u.q[0].y;
-let k = vec3f(0.57735);
-let cs = cos(a);
-c = c * cs + cross(k, c) * sin(a) + k * dot(k, c) * (1.0 - cs);
-let glow = GetBlur1(uv);
-// A pale prism wash behind the line, its hues sliding slowly.
-let h = 6.2832 * (uv.x * 0.8 - uv.y * 0.45 + u.q[0].y * 0.4);
-let wash = 0.5 + 0.5 * cos(vec3f(h, h + 2.1, h + 4.2));
-let w2 = wash * wash;
-let back = vec3f(0.07, 0.05, 0.14) + mix(vec3f(dot(w2, vec3f(0.333))), w2, 0.7) * 0.3;
-let light = vec3f(1.0) - exp(-max(c, vec3f(0.0)) * 1.8 - glow * u.q[0].z * 2.2);
-return back * (1.0 - 0.5 * light) + light;
+let sz = u.texsize.xy;
+let asp = sz.x / sz.y;
+let px = 1.0 / sz.y;
+// Line widths scale with the picture (down to half a pixel at 270
+// lines), so thin features keep their share of it; on a tiny picture they
+// stay a pixel wide, so a moving line never flickers between pixels.
+let lw = select(max(0.5, sz.y / 540.0), 1.0, sz.y < 200.0);
+let pw = px * lw;
+let p = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
+let pb = u.q[5].x;
+let pm = u.q[5].y;
+let pt = u.q[5].z;
+let sb = min(u.q[5].w, 2.0) * 0.5;
+let dp = u.q[6].x;
+// The beams' glare, held back on a tiny picture (where a line is a
+// larger share of it).
+let gk = min(1.0, sz.y / 200.0);
+let pr = 0.19;
+// A faint dust in the dark, lit only where the light passes.
+let dust = textureSampleLevel(sampler_noise_lq, s_fw, uv * vec2f(asp, 1.0) * 0.6, 0.0).r;
+var col = vec3f(0.004, 0.003, 0.01);
+var edge = 0.0;
+// The prisms' edges.
+for (var i = 0; i < 3; i++) {
+    let c = vec2f(u.q[(i * 3) / 4][(i * 3) % 4], u.q[(i * 3 + 1) / 4][(i * 3 + 1) % 4]);
+    let ro = u.q[(i * 3 + 2) / 4][(i * 3 + 2) % 4];
+    let lp = p - c;
+    // Distance to the triangle's outline (three half-planes).
+    var dmax = -1e9;
+    for (var e = 0; e < 3; e++) {
+        let na = ro + 1.0471976 + f32(e) * 2.0943951;
+        let nn = vec2f(cos(na), sin(na));
+        dmax = max(dmax, dot(lp, nn) - pr * 0.5);
+    }
+    edge += exp(-dmax * dmax / (pw * pw * 1.2)) + exp(-abs(dmax) / (0.012)) * 0.08 + select(0.0, 0.035, dmax < 0.0);
+}
+col += vec3f(0.55, 0.65, 0.9) * edge * (0.35 + 0.8 * pt * gk);
+// The beams: five steady ones and two fired by the kicks.
+for (var b = 0; b < 7; b++) {
+    var oa = 0.0;
+    var ti = b % 3;
+    var bi = 0.6 + 0.25 * sb;
+    if (b < 3) {
+        oa = u.q[2][b + 1];
+    } else if (b < 5) {
+        oa = u.q[b].w;
+    } else {
+        let bq = u.q[b - 2];
+        oa = bq.x;
+        ti = i32(bq.y);
+        bi = bq.z;
+    }
+    if (bi < 0.01) {
+        continue;
+    }
+    ti = clamp(ti, 0, 2);
+    let c = vec2f(u.q[(ti * 3) / 4][(ti * 3) % 4], u.q[(ti * 3 + 1) / 4][(ti * 3 + 1) % 4]);
+    let ro = u.q[(ti * 3 + 2) / 4][(ti * 3 + 2) % 4];
+    let o = vec2f(cos(oa) * (asp * 0.5 + 0.2), sin(oa) * 0.75);
+    // Aimed a little off the centre, so it strikes a face at an angle.
+    let d0 = normalize(c - o);
+    let d = normalize(c + vec2f(-d0.y, d0.x) * 0.025 - o);
+    // The vertices.
+    var vx: array<vec2f, 3>;
+    for (var k = 0; k < 3; k++) {
+        let va = ro + f32(k) * 2.0943951;
+        vx[k] = c + vec2f(cos(va), sin(va)) * pr;
+    }
+    // Where it enters.
+    var t0 = 1e9;
+    var ne = vec2f(0.0);
+    var ei = -1;
+    var es = 0.5;
+    for (var k = 0; k < 3; k++) {
+        let a = vx[k];
+        let ab = vx[(k + 1) % 3] - a;
+        let den = d.x * ab.y - d.y * ab.x;
+        if (abs(den) > 1e-6) {
+            let ao = a - o;
+            let t = (ao.x * ab.y - ao.y * ab.x) / den;
+            let s = (ao.x * d.y - ao.y * d.x) / den;
+            if (t > 1e-4 && s >= 0.0 && s <= 1.0 && t < t0) {
+                t0 = t;
+                ei = k;
+                es = s;
+                let nn = normalize(vec2f(ab.y, -ab.x));
+                ne = select(-nn, nn, dot(nn, a - c) > 0.0);
+            }
+        }
+    }
+    // The white beam, to the prism (or right across if it misses).
+    let tw = select(t0, 4.0, ei < 0);
+    let ap = p - o;
+    let ta = clamp(dot(ap, d), 0.0, tw);
+    let dw = length(ap - d * ta);
+    let wb = exp(-dw * dw / (pw * pw * 2.0)) * 1.3 + exp(-dw / 0.01) * 0.25 * gk + exp(-dw / 0.05) * 0.15 * (0.85 + 0.3 * dust);
+    col += vec3f(1.0, 0.97, 0.92) * wb * bi;
+    if (ei < 0) {
+        continue;
+    }
+    let p1 = o + d * t0;
+    // Red and violet through the glass and out.
+    var p2r = p1;
+    var p2v = p1;
+    var d3r = d;
+    var d3v = d;
+    // Faded where the beam strikes near a corner, and where either colour
+    // nears total internal reflection, so a fan never jumps on or off;
+    // a totally reflected ray bounces once and leaves by another face.
+    var ff = smoothstep(0.0, 0.1, es) * (1.0 - smoothstep(0.9, 1.0, es));
+    var bnc = vec2f(0.0);
+    var xf = vec2f(0.0);
+    for (var w = 0; w < 2; w++) {
+        let n = 1.3 + select(0.0, dp, w == 1);
+        var d2 = refract(d, ne, 1.0 / n);
+        if (dot(d2, d2) < 0.5) {
+            d2 = d;
+        }
+        d2 = normalize(d2);
+        var q0 = p1;
+        var ex = ei;
+        var pe = p1;
+        var d3 = d2;
+        for (var j = 0; j < 2; j++) {
+            var t1 = 1e9;
+            var n2 = d2;
+            var fi = ex;
+            for (var k = 0; k < 3; k++) {
+                if (k != ex) {
+                    let a = vx[k];
+                    let ab = vx[(k + 1) % 3] - a;
+                    let den = d2.x * ab.y - d2.y * ab.x;
+                    if (abs(den) > 1e-6) {
+                        let ao = a - q0;
+                        let t = (ao.x * ab.y - ao.y * ab.x) / den;
+                        if (t > 1e-5 && t < t1) {
+                            t1 = t;
+                            fi = k;
+                            let nn = normalize(vec2f(ab.y, -ab.x));
+                            n2 = select(-nn, nn, dot(nn, a - c) > 0.0);
+                        }
+                    }
+                }
+            }
+            if (t1 > 1e8) {
+                t1 = 0.0;
+            }
+            pe = q0 + d2 * t1;
+            // Faded where it leaves near a corner (where the two colours
+            // could leave by different faces).
+            let fa0 = vx[fi];
+            let fab = vx[(fi + 1) % 3] - fa0;
+            let fs = dot(pe - fa0, fab) / dot(fab, fab);
+            ff *= smoothstep(0.0, 0.1, fs) * (1.0 - smoothstep(0.9, 1.0, fs));
+            xf[w] = f32(fi) + 3.0 * f32(j);
+            let cn = dot(d2, n2);
+            let kd = 1.0 - n * n * (1.0 - cn * cn);
+            if (kd >= 0.0 || j == 1) {
+                ff *= smoothstep(0.0, 0.4, kd);
+                d3 = normalize(refract(d2, -n2, n) + vec2f(0.0, 1e-6));
+                break;
+            }
+            ff *= smoothstep(0.0, 0.4, -kd);
+            bnc[w] = 1.0;
+            d2 = reflect(d2, n2);
+            q0 = pe;
+            ex = fi;
+        }
+        if (w == 0) {
+            p2r = pe;
+            d3r = d3;
+        } else {
+            p2v = pe;
+            d3v = d3;
+        }
+    }
+    ff *= select(0.0, 1.0, bnc.x == bnc.y && xf.x == xf.y);
+    // The pale wedge inside the glass.
+    let e1 = p2r - p1;
+    let e2 = p2v - p1;
+    let lp = p - p1;
+    let c1 = e1.x * lp.y - e1.y * lp.x;
+    let c2 = e2.x * lp.y - e2.y * lp.x;
+    let inw = select(0.0, 1.0, c1 * c2 <= 0.0 && dot(lp, e1 + e2) > 0.0 && dot(lp, e1 + e2) < dot(e1 + e2, e1 + e2) * 0.5);
+    col += vec3f(0.8, 0.85, 1.0) * inw * 0.22 * bi * ff * (1.0 - bnc.x);
+    // The fan of colour out of the far face.
+    let pm2 = (p2r + p2v) * 0.5;
+    // Nothing to draw where the fan is faded out or behind the prism.
+    if (ff < 0.002 || dot(p - pm2, d3r + d3v) < 0.0) {
+        continue;
+    }
+    let v = p - pm2;
+    let dist = length(v);
+    let fa = atan2(d3r.x * d3v.y - d3r.y * d3v.x, dot(d3r, d3v));
+    let va = atan2(d3r.x * v.y - d3r.y * v.x, dot(d3r, v));
+    let s = va / fa;
+    if (dist > 1e-4 && abs(fa) > 1e-4) {
+        // Angular half-width of a pixel at this distance.
+        let pa = pw / max(dist, 1e-4) / abs(fa);
+        let inside = smoothstep(-pa * 1.5, pa * 1.5, s) * (1.0 - smoothstep(1.0 - pa * 1.5, 1.0 + pa * 1.5, s));
+        let sc = clamp(s, 0.0, 1.0);
+        let h = sc * 0.78;
+        var sp = clamp(abs(fract(vec3f(h, h + 0.6666667, h + 0.3333333)) * 6.0 - 3.0) - 1.0, vec3f(0.0), vec3f(1.0));
+        sp = sp * sp;
+        let fall = 1.0 / (1.0 + dist * 0.9);
+        // Seven threads of pure colour across the fan.
+        let ft = abs(fract(s * 7.0) - 0.5) / 7.0 * abs(fa) * dist / pw;
+        let thr = exp(-ft * ft / 1.2) * select(0.0, 1.0, s > 0.0 && s < 1.0);
+        let glow = exp(-max(max(-s, s - 1.0), 0.0) * abs(fa) * dist / 0.06) * (1.0 - inside) * 0.45;
+        col += sp * (inside * (2.4 + 0.8 * dust) * fall * min(0.3 / (abs(fa) + 0.12), 1.6) + thr * (0.6 + 0.6 * pm + 0.6 * pt * gk) * (0.4 + 0.6 * fall) + glow * fall) * bi * ff * 1.4;
+    }
+}
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.15, vec3f(0.0)) * 1.5;
+return col / (1.0 + 0.4 * col);
 '''
