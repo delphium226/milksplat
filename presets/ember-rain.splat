@@ -1,8 +1,34 @@
-# Ember Rain: forty embers drift down through rising heat, each remembering
-# its own position and speed in the preset's megabuf; the kick makes them
-# flare and fall faster, and a low glowing waveform smoulders below. The
-# composite sets them against a glowing dusk (hot near the ground) and
-# blooms them with the first blur level.
+# Ember Rain: hot embers drift down out of the dark onto a bed of
+# glowing coals. Each ember falls in its own slow corkscrew, curling as
+# it goes, flickering yellow-white to deep orange and leaving a short
+# wisp of glow that the rising heat carries back up and curls away. At
+# the bottom lies the fire bed: dark coals packed together, their cracks
+# glowing yellow and orange, each coal breathing with its own slow
+# pulse, the air above it shimmering with heat; a deep red glow rises
+# from it into the black.
+#
+# The embers are a shape with two instances per ember: each ember's
+# place, fall speed, curl rate and phase live in the megabuf, the first
+# instance moves it on and the second draws it half a tick back, so its
+# streak is unbroken. When it reaches the coals it starts again at the
+# top. The sparks are a second shape, four instances each (spread along
+# the last tick's path), with their own place, velocity and life in the
+# megabuf: thrown up out of
+# the coals, they arc under gravity and burn out. Both are drawn into an
+# fp16 feedback buffer; the warp shader lifts what is there along a
+# rising, curling flow (the curl of 3D noise) and fades it, so every
+# ember and spark leaves a wisp of smoke-light. The composite draws the
+# coal bed (a Voronoi pattern of coals seen low and flat, glowing in the
+# cracks), the glow above it, the heat shimmer (which bends the view
+# just above the coals), and the embers with a bloom.
+#
+# The frame code accumulates the curl phase, the shimmer and the flow.
+# Each hit of the music is felt at once, through pulses of the bass, mids
+# and treble that rise in a tick or two and die away over a fraction of
+# a second (soft-limited): a kick throws a fountain of sparks up out of
+# the coals at a random spot, flares the embers and makes the coals
+# glow hotter; the mids quicken the curling and the rising heat; the
+# treble makes the embers flicker and the sparks fly higher.
 version = 1
 
 [meta]
@@ -11,71 +37,203 @@ author = "Milksplat"
 license = "MIT OR Apache-2.0"
 
 [params]
-decay = 0.94
+feedback_format = "fp16"
+decay = 1.0
 zoom = 1.0
-warp = 0.35
-dy = 0.004
-wave_mode = 2
-wave_y = 0.1
-wave_a = 0.6
-wave_r = 1.0
-wave_g = 0.3
-wave_b = 0.05
-wave_thick = 1
-mesh = [48, 36]
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
 
 [code]
 frame = '''
-dy = 0.003 + 0.003 * min(treb_att, 2) / 2;
-warp = 0.25 + 0.5 * min(mid_att, 2) / 2;
-wave_a = 0.3 + 0.4 * min(bass, 2) / 2;
-wave_g = 0.2 + 0.25 * min(mid, 1.5) / 1.5;
-q1 = 1 + 1.5 * min(bass, 2) / 2;
-q2 = time;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+ob = pb;
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+// A fresh kick throws a burst of sparks from a random spot.
+kk = max(pb - ob, 0);
+cd = cd + 1;
+bu = 0;
+if(kk > 0.1 && cd > 8, cd = 0; bu = 1; bx = 0.12 + 0.76 * rand(1000) / 1000; bs = 0.7 + min(pb, 1.5), 0);
+// The curl, the fall, the flow and the shimmer.
+fs = 1 + 0.8 * pb + 0.4 * pm;
+dc = (1.1 + 2.0 * pm + 0.8 * pb) / 60;
+cp = cp + dc; cp = cp - 6283.1853 * floor(cp / 6283.1853);
+fl = fl + 0.0007 + 0.0016 * pm + 0.001 * pb; fl = fl - floor(fl);
+sh = sh + (0.6 + 1.2 * pm) / 60; sh = sh - 64 * floor(sh / 64);
+q1 = fs; q2 = cp; q3 = dc; q4 = bu;
+q5 = bx; q6 = bs * (1 + 0.4 * pt); q7 = pb; q8 = pt;
+q9 = fl; q10 = sh; q11 = pm;
 '''
 
 [[shape]]
 enabled = true
-sides = 5
-instances = 40
-rad = 0.012
+sides = 8
+instances = 240
+rad = 0.005
 r = 1.0
 g = 0.85
-b = 0.4
+b = 0.5
 a = 1.0
 r2 = 1.0
-g2 = 0.25
-b2 = 0.0
+g2 = 0.3
+b2 = 0.02
 a2 = 0.0
 additive = 1
 frame = '''
-// megabuf[4i..4i+3] = x, y, fall speed, spawned flag.
-base = instance * 4;
-if(megabuf(base + 3) == 0,
-  megabuf(base) = rand(1000) / 1000;
-  megabuf(base + 1) = rand(1000) / 1000;
-  megabuf(base + 2) = 0.0015 + rand(1000) / 1000 * 0.003;
-  megabuf(base + 3) = 1,
+ci = floor(instance / 2); k = instance - ci * 2;
+mb = ci * 6;
+// megabuf: x, y, fall speed, curl rate, phase, spawned.
+if(megabuf(mb + 5) == 0,
+  megabuf(mb) = rand(1000) / 1000;
+  megabuf(mb + 1) = 0.2 + 0.9 * rand(1000) / 1000;
+  megabuf(mb + 2) = 0.0007 + 0.0012 * rand(1000) / 1000;
+  megabuf(mb + 3) = 0.6 + 1.2 * rand(1000) / 1000;
+  megabuf(mb + 4) = 6.2831853 * rand(1000) / 1000;
+  megabuf(mb + 5) = 1,
   0);
-megabuf(base + 1) = megabuf(base + 1) - megabuf(base + 2) * q1;
-if(megabuf(base + 1) < -0.03,
-  megabuf(base) = rand(1000) / 1000;
-  megabuf(base + 1) = 1.03;
-  megabuf(base + 2) = 0.0015 + rand(1000) / 1000 * 0.003,
+if(k == 0,
+  megabuf(mb + 1) = megabuf(mb + 1) - megabuf(mb + 2) * q1;
+  if(megabuf(mb + 1) < 0.19,
+    megabuf(mb) = rand(1000) / 1000;
+    megabuf(mb + 1) = 1.06;
+    megabuf(mb + 2) = 0.0007 + 0.0012 * rand(1000) / 1000,
+    0),
   0);
-x = megabuf(base) + 0.01 * sin(q2 * 1.7 + instance * 2.3);
-y = megabuf(base + 1);
-rad = (0.008 + megabuf(base + 2) * 2) * (0.8 + 0.4 * q1);
-ang = q2 * 0.5 + instance;
-g = 0.55 + 0.35 * sin(instance * 1.9);
+vs = megabuf(mb + 2) * q1;
+cr = megabuf(mb + 3);
+th = (q2 - k * q3 * 0.5) * cr * if(ci % 2 == 0, 1, -1) + megabuf(mb + 4);
+am = 0.008 + 0.02 * cr * cr / 3;
+x = megabuf(mb) + am * cos(th) * aspecty;
+y = megabuf(mb + 1) + k * vs * 0.5 + am * 0.6 * sin(th);
+// Flicker, a flare on the kicks, dimming near the coals.
+fk = sin(q2 * 9 * cr + ci * 3.7);
+hot = 0.55 + 0.45 * fk * fk;
+g = 0.55 + 0.35 * hot;
+b = 0.15 + 0.35 * hot * hot;
+a = (0.3 + 0.5 * hot + 0.3 * q8 * fk) * (1 + 0.6 * q7) * min(1, (megabuf(mb + 1) - 0.19) * 12);
+rad = (0.003 + 0.003 * cr / 1.8) * (1 + 0.4 * q7);
+'''
+
+[[shape]]
+enabled = true
+sides = 6
+instances = 240
+rad = 0.004
+r = 1.0
+g = 0.95
+b = 0.7
+a = 1.0
+r2 = 1.0
+g2 = 0.55
+b2 = 0.1
+a2 = 0.0
+additive = 1
+frame = '''
+si = floor(instance / 4); k = instance - si * 4;
+mb = 2000 + si * 8;
+// megabuf: x, y, vx, vy, life, previous x, previous y.
+if(k == 0,
+  megabuf(mb + 5) = megabuf(mb);
+  megabuf(mb + 6) = megabuf(mb + 1);
+  if(megabuf(mb + 4) <= 0 && q4 > 0,
+    megabuf(mb) = q5 + (rand(1000) / 1000 - 0.5) * 0.06;
+    megabuf(mb + 1) = 0.18;
+    megabuf(mb + 2) = (rand(1000) / 1000 - 0.5) * 0.009;
+    megabuf(mb + 3) = (0.006 + 0.012 * rand(1000) / 1000) * q6;
+    megabuf(mb + 4) = 1;
+    megabuf(mb + 5) = megabuf(mb);
+    megabuf(mb + 6) = megabuf(mb + 1);
+    megabuf(mb + 7) = 0.012 + 0.014 * rand(1000) / 1000,
+    0);
+  if(megabuf(mb + 4) > 0,
+    megabuf(mb) = megabuf(mb) + megabuf(mb + 2) * aspecty;
+    megabuf(mb + 1) = megabuf(mb + 1) + megabuf(mb + 3);
+    megabuf(mb + 3) = megabuf(mb + 3) - 0.00032;
+    megabuf(mb + 2) = megabuf(mb + 2) * 0.985;
+    megabuf(mb + 4) = megabuf(mb + 4) - megabuf(mb + 7),
+    0),
+  0);
+lf = megabuf(mb + 4);
+x = megabuf(mb) + (megabuf(mb + 5) - megabuf(mb)) * k / 4;
+y = megabuf(mb + 1) + (megabuf(mb + 6) - megabuf(mb + 1)) * k / 4;
+a = if(lf > 0, 0.4 + 0.6 * lf, 0);
+g = 0.6 + 0.35 * lf;
+b = 0.2 + 0.5 * lf * lf;
+rad = 0.0035 * (0.6 + 0.6 * lf);
 '''
 
 [shader]
+warp = '''
+let asp = u.texsize.x * u.texsize.w;
+let p = uv_orig;
+let fl = u.q[2].x;
+// The rising, curling heat: the curl of 3D noise, plus a lift.
+let e = 0.006;
+let c1 = vec3f(p.x * asp * 0.16, p.y * 0.16, fl);
+let nx = textureSampleLevel(sampler_noisevol_lq, s_fw, c1 + vec3f(e, 0.0, 0.0), 0.0).r - textureSampleLevel(sampler_noisevol_lq, s_fw, c1 - vec3f(e, 0.0, 0.0), 0.0).r;
+let ny = textureSampleLevel(sampler_noisevol_lq, s_fw, c1 + vec3f(0.0, e, 0.0), 0.0).r - textureSampleLevel(sampler_noisevol_lq, s_fw, c1 - vec3f(0.0, e, 0.0), 0.0).r;
+let amp = 0.006 + 0.01 * u.q[2].z;
+let v = vec2f(ny / asp, -nx) * amp + vec2f(0.0, -0.0011 - 0.0012 * u.q[2].z);
+let c = textureSampleLevel(sampler_main, s_fc, p - v, 0.0).rgb;
+return max(c * 0.9 - vec3f(0.0015), vec3f(0.0));
+'''
 comp = '''
-let c = GetMain(uv);
-let bloom = GetBlur1(uv);
-// Dusk over a fire: plum overhead, a deep orange glow near the ground.
-let dusk = mix(vec3f(0.5, 0.17, 0.06), vec3f(0.17, 0.06, 0.2), smoothstep(0.95, 0.15, uv.y));
-let light = c * 1.3 + bloom * vec3f(1.1, 0.7, 0.4);
-return dusk * (1.0 - 0.5 * min(light, vec3f(1.0))) + light;
+let asp = u.texsize.x * u.texsize.w;
+let pb = u.q[1].z;
+let sh = u.q[2].y;
+let lw = max(1.0, u.texsize.y / 540.0);
+let x = uv.x * asp;
+// The top of the coal bed.
+let bn = textureSampleLevel(sampler_noise_lq, s_fw, vec2f(x * 0.25, 0.37), 0.0).r;
+let top = 0.8 + 0.04 * bn - 0.025 * sin(x * 2.3 + 0.4);
+// Heat shimmer just above the coals.
+let hz = smoothstep(top - 0.3, top, uv.y) * (1.0 - smoothstep(top, top + 0.02, uv.y));
+let sn = textureSampleLevel(sampler_noise_mq, s_fw, vec2f(x * 1.5, uv.y * 0.8 + sh * 0.25), 0.0).r;
+let q = uv + vec2f((sn - 0.5) * 0.006 * hz, 0.0);
+// Black air, a deep red glow rising off the fire.
+var col = vec3f(0.006, 0.002, 0.002) + vec3f(0.22, 0.035, 0.005) * pow(smoothstep(top - 0.55, top, uv.y), 2.0) * (0.8 + 0.5 * pb);
+// The embers, sparks and their wisps, with a bloom.
+let c = GetMain(q);
+let bl = GetBlur1(q) * 0.6 + GetBlur2(q) * 0.7;
+col += c * 1.4 + bl * vec3f(1.0, 0.75, 0.5) * (0.9 + 0.4 * pb);
+// The coal bed: coals seen low and flat, glowing in the cracks.
+if (uv.y > top - 0.01) {
+    let gp = vec2f(x * 6.0, (uv.y - top) * 22.0 / (0.3 + (uv.y - top) * 5.0));
+    let gi = floor(gp);
+    let gf = gp - gi;
+    var d1 = 9.0;
+    var d2 = 9.0;
+    var hid = 0.0;
+    for (var j = -1; j <= 1; j++) {
+        for (var i = -1; i <= 1; i++) {
+            let o = vec2f(f32(i), f32(j));
+            let cid = gi + o;
+            let hx = fract(sin(dot(cid, vec2f(127.1, 311.7))) * 43758.5453);
+            let hy = fract(sin(dot(cid, vec2f(269.5, 183.3))) * 43758.5453);
+            let dd = length(o + vec2f(hx, hy) - gf);
+            if (dd < d1) {
+                d2 = d1;
+                d1 = dd;
+                hid = hx + hy * 7.0;
+            } else if (dd < d2) {
+                d2 = dd;
+            }
+        }
+    }
+    let crack = exp(-(d2 - d1) * 9.0);
+    let br = textureSampleLevel(sampler_noise_lq, s_fw, vec2f(hid * 0.37, sh * 0.06), 0.0).r;
+    let heat = (0.12 + 1.5 * br * br * br) * (1.0 + 0.6 * pb);
+    let sn2 = textureSampleLevel(sampler_noise_hq, s_fw, gp * 0.21 + vec2f(hid, 0.0), 0.0).r;
+    let core = smoothstep(0.7, 0.0, d1) * heat * (0.4 + 0.9 * sn2);
+    var coal = vec3f(0.05, 0.012, 0.004) + vec3f(1.0, 0.3, 0.04) * core * 1.0;
+    coal += mix(vec3f(1.0, 0.3, 0.02), vec3f(1.0, 0.8, 0.3), crack) * crack * (0.08 + heat) * 0.9;
+    let edge = smoothstep(top - 0.006 * lw, top + 0.006 * lw, uv.y);
+    col = mix(col, coal + c * 0.5, edge);
+}
+return col / (1.0 + 0.25 * col);
 '''
