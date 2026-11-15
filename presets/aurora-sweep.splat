@@ -1,7 +1,33 @@
-# Aurora Sweep: a curtain of light rises off a waveform near the horizon
-# and is combed upward through drifting clouds (the `clouds` texture bends
-# the flow). High-precision (fp16) feedback keeps the faint streamers
-# smooth; the composite tone-maps them over a night sky.
+# Aurora Sweep: two curtains of the aurora sweep across a dark night sky
+# above a black mountain range. Each curtain hangs from a bright green
+# lower hem that folds and sways from side to side, and streams upward
+# in fine rays that turn violet and then deep red as they rise and fade;
+# where a curtain folds back on itself, so that you see the sheet edge
+# on, it burns brighter. The nearer curtain is low and bright, the
+# farther one higher and fainter. Stars shine through the gaps, a faint
+# green airglow lies along the horizon, and the snow on the peaks
+# catches the aurora's light.
+#
+# The aurora lives in an fp16 feedback buffer whose three channels are
+# the light's age, not its colour: the warp shader lifts everything
+# upward a little each tick, bent sideways by drifting noise (combing it
+# into rays), and passes it on from green to violet to red as it rises,
+# while it fades. It adds new green light along each curtain's hem, a
+# folding curve (two sines whose phases the frame code sweeps sideways),
+# its strength combed into rays by fine noise and raised where the curve
+# is steep. The composite turns the three ages into green, violet and
+# red, tone-maps them, adds the stars, the airglow and a soft haze from
+# the blur, and cuts the mountains out in front (ridged sines with noise,
+# snow-lit from the blurred aurora above them).
+#
+# Each hit of the music is felt at once, through pulses of the bass, mids
+# and treble that rise in a tick or two and die away over a fraction of
+# a second (soft-limited): a kick sends a ripple sweeping along both
+# curtains from one side of the sky to the other (alternating sides,
+# three at once at most), kinking the hems and lighting them up as it
+# passes, and makes the light rise faster and brighter; the mids sweep
+# the folds and make them sway harder; the treble sparkles in the rays
+# and twinkles the stars. Every phase is accumulated in the frame code.
 version = 1
 
 [meta]
@@ -11,62 +37,120 @@ license = "MIT OR Apache-2.0"
 
 [params]
 feedback_format = "fp16"
-decay = 0.982
+decay = 1.0
+zoom = 1.0
 warp = 0.0
 wave_a = 0.0
-mesh = [48, 36]
+mesh = [8, 6]
 
 [code]
-frame = '''
-q1 = time * 0.02;
-q2 = 0.0025 + 0.004 * min(bass_att, 2);
-q3 = 0.35 + 0.65 * min(treb_att, 1.5) / 1.5;
-// The mids make the curtain foot sway harder.
-q4 = min(mid_att, 2) / 2;
+init = '''
+r1 = -1; r2 = -1; r3 = -1; dr = 1;
 '''
-
-[[wave]]
-enabled = true
-samples = 384
-r = 0.2
-g = 1.0
-b = 0.6
-a = 0.6
-thick = 1
-additive = 1
 frame = '''
-t1 = time;
-a = 0.5 + 0.3 * min(bass, 2) / 2;
-'''
-point = '''
-// The curtain's foot: a slow swaying line, rippled by the waveform.
-x = sample;
-y = 0.22 + (0.03 + 0.07 * q4) * sin(sample * 7 + t1 * 0.6) + 0.05 * value1;
-// Green at the centre, violet toward the edges.
-edge = abs(sample - 0.5) * 2;
-r = 0.25 + 0.6 * edge * edge;
-g = 1 - 0.6 * edge;
-b = 0.5 + 0.4 * edge;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+ob = pb;
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+// A fresh kick sends a ripple along the curtains, alternating sides.
+kk = max(pb - ob, 0);
+cd = cd + 1;
+if(kk > 0.1 && cd > 10,
+  cd = 0; sl = (sl + 1) % 3; dr = -dr;
+  if(sl == 0, r1 = 0; d1 = dr; a1 = min(pb, 1.5) + 0.3, 0);
+  if(sl == 1, r2 = 0; d2 = dr; a2 = min(pb, 1.5) + 0.3, 0);
+  if(sl == 2, r3 = 0; d3 = dr; a3 = min(pb, 1.5) + 0.3, 0),
+  0);
+r1 = if(r1 >= 0, r1 + 0.018, -1); r2 = if(r2 >= 0, r2 + 0.018, -1); r3 = if(r3 >= 0, r3 + 0.018, -1);
+a1 = a1 * if(r1 > 1.3 || r1 < 0, 0, 0.985); a2 = a2 * if(r2 > 1.3 || r2 < 0, 0, 0.985); a3 = a3 * if(r3 > 1.3 || r3 < 0, 0, 0.985);
+// Each ripple's place across the screen (from the left or the right).
+x1 = if(d1 > 0, r1 - 0.15, 1.15 - r1); x2 = if(d2 > 0, r2 - 0.15, 1.15 - r2); x3 = if(d3 > 0, r3 - 0.15, 1.15 - r3);
+// The drifting noise, the folds' sweep, the rays' drift.
+nd = nd + (0.0006 + 0.0015 * pm); nd = nd - floor(nd);
+s1 = s1 + (0.25 + 1.4 * pm) / 60; s1 = s1 - 6.2831853 * floor(s1 / 6.2831853);
+s2 = s2 + (0.17 + 0.9 * pm + 0.4 * pb) / 60; s2 = s2 - 6.2831853 * floor(s2 / 6.2831853);
+rd = rd + (0.004 + 0.012 * pm) / 60; rd = rd - floor(rd);
+q1 = nd; q2 = 0.0032 + 0.005 * pb; q3 = s1; q4 = s2;
+q5 = pb; q6 = pm; q7 = pt; q8 = rd;
+q9 = x1; q10 = x2; q11 = x3; q12 = 0;
+q13 = a1; q14 = a2; q15 = a3; q16 = 0.05 + 0.03 * pm;
 '''
 
 [shader]
 warp = '''
-// Flow upward, bent sideways by the drifting clouds.
-let n = textureSampleLevel(sampler_clouds, sampler_clouds_s, uv * vec2f(1.5, 0.8) + vec2f(u.q[0].x, -u.q[0].x * 2.0), 0.0).rgb;
-let bend = (n.r - 0.5) * 0.006;
-let src = uv + vec2f(bend, u.q[0].y + 0.003 * n.g);
-let c = GetMain(src) * 0.9 + GetMain(src + vec2f(0.0, 0.006)) * 0.1;
-return c * u.decay;
+let asp = u.texsize.x * u.texsize.w;
+let p = uv_orig;
+let nd = u.q[0].x;
+// Lift everything, bent sideways by drifting noise: the rays.
+let n = textureSampleLevel(sampler_noise_lq, s_fw, vec2f(p.x * asp * 0.7 + nd, p.y * 0.5 - nd * 2.0), 0.0).rg;
+let src = p + vec2f((n.x - 0.5) * 0.003, u.q[0].y * (0.7 + 0.6 * n.y));
+let c = textureSampleLevel(sampler_main, s_fc, src, 0.0).rgb;
+// Age it: green passes into violet, violet into red, all fading.
+var o = vec3f(c.r * 0.965 + c.b * 0.03, c.g * 0.964, c.b * 0.945 + c.g * 0.03);
+// New light along each curtain's hem.
+let sw = u.q[3].w;
+for (var j = 0; j < 2; j++) {
+    let fj = f32(j);
+    let ph1 = u.q[0].z + fj * 2.1;
+    let ph2 = u.q[0].w * (1.0 + 0.3 * fj) + fj * 4.0;
+    var hem = 0.76 - 0.24 * fj + sw * (sin(p.x * 5.3 + ph1) + 0.55 * sin(p.x * 11.7 - ph2));
+    let slope = sw * (5.3 * cos(p.x * 5.3 + ph1) + 6.4 * cos(p.x * 11.7 - ph2));
+    var lit = 0.0;
+    for (var k = 0; k < 3; k++) {
+        let xr = u.q[2][k];
+        let ar = u.q[3][k];
+        let dx = p.x - xr;
+        let env = exp(-dx * dx / 0.006) * ar;
+        hem += env * 0.018 * sin(dx * 32.0);
+        lit += env;
+    }
+    let dy = p.y - hem;
+    let prof = exp(-pow(max(dy, 0.0) / 0.004, 2.0)) * exp(-pow(min(dy, 0.0) / 0.014, 2.0));
+    let ray = textureSampleLevel(sampler_noise_hq, s_fw, vec2f(p.x * asp * 0.9 + u.q[1].w + fj * 0.37, 0.3 + fj * 0.2), 0.0).r;
+    let rays = 0.25 + 1.3 * ray * ray * (1.0 + 0.8 * u.q[1].z);
+    let edge = 1.0 + 0.6 * min(abs(slope), 3.0);
+    let pch = 0.3 + 1.4 * textureSampleLevel(sampler_noise_lq, s_fw, vec2f(p.x * asp * 0.12 + nd * 2.0 + fj * 0.5, 0.2 + nd), 0.0).r;
+    let str = select(0.05, 0.11, j == 0) * rays * edge * pch * (0.75 + 0.5 * u.q[1].x + 1.5 * lit);
+    o.g += prof * str;
+}
+return o;
 '''
 comp = '''
-// Vertical rays: the clouds stretched tall, drifting sideways.
-let rays = textureSampleLevel(sampler_clouds, sampler_clouds_s, vec2f(uv.x * 2.5 + u.q[0].x * 3.0, uv.y * 0.12), 0.0).r;
-let c = GetMain(uv) * (0.5 + 1.1 * rays) * (0.9 + 0.4 * u.q[0].z);
-// Tone-map (the fp16 feedback may exceed 1).
-let light = vec3f(1.0) - exp(-c * 2.6);
-// A twilight sky: deep blue overhead, violet glow at the horizon.
-let sky = mix(vec3f(0.08, 0.14, 0.32), vec3f(0.26, 0.14, 0.36), uv.y) + 0.06 * hue_shader;
-// Sparse stars from the fine noise, only in the upper sky.
-let s = textureSampleLevel(sampler_noise_hq, s_pw, uv * vec2f(1.0, 0.5625), 0.0).r;
-return sky * (1.0 - 0.4 * light) + light + vec3f(smoothstep(0.985, 1.0, s) * 0.6 * (1.0 - uv.y));
+let asp = u.texsize.x * u.texsize.w;
+let pt = u.q[1].z;
+let lw = max(1.0, u.texsize.y / 540.0);
+// The night sky: near black, a faint green airglow at the horizon.
+var col = mix(vec3f(0.002, 0.003, 0.012), vec3f(0.02, 0.07, 0.07), smoothstep(0.45, 0.9, uv.y));
+let cell = floor(uv * u.texsize.xy / lw);
+let h0 = (u32(cell.x) * 1973u + u32(cell.y) * 9277u) * 747796405u + 2891336453u;
+let h1 = ((h0 >> ((h0 >> 28u) + 4u)) ^ h0) * 277803737u;
+let hh = f32((h1 >> 22u) ^ h1) / 4294967296.0;
+let tw = 0.7 + 0.3 * sin(u.time * (1.0 + 3.0 * hh) + hh * 40.0) + 0.7 * pt * fract(hh * 517.0);
+col += vec3f(0.75, 0.82, 1.0) * step(0.997, hh) * (0.25 + 0.6 * fract(hh * 911.0)) * tw;
+// The aurora: green, violet and red by age.
+let c = GetMain(uv);
+let lt = c.g * vec3f(0.15, 1.0, 0.4) + c.b * vec3f(0.6, 0.12, 1.0) + c.r * vec3f(1.0, 0.1, 0.25);
+let au0 = vec3f(1.0) - exp(-lt * 1.8);
+let al = dot(au0, vec3f(0.3, 0.5, 0.2));
+let au = clamp(vec3f(al) + (au0 - vec3f(al)) * 1.6, vec3f(0.0), vec3f(1.0));
+let hz = GetBlur2(uv);
+let haze = hz.g * vec3f(0.1, 0.5, 0.25) + hz.b * vec3f(0.3, 0.06, 0.5) + hz.r * vec3f(0.4, 0.04, 0.12);
+col = col * (1.0 - au) + au * (1.1 + 0.3 * u.q[1].x) + haze * 0.7;
+// The mountains: ridged sines and noise, snow lit by the aurora.
+let x = uv.x * asp;
+let m1 = 1.0 - abs(sin(x * 2.1 + 0.7));
+let m2 = 1.0 - abs(sin(x * 5.3 + 2.1));
+let mn = textureSampleLevel(sampler_noise_mq, s_fw, vec2f(x * 0.35, 0.71), 0.0).r;
+let ridge = 0.88 - 0.13 * m1 - 0.05 * m2 * m2 - 0.04 * mn;
+let mask = smoothstep(ridge - 0.002 * lw, ridge + 0.002 * lw, uv.y);
+let above = GetBlur3(vec2f(uv.x, ridge - 0.08));
+let lightc = above.g * vec3f(0.15, 0.8, 0.4) + above.b * vec3f(0.5, 0.15, 0.9);
+let snow = exp(-(uv.y - ridge) / 0.03) * (0.4 + 0.6 * textureSampleLevel(sampler_noise_hq, s_fw, vec2f(x * 3.0, uv.y * 4.0), 0.0).r);
+let mcol = vec3f(0.004, 0.006, 0.012) + lightc * snow * 0.35;
+col = mix(col, mcol, mask);
+return col;
 '''

@@ -102,7 +102,7 @@ device, so just start your music and run it.
 | ![Ink Bloom](docs/images/ink-bloom.png) | ![Bass Tunnel](docs/images/bass-tunnel.png) |
 | **Ink Bloom**: neon inks billowing and curling through black water, a new drop blooming on every kick | **Bass Tunnel**: a dark tunnel of crisp neon petals and hoops that surges you forward with the bass |
 | ![Neon Orbit](docs/images/neon-orbit.png) | ![Aurora Sweep](docs/images/aurora-sweep.png) |
-| **Neon Orbit**: a swarm of neon comets streaking round a blazing core and its accretion disc, flung outward by every kick | **Aurora Sweep**: curtains of aurora rippling over a starry horizon |
+| **Neon Orbit**: a swarm of neon comets streaking round a blazing core and its accretion disc, flung outward by every kick | **Aurora Sweep**: green, violet and red aurora curtains over black mountains, a ripple sweeping along them on every kick |
 | ![Ember Rain](docs/images/ember-rain.png) | ![Kaleido Spin](docs/images/kaleido-spin.png) |
 | **Ember Rain**: glowing embers falling and curling through a dark red haze | **Kaleido Spin**: a spinning kaleidoscope of petals and starbursts |
 | ![Liquid Chrome](docs/images/liquid-chrome.png) | ![Prism Drift](docs/images/prism-drift.png) |
