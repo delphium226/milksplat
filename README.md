@@ -5,6 +5,8 @@ that react to whatever your PC is playing. It is inspired by the classic
 MilkDrop-style visualizers. It captures the audio from your default output
 device, so just start your music and run it.
 
+It comes with 100 presets and also runs as a Windows screensaver.
+
 ## Gallery
 
 | | |
@@ -126,18 +128,73 @@ These are single frames; every preset moves and changes with the music.
 Windows may warn that the app is unrecognised; click More info → Run anyway.
 (The release is not code-signed yet.)
 
+Milksplat opens in a window; press F or double-click for fullscreen. It runs
+without a console window. Started from a terminal, it still prints its output
+there.
+
 Command line options: `--presets <dir>` uses another preset folder,
 `--safe` starts in safe mode, `--exit-after <seconds>` quits after a delay and
-`--log-fps` logs the frame rate.
+`--log-fps` logs the frame rate (`--help` lists them).
+
+### How long each preset plays
+
+Each preset plays for about 60 seconds (randomly between 45 and 75, so the
+changes don't fall into a fixed rhythm), then blends into the next over 2.7
+seconds. A very strong beat can cut straight to the next preset early, but
+never within 10 seconds of the last change. L locks the current preset.
+
+To change this, edit `%APPDATA%\Milksplat\config.toml` (it is created on the
+first run) while Milksplat is closed:
+
+```toml
+auto_advance_s = 60.0   # average seconds per preset; 0 stays on one preset
+blend_s = 2.7           # seconds to blend between presets
+hard_cuts = true        # false: no early cuts on strong beats
+```
+
+The screensaver uses the same settings.
 
 ## Screensaver
 
-The release includes `milksplat.scr`, the same program as a Windows screensaver.
+The release includes `milksplat.scr`: the same program, set up to run as a
+Windows screensaver.
 
-1. Keep it in the unzipped folder, next to `milksplat.exe` and `presets\`.
-2. Right-click `milksplat.scr` and choose **Install**. Screen Saver Settings opens with Milksplat selected.
+### Installing it
 
-It runs fullscreen with the same presets and settings as `milksplat.exe`, including each preset's saved reactivity, and reacts to whatever audio is playing. Any key, mouse click or real mouse movement ends it. The Settings… button has nothing to set, and the small preview stays blank. Unlike the app, it does not keep the display awake: your power settings still turn the screen off.
+1. Unzip the release into a folder you will keep, for example
+   `%LOCALAPPDATA%\Milksplatpp`. The screensaver runs from that folder and
+   needs `presets\` beside it, so don't copy `milksplat.scr` on its own (into
+   `C:\Windows\System32`, say).
+2. Right-click `milksplat.scr` and choose **Install**. If **Install** isn't on
+   the menu, choose **Show more options** first (Windows 11). If Windows warns
+   that the app is unrecognised, click **More info**, then **Run anyway**.
+3. **Screen Saver Settings** opens with Milksplat selected. Set **Wait** to how
+   many idle minutes should pass before it starts, and tick **On resume,
+   display logon screen** if you want to sign in again afterwards. Click
+   **OK**.
+
+To try it straight away, click **Preview** in Screen Saver Settings, or run
+`milksplat.scr /s`.
+
+To open Screen Saver Settings again later, search the Start menu for
+**Change screen saver**, or go to **Settings > Personalization > Lock
+screen > Screen saver**. To stop using it, choose **(None)** there. If you
+move the Milksplat folder, install the screensaver again from its new place.
+
+### What it does
+
+- It runs fullscreen with the same presets and settings as `milksplat.exe`,
+  including each preset's saved reactivity and the preset timing, and reacts
+  to whatever audio is playing. In silence the presets are calmer, but still
+  move.
+- Any key, mouse click, scroll or real mouse movement ends it. A tiny bump of
+  the mouse does not.
+- The hotkeys are off while it runs.
+- The **Settings…** button just shows a note: change settings by running
+  `milksplat.exe` (Up / Down for reactivity) or editing the config.
+- The small preview picture in Screen Saver Settings stays blank.
+- Unlike the app, it does not keep the display awake: your power settings
+  still turn the screen off.
 
 ## Hotkeys
 
@@ -167,6 +224,7 @@ where `[` and `]` need AltGr.
 
 | What | Where |
 |---|---|
+| The app and screensaver | `milksplat.exe` and `milksplat.scr`, wherever you unzipped them |
 | Bundled presets and textures | `presets\` and `textures\` next to `milksplat.exe` |
 | Your presets | `%USERPROFILE%\Documents\Milksplat\Presets\` (created on first run) |
 | Config | `%APPDATA%\Milksplat\config.toml` |
