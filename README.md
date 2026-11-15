@@ -83,6 +83,8 @@ device, so just start your music and run it.
 | **Spirograph Engine**: four glowing pens on rolling gears tracing neon hypotrochoid and epitrochoid rosettes that build up loop by loop and fade, every kick racing the pens forward and flaring their tips into stars | **Topographic Map**: a slow flight over dark mountains drawn as glowing neon contour lines coloured by height, every kick raising a swell that rolls out through the land as the isolines crowd and flare |
 | ![Smoke Rings](docs/images/smoke-rings.png) | ![Game of Life Garden](docs/images/game-of-life-garden.png) |
 | **Smoke Rings**: luminous vortex rings of gel-lit smoke puffed out of the dark toward the viewer, their tubes curling as they swell and fray into swirling wisps, every kick puffing a new ring and pushing the rest on | **Game of Life Garden**: Conway's Game of Life grown as a neon garden at night, every live cell a glowing flower opening as it is born and every death leaving a fading coloured afterglow, every kick planting a burst of gliders and R-pentominoes |
+| ![Slime Mold](docs/images/slime-mold.png) |  |
+| **Slime Mold**: a Physarum network spread across a dark dish, fat yellow-green veins and a fine cyan mesh linking golden food sources, every kick sending a peristaltic pulse bulging out through the tubes and growing new tendrils |  |
 
 These are single frames; every preset moves and changes with the music.
 
