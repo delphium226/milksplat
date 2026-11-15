@@ -1,6 +1,31 @@
-# Ink Bloom: a breathing ring of ink drops on dark paper. The warp shader
-# lets the ink creep down its own soft gradient (a blur-driven diffusion),
-# and the composite shader maps it onto a teal-and-gold ink palette.
+# Ink Bloom: drops of neon ink falling into black water. Each drop lands
+# with a ripple and blooms outward, pushing the water aside, and the
+# swirling water catches its edge and pulls it into billows, curls and
+# branching tendrils that drift and fold into each other; cyan, magenta
+# and gold inks mix where they meet and glow softly through the dark.
+# Each drop keeps seeping a little ink after it lands, so the blooms
+# keep growing while they fade.
+#
+# The feedback buffer (fp16) holds how much of each ink is in the water.
+# The warp shader moves it along a flow made of two parts: a swirling
+# curl-noise field from the 3D noise (two octaves, the big one for the
+# billows and the small one for the fine tendrils), and for each of four
+# drops a source flow pushing outward from where it landed (falling off
+# as 1/r, like water displaced by the drop), which dies away over a
+# second or so. It adds each drop's ink at its landing point, mottled by
+# noise so the bloom is uneven, and lets the ink slowly thin out. The
+# composite tone-maps the densities into saturated neon over near-black
+# water, adds a glow from the blur levels, brightens the thin edges of
+# the ink and draws each drop's ripple ring, which also bends the view.
+#
+# Each hit of the music is felt at once, through pulses of the bass, mids
+# and treble that rise in a tick or two and die away over a fraction of
+# a second (soft-limited): every kick drops a new bloom of the next ink
+# at a random spot (four at once at most), its size and push set by the
+# kick; the bass and mids speed the swirling and the mids feed the
+# seeping drops; the treble sharpens and brightens the edges, and the
+# whole bloom glows harder on the kicks. The swirl's phase is
+# accumulated in the frame code.
 version = 1
 
 [meta]
@@ -9,48 +34,133 @@ author = "Milksplat"
 license = "MIT OR Apache-2.0"
 
 [params]
-decay = 0.988
+feedback_format = "fp16"
+decay = 1.0
 zoom = 1.0
 warp = 0.0
-wave_mode = 0
-wave_a = 0.9
-wave_thick = 1
-wave_brighten = 0
-mesh = [48, 36]
+wave_a = 0.0
+mesh = [8, 6]
 
 [code]
+init = '''
+// Four drops already blooming when the preset starts.
+x1 = 0.32; y1 = 0.38; a1 = 30; h1 = 0; s1 = 1.7;
+x2 = 0.68; y2 = 0.42; a2 = 20; h2 = 1; s2 = 1.7;
+x3 = 0.45; y3 = 0.7; a3 = 10; h3 = 2; s3 = 1.7;
+x4 = 0.62; y4 = 0.68; a4 = 0; h4 = 0; s4 = 1.5;
+sl = 3; nh = 0; ph = 0.3;
+'''
 frame = '''
-zoom = 1.012 + 0.02 * min(bass_att, 2);
-rot = 0.004 * sin(time * 0.31);
-wave_mystery = -0.6 + 0.4 * min(bass, 2);
-s = 0.5 + 0.5 * sin(time * 0.6);
-wave_r = 0.2 + 0.8 * s;
-wave_g = 0.5 + 0.2 * s + 0.2 * min(treb, 1);
-wave_b = 1 - 0.7 * s;
-wave_a = 0.5 + 0.4 * min(mid, 1);
-q1 = 0.5 + 0.5 * min(treb_att, 1.5);
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+ob = pb;
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+om = pm;
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+// A fresh kick drops the next ink into the next of four slots.
+kk = max(max(pb - ob, 0), 0.8 * max(pm - om, 0));
+cd = cd + 1;
+if(kk > 0.1 && cd > 20,
+  cd = 0; sl = (sl + 1) % 4; nh = (nh + 1) % 3;
+  nx = 0.15 + 0.7 * rand(1000) / 1000;
+  ny = 0.12 + 0.45 * rand(1000) / 1000;
+  ns = 0.6 + min(max(pb, pm), 1.5);
+  if(sl == 0, x1 = nx; y1 = ny; a1 = 0; h1 = nh; s1 = ns, 0);
+  if(sl == 1, x2 = nx; y2 = ny; a2 = 0; h2 = nh; s2 = ns, 0);
+  if(sl == 2, x3 = nx; y3 = ny; a3 = 0; h3 = nh; s3 = ns, 0);
+  if(sl == 3, x4 = nx; y4 = ny; a4 = 0; h4 = nh; s4 = ns, 0),
+  0);
+a1 = a1 + 1; a2 = a2 + 1; a3 = a3 + 1; a4 = a4 + 1;
+// The swirl, faster with the music (phase accumulated, wrapped).
+ph = ph + 0.0006 + 0.0016 * pm + 0.0012 * pb;
+ph = ph - floor(ph);
+// Per drop: where, outward push, ink added this tick.
+q1 = x1; q2 = y1; q3 = s1 * 0.0005 * exp(-a1 / 40); q4 = s1 * (0.06 * exp(-a1 / 6) + (0.01 + 0.012 * pm) * (0.4 + 0.65 * exp(-a1 / 300)));
+q5 = x2; q6 = y2; q7 = s2 * 0.0005 * exp(-a2 / 40); q8 = s2 * (0.06 * exp(-a2 / 6) + (0.01 + 0.012 * pm) * (0.4 + 0.65 * exp(-a2 / 300)));
+q9 = x3; q10 = y3; q11 = s3 * 0.0005 * exp(-a3 / 40); q12 = s3 * (0.06 * exp(-a3 / 6) + (0.01 + 0.012 * pm) * (0.4 + 0.65 * exp(-a3 / 300)));
+q13 = x4; q14 = y4; q15 = s4 * 0.0005 * exp(-a4 / 40); q16 = s4 * (0.06 * exp(-a4 / 6) + (0.01 + 0.012 * pm) * (0.4 + 0.65 * exp(-a4 / 300)));
+q17 = h1; q18 = h2; q19 = h3; q20 = h4;
+q21 = ph; q22 = 0.004 + 0.01 * pm + 0.008 * pb; q23 = pb; q24 = pt;
+q25 = a1; q26 = a2; q27 = a3; q28 = a4;
 '''
 
 [shader]
 warp = '''
-// Ink creeps away from where it is thickest: follow the blurred gradient.
-let e = u.texsize.zw * 3.0;
-let gx = GetBlur1(uv + vec2f(e.x, 0.0)).g - GetBlur1(uv - vec2f(e.x, 0.0)).g;
-let gy = GetBlur1(uv + vec2f(0.0, e.y)).g - GetBlur1(uv - vec2f(0.0, e.y)).g;
-let flow = uv - vec2f(gx, gy) * (0.012 + 0.01 * u.q[0].x);
-let ink = mix(GetMain(flow), GetBlur1(flow), 0.3);
-return max(ink * u.decay - vec3f(0.002), vec3f(0.0));
+let asp = u.texsize.x * u.texsize.w;
+let p = uv_orig;
+let ph = u.q[5].x;
+// Swirl: the curl of two octaves of 3D noise.
+let e1 = 0.006;
+let c1 = vec3f(p.x * asp * 0.11, p.y * 0.11, ph);
+let n1x = textureSampleLevel(sampler_noisevol_lq, s_fw, c1 + vec3f(e1, 0.0, 0.0), 0.0).r - textureSampleLevel(sampler_noisevol_lq, s_fw, c1 - vec3f(e1, 0.0, 0.0), 0.0).r;
+let n1y = textureSampleLevel(sampler_noisevol_lq, s_fw, c1 + vec3f(0.0, e1, 0.0), 0.0).r - textureSampleLevel(sampler_noisevol_lq, s_fw, c1 - vec3f(0.0, e1, 0.0), 0.0).r;
+let e2 = 0.006;
+let c2 = vec3f(p.x * asp * 0.55 + 0.5, p.y * 0.55, ph * 2.3 + 0.37);
+let n2x = textureSampleLevel(sampler_noisevol_lq, s_fw, c2 + vec3f(e2, 0.0, 0.0), 0.0).r - textureSampleLevel(sampler_noisevol_lq, s_fw, c2 - vec3f(e2, 0.0, 0.0), 0.0).r;
+let n2y = textureSampleLevel(sampler_noisevol_lq, s_fw, c2 + vec3f(0.0, e2, 0.0), 0.0).r - textureSampleLevel(sampler_noisevol_lq, s_fw, c2 - vec3f(0.0, e2, 0.0), 0.0).r;
+let amp = u.q[5].y;
+var v = vec2f(n1y, -n1x) * amp + vec2f(n2y, -n2x) * amp * 0.6;
+// Each drop pushes the water outward from where it landed.
+var add = vec3f(0.0);
+let mot = textureSampleLevel(sampler_noise_mq, s_fw, p * vec2f(asp, 1.0) * 1.7 + vec2f(ph * 3.0, 0.0), 0.0).r;
+for (var i = 0; i < 4; i++) {
+    let s = u.q[i];
+    let d = vec2f((p.x - s.x) * asp, p.y - s.y);
+    let r2 = dot(d, d);
+    v += d * s.z / (r2 + 0.003);
+    let hh = u.q[4][i];
+    let ic = select(select(vec3f(1.0, 0.62, 0.08), vec3f(1.0, 0.08, 0.75), hh < 1.5), vec3f(0.05, 0.8, 1.0), hh < 0.5);
+    add += ic * s.w * exp(-r2 / 0.0035) * (0.35 + 1.3 * mot);
+}
+// Thick ink sinks faster than thin: the plumes finger and branch.
+let dens = dot(GetBlur1(p) * 0.6 + textureSampleLevel(sampler_main, s_fc, p, 0.0).rgb * 0.4, vec3f(0.33));
+v.y += (0.003 + 0.002 * u.q[5].z) * dens / (1.0 + 0.5 * dens);
+v.x = v.x / asp;
+let src = p - v;
+var c = textureSampleLevel(sampler_main, s_fc, src, 0.0).rgb;
+// A little sharpening against the blur keeps the tendrils crisp.
+let bl = GetBlur1(src);
+c = max(c + (c - bl) * 0.04, vec3f(0.0));
+return max(c * 0.99 - vec3f(0.0008), vec3f(0.0)) + add / (1.0 + 0.8 * dens);
 '''
 comp = '''
-let c = GetMain(uv);
-let halo = GetBlur1(uv);
-let v = max(c.r, max(c.g, c.b));
-let warm = c.r / max(c.r + c.g + c.b, 0.001);
-// Dusk-blue paper, lit warmer toward the middle.
-let paper = mix(vec3f(0.08, 0.17, 0.34), vec3f(0.2, 0.25, 0.42), 1.0 - rad) + 0.08 * hue_shader * (1.0 - rad);
-let ink = mix(vec3f(0.05, 0.62, 0.72), vec3f(1.0, 0.8, 0.36), smoothstep(0.25, 0.55, warm));
-var col = mix(paper, ink, smoothstep(0.03, 0.4, v));
-col = col + vec3f(0.9, 0.95, 1.0) * smoothstep(0.7, 1.0, v) * 0.35;
-col = col + halo * vec3f(0.3, 0.6, 0.7);
+let asp = u.texsize.x * u.texsize.w;
+let pb = u.q[5].z;
+let pt = u.q[5].w;
+// The drops' ripple rings bend the view a little.
+var off = vec2f(0.0);
+var ring = 0.0;
+for (var i = 0; i < 4; i++) {
+    let s = u.q[i];
+    let age = u.q[6][i];
+    let d = vec2f((uv.x - s.x) * asp, uv.y - s.y);
+    let r = length(d) + 1e-4;
+    let rr = age * 0.0075;
+    let w = exp(-age / 28.0);
+    let x = (r - rr) / 0.012;
+    let bump = x * exp(-x * x) * w;
+    off += d / r * bump * 0.006;
+    ring += exp(-x * x) * w;
+}
+let q = uv + vec2f(off.x / asp, off.y);
+let c = GetMain(q);
+let b1 = GetBlur1(q);
+let b2 = GetBlur2(q);
+// Black water with a faint deep-blue depth.
+var col = vec3f(0.004, 0.007, 0.018) + vec3f(0.0, 0.012, 0.03) * (1.0 - rad);
+// The ink, tone-mapped into saturated neon.
+let ink = vec3f(1.0) - exp(-c * 2.4);
+col += ink * 1.05;
+// Its thin edges brighter (the ink against its own blur).
+let edge = max(dot(c - b1, vec3f(0.33)), 0.0);
+col += normalize(c + vec3f(0.02)) * edge * (0.9 + 1.4 * pt);
+// The glow through the water, harder on the kicks.
+col += (b1 * 0.18 + b2 * 0.28) * (0.8 + 0.7 * pb);
+// Thick ink burns white.
+col += vec3f(0.9) * smoothstep(1.4, 3.0, max(c.r, max(c.g, c.b))) * 0.35;
+col += vec3f(0.35, 0.55, 0.8) * ring * 0.12;
 return col;
 '''

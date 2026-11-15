@@ -668,7 +668,7 @@ fn bundled_set_is_complete() {
 /// state machines), twenty seconds for the rest (enough for their feedback
 /// to settle; every bundled preset but the gentle default is covered).
 const LONG_RUN: [(&str, usize); 100] = [
-    ("ink-bloom", 1200),
+    ("ink-bloom", 3600),
     ("bass-tunnel", 1200),
     ("prism-drift", 1200),
     ("pulse-grid", 1200),

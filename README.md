@@ -100,7 +100,7 @@ device, so just start your music and run it.
 | ![Laser Cathedral](docs/images/laser-cathedral.png) | ![Spectrum Mountains](docs/images/spectrum-mountains.png) |
 | **Laser Cathedral**: a dark gothic nave full of haze, sliced by sweeping coloured laser beams from a stage beneath a glowing rose window, every kick firing a scanning laser fan and swinging the beams on | **Spectrum Mountains**: the live spectrum as a neon waterfall landscape, every moment of the music a glowing ridge rising at the horizon and marching toward the viewer, every kick raising a shockwave across the ridges |
 | ![Ink Bloom](docs/images/ink-bloom.png) | ![Bass Tunnel](docs/images/bass-tunnel.png) |
-| **Ink Bloom**: a glowing ring of ink that blooms and dissolves on every kick | **Bass Tunnel**: a fiery tunnel of petals that surges toward you with the bass |
+| **Ink Bloom**: neon inks billowing and curling through black water, a new drop blooming on every kick | **Bass Tunnel**: a fiery tunnel of petals that surges toward you with the bass |
 | ![Neon Orbit](docs/images/neon-orbit.png) | ![Aurora Sweep](docs/images/aurora-sweep.png) |
 | **Neon Orbit**: neon comets whirling round a bright core, trailing rings of light | **Aurora Sweep**: curtains of aurora rippling over a starry horizon |
 | ![Ember Rain](docs/images/ember-rain.png) | ![Kaleido Spin](docs/images/kaleido-spin.png) |
