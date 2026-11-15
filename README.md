@@ -89,6 +89,12 @@ device, so just start your music and run it.
 | **Topographic Map**: a slow flight over dark mountains drawn as glowing neon contour lines coloured by height, every kick raising a swell that rolls out through the land as the isolines crowd and flare | **Smoke Rings**: luminous vortex rings of gel-lit smoke puffed out of the dark toward the viewer, their tubes curling as they swell and fray into swirling wisps, every kick puffing a new ring and pushing the rest on |
 | ![Game of Life Garden](docs/images/game-of-life-garden.png) | ![Slime Mold](docs/images/slime-mold.png) |
 | **Game of Life Garden**: Conway's Game of Life grown as a neon garden at night, every live cell a glowing flower opening as it is born and every death leaving a fading coloured afterglow, every kick planting a burst of gliders and R-pentominoes | **Slime Mold**: a Physarum network spread across a dark dish, fat yellow-green veins and a fine cyan mesh linking golden food sources, every kick sending a peristaltic pulse bulging out through the tubes and growing new tendrils |
+| ![Hex Hive](docs/images/hex-hive.png) | ![Demoscene Plasma](docs/images/demoscene-plasma.png) |
+| **Hex Hive**: a vast glowing honeycomb brimming with amber, magenta and cyan nectar as bees of light dart over it, each kick sending a ripple of cells lighting outward | **Demoscene Plasma**: a 90s demo-scene homage done hi-fi: a sum-of-sines plasma under a rotozoomed checkerboard, swinging copper bars and a sine dot scroller, each kick punching the zoom and sliding the palette |
+| ![Impossible Geometry](docs/images/impossible-geometry.png) | ![Clockwork](docs/images/clockwork.png) |
+| **Impossible Geometry**: a neon Penrose triangle between two Escher cubes in an isometric void, light running round their edges, each kick snapping them round a twelfth of a turn | **Clockwork**: an exploded clock movement of brass and neon wheels meshing in parallax layers, a pendulum swinging over the escapement, each kick ticking the whole train on a tooth |
+| ![Op Art Waves](docs/images/op-art-waves.png) | |
+| **Op Art Waves**: Riley-style neon bands rippling over black round a Vasarely bulging sphere, each kick swelling the sphere and sending a ring wave through the bands | |
 
 These are single frames; every preset moves and changes with the music.
 

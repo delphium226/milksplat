@@ -1,0 +1,287 @@
+# Clockwork: an exploded view of a clock movement floating in the dark.
+# In front, a train of polished brass wheels with neon-lit rims meshes
+# tooth into tooth, driven by an escape wheel with sharp hooked teeth; an
+# anchor rocks over the escape wheel and a long pendulum swings below it.
+# Behind, a second train of rose-brass wheels turns on its own, with a
+# balance wheel and its breathing neon hairspring, and far behind that
+# great ghostly wheels outlined in blue turn slowly. The layers slide
+# past one another as the view drifts (parallax), and glints of light
+# race round the teeth.
+#
+# Everything is in the composite. Each wheel is a distance field: a disc
+# whose edge is lifted into teeth (a clipped cosine of the angle, or a
+# sawtooth for the escape wheel), cut through with spokes and an axle
+# hole, and anti-aliased by its distance in pixels. Meshing wheels are
+# set at the sum of their radii, and each turns at its parent's angle
+# times the ratio of their tooth counts, phased so the teeth fall in the
+# gaps. Each train's driving angle wraps only after a whole number of
+# turns of every wheel in it, so nothing jumps. The hairspring is an
+# Archimedean spiral, faded to its average glow where its coils come too
+# close for the pixels, and the escapement's sparks are a dozen particles
+# thrown up from the active pallet.
+#
+# Each hit of the music is felt at once, through pulses of the bass, mids
+# and treble that rise in a tick or two and die away over a fraction of a
+# second (soft-limited, so a bigger hit still means more): a kick ticks
+# the escape wheel on a tooth (the whole front train snapping round with
+# it, accumulated), sends glints racing round the teeth (accumulated),
+# flares the neon rims and nudges the view in; the mids drive the second
+# train (accumulated); the treble throws sparks from the escapement.
+# Bass quickens the pendulum (accumulated) and brightens the brass
+# (smoothed).
+version = 1
+
+[meta]
+name = "Clockwork"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+ea = 0; tga = 0; mb = 0; pp = 0; gph = 0; sk = 0; cp = 0; cd = 0;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+ob = pb;
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+// The escape wheel: a fresh kick ticks it on a tooth (a fifteenth of a
+// turn) and it snaps after; it also creeps on slowly. It wraps after
+// eight turns, when every wheel of its train has turned a whole number.
+kk = max(pb - ob, 0);
+cd = cd + 1;
+if(kk > 0.1 && cd > 8, cd = 0; tga = tga - 0.41887902, 0);
+tga = tga - 0.04 / 60;
+ea = ea + (tga - ea) * 0.3;
+if(ea < -50.265482, ea = ea + 50.265482; tga = tga + 50.265482, 0);
+// The second train, driven by the mids (wraps after five turns).
+mb = mb + (0.06 + 1.4 * pm) / 60;
+mb = mb - 31.415927 * floor(mb / 31.415927);
+// The pendulum, quickened by the bass.
+pp = pp + (2.6 + 1.2 * pb) / 60;
+pp = pp - 6.2831853 * floor(pp / 6.2831853);
+// The glints racing round the teeth, a kick sending them on.
+gph = gph + (0.5 + 9.0 * pb) / 60;
+gph = gph - 6.2831853 * floor(gph / 6.2831853);
+// The sparks' clock, run by the treble.
+sk = sk + (0.4 + 4.0 * pt) / 60;
+sk = sk - 64 * floor(sk / 64);
+// The view's slow drift.
+cp = cp + (0.008 + 0.03 * pb) / 60;
+cp = cp - floor(cp);
+q1 = ea; q2 = mb; q3 = pp; q4 = gph;
+q5 = sk; q6 = cp; q7 = pb; q8 = pm;
+q9 = pt; q10 = sb;
+'''
+
+[shader]
+comp = '''
+let asp = u.texsize.x * u.texsize.w;
+let hp = u.texsize.y;
+let ea = u.q[0].x;
+let mb = u.q[0].y;
+let pp = u.q[0].z;
+let gph = u.q[0].w;
+let sk = u.q[1].x;
+let cpp = u.q[1].y * 6.2831853;
+let pb = u.q[1].z;
+let pm = u.q[1].w;
+let pt = min(u.q[2].x, 1.5);
+let sb = min(u.q[2].y, 2.0) * 0.5;
+let sp = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
+let pan = vec2f(0.07 * sin(cpp), 0.045 * sin(cpp * 2.0 + 1.0));
+// The void: deep blue-black with a faint warm glow behind the movement.
+var col = mix(vec3f(0.06, 0.04, 0.08), vec3f(0.008, 0.01, 0.025), smoothstep(0.0, 1.1, length(sp - vec2f(0.0, -0.05))));
+// The wheels: (x, y, pitch radius, teeth), and (parent, direction to
+// it, layer, driver). Back layer, second train, front train.
+var G = array<vec4f, 10>(
+    vec4f(-0.45, 0.35, 0.48, 48.0),
+    vec4f(0.2428, -0.05, 0.32, 32.0),
+    vec4f(0.6428, -0.7428, 0.48, 48.0),
+    vec4f(0.55, 0.42, 0.24, 24.0),
+    vec4f(0.2117, 0.2969, 0.12, 12.0),
+    vec4f(-0.183, 0.4406, 0.3, 30.0),
+    vec4f(0.40, -0.05, 0.11, 15.0),
+    vec4f(0.021, -0.188, 0.293, 40.0),
+    vec4f(-0.36, 0.032, 0.147, 20.0),
+    vec4f(-0.5705, -0.2686, 0.22, 30.0)
+);
+var M = array<vec4f, 10>(
+    vec4f(-1.0, 0.0, 0.0, 0.0),
+    vec4f(0.0, -0.5235988, 0.0, 0.0),
+    vec4f(1.0, -1.0471976, 0.0, 0.0),
+    vec4f(-1.0, 0.0, 1.0, 1.0),
+    vec4f(3.0, 3.4906585, 1.0, 0.0),
+    vec4f(4.0, 2.7925268, 1.0, 0.0),
+    vec4f(-1.0, 0.0, 2.0, 2.0),
+    vec4f(6.0, 3.4906585, 2.0, 0.0),
+    vec4f(7.0, 2.6179939, 2.0, 0.0),
+    vec4f(8.0, 4.1015237, 2.0, 0.0)
+);
+var th = array<f32, 10>(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+let zf = 1.0 + 0.05 * pb;
+for (var i = 0; i < 10; i++) {
+    let g = G[i];
+    let m = M[i];
+    // The wheel's angle: its driver's, or its parent's geared down.
+    var t = 0.0;
+    if (m.x < 0.0) {
+        t = select(select(ea, mb, m.w < 1.5), -ea * 0.25, m.w < 0.5);
+    } else {
+        let pi = i32(m.x);
+        let np = G[pi].w;
+        t = m.y + 3.1415927 - (np * (m.y - th[pi]) + 3.1415927) / g.w;
+    }
+    th[i] = t;
+    let ly = i32(m.z);
+    let z = select(select(1.0, 1.6, ly == 1), 2.4, ly == 0);
+    // The layer's position: parallax and the kick's nudge in.
+    let lp = (sp - pan / z) / (1.0 + (zf - 1.0) / z);
+    let px = 1.0 / hp;
+    let R = g.z;
+    let N = g.w;
+    let h = 2.2 * R / N;
+    let d = lp - g.xy;
+    let r = length(d);
+    if (r > R + h + 0.04) {
+        continue;
+    }
+    let wa = atan2(d.y, d.x);
+    let phi = wa - t;
+    // The teeth (a sawtooth on the escape wheel).
+    var tw = clamp(cos(N * phi) * 1.8 + 0.3, -1.0, 1.0) * 0.5 + 0.5;
+    if (i == 6) {
+        tw = pow(1.0 - fract(N * phi / 6.2831853), 1.5);
+    }
+    let dOut = r - (R - h * 0.5 + h * tw);
+    // Spokes and the axle hole.
+    let ns = select(5.0, 6.0, ly == 0);
+    let fs = fract(phi * ns / 6.2831853);
+    let sd = min(fs, 1.0 - fs) * 6.2831853 / ns * r;
+    let ri = R * 0.8 - h;
+    let rh = R * 0.24;
+    let dHole = max(max(rh - r, r - ri), R * 0.07 - sd);
+    var db = max(dOut, -dHole);
+    db = max(db, R * 0.07 - r);
+    let aw = px * select(1.0, 2.2, r > R - h);
+    let cov = 1.0 - smoothstep(-aw, aw, db);
+    let edge = exp(-abs(db) / (px * 2.5));
+    let ins = -db / px;
+    // The glints racing round the teeth.
+    let gd = abs(fract((wa - gph * select(1.0, -1.0, (i & 1) == 1) + f32(i) * 1.7) / 6.2831853 + 0.5) - 0.5) * 6.2831853;
+    let glint = exp(-gd * gd / 0.02) * smoothstep(R - h * 1.4, R, r);
+    // Brushed metal: a sheen fixed to the light, as the wheel turns under it.
+    let sheen = 0.5 + 0.5 * cos(2.0 * wa - 0.9);
+    var gc = vec3f(0.0);
+    var neon = vec3f(0.0);
+    if (ly == 2) {
+        let brass = vec3f(1.0, 0.66, 0.26);
+        let bev = exp(-max(ins, 0.0) / 4.0);
+        gc = brass * (0.32 + 0.5 * sheen) * (0.8 + 0.4 * sb) * (1.0 - 0.35 * smoothstep(rh, rh + 0.02, r) * (1.0 - smoothstep(ri - 0.02, ri, r))) + vec3f(1.0, 0.9, 0.7) * bev * 0.35;
+        neon = vec3f(0.1, 0.85, 1.0) * (0.7 + 0.55 * pb);
+        gc += vec3f(1.0, 0.95, 0.8) * glint * (0.8 + 1.0 * pb);
+    } else if (ly == 1) {
+        gc = vec3f(0.85, 0.45, 0.35) * (0.15 + 0.3 * sheen);
+        neon = vec3f(1.0, 0.2, 0.75) * (0.6 + 0.4 * pm);
+        gc += vec3f(1.0, 0.7, 0.9) * glint * 0.6;
+    } else {
+        gc = vec3f(0.03, 0.06, 0.14);
+        neon = vec3f(0.25, 0.45, 1.0) * 0.45;
+        gc += vec3f(0.5, 0.7, 1.0) * glint * 0.25;
+    }
+    col = mix(col, gc, cov) + neon * edge * 0.55;
+}
+// The balance wheel and its hairspring (second layer).
+{
+    let lp = (sp - pan / 1.6) / (1.0 + (zf - 1.0) / 1.6);
+    let bc = vec2f(-0.66, -0.02);
+    let d = lp - bc;
+    let r = length(d);
+    let osc = 2.2 * sin(pp * 2.0);
+    if (r < 0.16) {
+        let px = 1.0 / hp;
+        let ring = abs(r - 0.12) - 0.008;
+        let wa = atan2(d.y, d.x) - osc;
+        let fa = fract(wa / 3.1415927);
+        let arm = max(min(fa, 1.0 - fa) * 3.1415927 * r - 0.006, r - 0.12);
+        let bw = min(ring, arm);
+        col = mix(col, vec3f(0.9, 0.55, 0.3) * (0.3 + 0.4 * (0.5 + 0.5 * cos(2.0 * atan2(d.y, d.x) - 0.9))), 1.0 - smoothstep(-px, px, bw));
+        col += vec3f(1.0, 0.25, 0.8) * exp(-abs(bw) / (px * 2.5)) * 0.45;
+        // The spring: six coils, breathing with the swing.
+        let b = 0.0125 / 6.2831853;
+        let sa = atan2(d.y, d.x) - osc * 0.15;
+        let fk = (r - 0.01) / (6.2831853 * b) - sa / 6.2831853;
+        let ds = abs(fract(fk + 0.5) - 0.5) * 6.2831853 * b;
+        let inside = smoothstep(0.012, 0.016, r) * (1.0 - smoothstep(0.088, 0.094, r));
+        let spx = 0.0125 * hp;
+        let lod = smoothstep(4.0, 8.0, spx);
+        let line = exp(-ds * ds / (px * px * 1.5));
+        let avg = 1.2 * px / 0.0125 * 1.5;
+        col += vec3f(0.2, 0.95, 1.0) * mix(avg, line, lod) * inside * 1.1;
+    }
+}
+// The anchor and pendulum (in front): pivot, two arms to the pallets, a
+// rod and a bob, rocking together.
+{
+    let lp = (sp - pan / 0.9) / (1.0 + (zf - 1.0) / 0.9);
+    let px = 1.0 / hp;
+    let pv = vec2f(0.40, 0.2);
+    let sw = 0.16 * sin(pp);
+    let cs = cos(sw);
+    let sn = sin(sw);
+    let q = lp - pv;
+    let lq = vec2f(cs * q.x + sn * q.y, -sn * q.x + cs * q.y);
+    // Pallet tips, in the anchor's frame.
+    let la = vec2f(-0.095, -0.155);
+    let ra = vec2f(0.095, -0.155);
+    let ha = lq - la * clamp(dot(lq, la) / dot(la, la), 0.0, 1.0);
+    let hb = lq - ra * clamp(dot(lq, ra) / dot(ra, ra), 0.0, 1.0);
+    let rod = vec2f(0.0, -0.6);
+    let hr = lq - rod * clamp(dot(lq, rod) / dot(rod, rod), 0.0, 1.0);
+    let dArm = min(length(ha), length(hb)) - 0.011;
+    let dRod = length(hr) - 0.005;
+    let dBob = length(lq - rod) - 0.075;
+    let dPiv = length(lq) - 0.022;
+    let dp = min(min(dArm, dRod), min(dBob, dPiv));
+    let brass = vec3f(1.0, 0.7, 0.3) * (0.4 + 0.45 * (0.5 + 0.5 * cos(2.0 * atan2(lq.y - rod.y, lq.x) - 0.9 + sw)));
+    var pc = brass * (0.8 + 0.4 * sb);
+    pc += vec3f(1.0, 0.95, 0.85) * exp(-max(-dBob, 0.0) / 0.03) * 0.25 * step(dBob, 0.0);
+    col = mix(col, pc, 1.0 - smoothstep(-px, px, dp));
+    col += vec3f(0.1, 0.85, 1.0) * exp(-abs(dp) / (px * 2.5)) * 0.4 * (0.7 + 0.55 * pb);
+    // Treble: sparks thrown up from the engaged pallet.
+    let tip = pv + select(ra, la, sw > 0.0);
+    let tpos = pv + vec2f(cs * (tip.x - pv.x) - sn * (tip.y - pv.y), sn * (tip.x - pv.x) + cs * (tip.y - pv.y));
+    var spk = vec3f(0.0);
+    let s0 = 4.0 * hp / 540.0;
+    let ssz = max(s0, 1.0);
+    let sen = (s0 / ssz) * (s0 / ssz);
+    for (var k = 0; k < 12; k++) {
+        let fk = f32(k);
+        let ag = fract(sk + fk / 12.0);
+        let gen = floor(sk + fk / 12.0);
+        let hs = fract(sin(fk * 12.9898 + gen * 78.233) * 43758.5453);
+        let hs2 = fract(hs * 91.7);
+        let dir = 0.3 + 2.5 * hs;
+        let spd = 0.12 + 0.2 * hs2;
+        let ppos = tpos + vec2f(cos(dir), sin(dir)) * spd * ag + vec2f(0.0, -0.25) * ag * ag;
+        let dd = (lp - ppos) * hp / ssz;
+        spk += vec3f(1.0, 0.75, 0.35) * exp(-dot(dd, dd) / 1.5) * (1.0 - ag) * (1.0 - ag);
+    }
+    col += spk * (0.1 + 1.6 * pt) * 1.6 * sen;
+}
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.15, vec3f(0.0));
+return col / (1.0 + 0.4 * col);
+'''

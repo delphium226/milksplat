@@ -1,0 +1,157 @@
+# Op Art Waves: optical art after Bridget Riley and Victor Vasarely. Wide
+# bands of neon colour alternate with black, rippling across the screen
+# in slow waves, and in their midst a great sphere seems to swell out of
+# the picture where the bands bulge and bend round it. A faint pattern of
+# rings laid over the bands sets up a gentle moire.
+#
+# Everything is in the composite. The bands are the whole and half
+# periods of a wavy stripe coordinate (the height plus two sines of the
+# position across), each coloured band its own hue. The sphere is a lens:
+# inside its circle the plane is magnified toward the centre by a factor
+# that falls smoothly to one at the rim, and lightly shaded as a ball.
+# The edges of the bands are anti-aliased by the stripe coordinate's
+# screen derivative, and where the bands would be packed into only a few
+# pixels the picture fades to their average colour, so the stripes never
+# alias or flicker on a small picture; the fine shimmer fades out on
+# small pictures altogether.
+#
+# Each hit of the music is felt at once, through pulses of the bass, mids
+# and treble that rise in a tick or two and die away over a fraction of a
+# second (soft-limited, so a bigger hit still means more): a kick swells
+# the sphere, sends a ring wave rippling out through the bands from it
+# (up to three at once) and pushes the bands' flow on (accumulated); the
+# mids twist the bands round the sphere; the treble adds a fine shimmer
+# along the bands (its drift accumulated). Nothing flashes: the colours
+# only drift, and the bands keep their share of the screen as they move.
+version = 1
+
+[meta]
+name = "Op Art Waves"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+ph = 0; hu = 0; cph = 0; sh = 0; sl = 0; cd = 0;
+a1 = 9; a2 = 9; a3 = 9;
+'''
+frame = '''
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+ob = pb;
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+tp = 6.2831853;
+// The bands' flow, a kick pushing it on.
+ph = ph + (0.25 + 2.2 * pb) / 60; ph = ph - tp * floor(ph / tp);
+// The colours' slow drift.
+hu = hu + 0.008 / 60; hu = hu - floor(hu);
+// The sphere's slow wander.
+cph = cph + 0.03 / 60; cph = cph - floor(cph);
+// The shimmer's drift, run by the treble.
+sh = sh + (0.5 + 4.0 * pt) / 60; sh = sh - tp * floor(sh / tp);
+// The twist follows the mids (its pulse smoothed a touch more).
+tw = tw + (pm - tw) * 0.15;
+// A fresh kick sends a ring wave out from the sphere, in the next slot.
+dt = 1 / 60;
+a1 = min(a1 + dt, 9); a2 = min(a2 + dt, 9); a3 = min(a3 + dt, 9);
+kk = max(pb - ob, 0);
+cd = cd + 1;
+if(kk > 0.1 && cd > 10,
+  cd = 0; sl = (sl + 1) % 3;
+  if(sl == 0, a1 = 0; s1 = min(pb, 1.4), 0);
+  if(sl == 1, a2 = 0; s2 = min(pb, 1.4), 0);
+  if(sl == 2, a3 = 0; s3 = min(pb, 1.4), 0),
+  0);
+q1 = ph; q2 = hu; q3 = cph; q4 = sh;
+q5 = pb; q6 = tw; q7 = pt;
+q9 = a1; q10 = s1; q11 = a2; q12 = s2;
+q13 = a3; q14 = s3;
+'''
+
+[shader]
+comp = '''
+let asp = u.texsize.x * u.texsize.w;
+let hp = u.texsize.y;
+let ph = u.q[0].x;
+let hu = u.q[0].y;
+let cph = u.q[0].z * 6.2831853;
+let sh = u.q[0].w;
+let pb = u.q[1].x;
+let tw = min(u.q[1].y, 1.5);
+let pt = min(u.q[1].z, 1.5);
+let p = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
+// The sphere: wandering a little, swelling with the kicks.
+let c = vec2f(0.32 * sin(cph), 0.08 * sin(cph * 2.0 + 0.7));
+let d = p - c;
+let r = length(d);
+let R = 0.33 * (1.0 + 0.2 * pb);
+let rr = min(r / R, 1.0);
+let lensB = 0.45 + 0.15 * pb;
+let k = 1.0 - lensB * (1.0 - rr * rr) * (1.0 - rr * rr);
+var q = c + d * k;
+// The twist round the sphere, with the mids.
+let ta = (0.15 * sin(cph * 3.0) + 0.55 * tw) * exp(-r * r / 0.25);
+let ct = cos(ta);
+let st = sin(ta);
+let dq = q - c;
+q = c + vec2f(ct * dq.x - st * dq.y, st * dq.x + ct * dq.y);
+// The kicks' ring waves, rippling out from the sphere.
+var disp = 0.0;
+for (var i = 0; i < 3; i++) {
+    let w = u.q[2 + i / 2];
+    let ag = select(w.x, w.z, (i & 1) == 1);
+    let am = select(w.y, w.w, (i & 1) == 1);
+    if (ag < 2.5) {
+        let dw = r - ag * 0.7;
+        disp += am * exp(-dw * dw / 0.01) * (1.0 - smoothstep(1.0, 2.5, ag));
+    }
+}
+// The stripe coordinate: wavy bands, thirteen to the screen's height.
+let s = (q.y + 0.07 * sin(q.x * 3.5 + ph) + 0.035 * sin(q.x * 8.0 - ph * 2.0 + q.y * 2.0)) * 13.0 + disp * 0.5 * k * k;
+let fw = max(fwidth(s), 1e-4);
+let g = fract(s + 0.25) - 0.5;
+let e = 0.25 - abs(g);
+var m = clamp(e / fw + 0.5, 0.0, 1.0);
+// Bands under about four pixels fade to their average.
+let lod = smoothstep(0.12, 0.3, fw);
+m = mix(m, 0.5, lod);
+// The bands cycle through three neon hues, drifting slowly.
+let bi = floor(s + 0.25);
+let hh = fract(hu + (bi - 3.0 * floor(bi / 3.0)) * 0.3333333 + 0.83);
+let hc = clamp(abs(fract(vec3f(hh) + vec3f(0.0, 0.6666667, 0.3333333)) * 6.0 - 3.0) - 1.0, vec3f(0.0), vec3f(1.0));
+// (Evened out in brightness, so the picture does not dim as the hues drift.)
+let bc = mix(hc, vec3f(1.0), 0.08) * 0.85 / (0.3 + dot(hc, vec3f(0.3, 0.5, 0.2)));
+var col = bc * m;
+// Where faded, the average is of neighbouring hues, not one band's.
+let avgc = vec3f(0.5, 0.45, 0.5);
+col = mix(col, avgc * 0.5, lod);
+// A faint ring pattern over the bands: a gentle moire.
+let c2 = vec2f(-0.4 * sin(cph * 1.3 + 1.0), -0.1);
+let rs = length(p - c2) * 11.0;
+let rfw = fwidth(rs);
+let mo = 0.5 + 0.5 * cos(rs * 6.2831853) * (1.0 - smoothstep(0.15, 0.35, rfw));
+col *= 0.82 + 0.18 * mo;
+// The sphere's shading: a ball lit from the upper left.
+if (r < R) {
+    let zz = sqrt(max(1.0 - rr * rr, 0.0));
+    let nl = clamp(dot(vec3f(d / R, zz), normalize(vec3f(-0.5, 0.5, 0.75))), 0.0, 1.0);
+    col *= mix(1.0, 0.72 + 0.5 * nl, zz);
+}
+// Treble: a fine shimmer along the bands (faded on small pictures).
+let sx = 0.5 + 0.5 * sin(q.x * 38.0 - sh * 3.0 + bi * 1.7);
+col += mix(bc, vec3f(1.0), 0.5) * exp(-g * g / 0.004) * pow(sx, 6.0) * pt * 0.9 * m * smoothstep(150.0, 400.0, hp);
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.1, vec3f(0.0));
+return col / (1.0 + 0.35 * col);
+'''

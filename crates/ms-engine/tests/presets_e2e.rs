@@ -54,7 +54,7 @@ const HAT_SEED: u64 = 0x4A75_6E6B_4861_7473;
 const RGBA8: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 
 /// The bundled presets, by file stem. `presets/` must hold exactly these.
-const BUNDLED: [&str; 91] = [
+const BUNDLED: [&str; 96] = [
     "default",
     "ink-bloom",
     "bass-tunnel",
@@ -146,6 +146,11 @@ const BUNDLED: [&str; 91] = [
     "smoke-rings",
     "game-of-life-garden",
     "slime-mold",
+    "hex-hive",
+    "demoscene-plasma",
+    "impossible-geometry",
+    "clockwork",
+    "op-art-waves",
 ];
 
 // ------------------------------------------------------------ synthetic audio
@@ -615,6 +620,11 @@ preset_tests! {
     preset_smoke_rings => "smoke-rings",
     preset_game_of_life_garden => "game-of-life-garden",
     preset_slime_mold => "slime-mold",
+    preset_hex_hive => "hex-hive",
+    preset_demoscene_plasma => "demoscene-plasma",
+    preset_impossible_geometry => "impossible-geometry",
+    preset_clockwork => "clockwork",
+    preset_op_art_waves => "op-art-waves",
 }
 
 /// `presets/` holds exactly the bundled set (so every file has a test
@@ -647,7 +657,7 @@ fn bundled_set_is_complete() {
 /// runs: a minute for those with long-running state (accumulated phases,
 /// state machines), twenty seconds for the rest (enough for their feedback
 /// to settle; every bundled preset but the gentle default is covered).
-const LONG_RUN: [(&str, usize); 90] = [
+const LONG_RUN: [(&str, usize); 95] = [
     ("ink-bloom", 1200),
     ("bass-tunnel", 1200),
     ("prism-drift", 1200),
@@ -738,6 +748,11 @@ const LONG_RUN: [(&str, usize); 90] = [
     ("smoke-rings", 3600),
     ("game-of-life-garden", 3600),
     ("slime-mold", 3600),
+    ("hex-hive", 3600),
+    ("demoscene-plasma", 3600),
+    ("impossible-geometry", 3600),
+    ("clockwork", 3600),
+    ("op-art-waves", 3600),
 ];
 
 /// A cheap guard against flashing that only develops over time (for

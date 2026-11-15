@@ -1,0 +1,168 @@
+# Demoscene Plasma: an homage to the classic effects of the 90s demo
+# scene, done hi-fi. A sum-of-sines plasma flows in a vivid, slowly
+# cycling palette, cut into glowing ridges; over it turns a rotozoomed
+# checkerboard, five polished copper bars swing up and down the screen
+# (passing behind and in front of one another), and a sine scroller of
+# rainbow dots snakes across the bottom with sparkles twinkling on it.
+#
+# Everything is in the composite. The plasma is four sines (two straight
+# waves, a diagonal one and a ring from a wandering centre) of the
+# position, itself warped by a sine of the other axis; its value indexes
+# a cosine palette (red, green and blue a third of a turn apart, so the
+# brightness barely changes as it cycles) and, through a second sine,
+# the dark gaps between the ridges. The checkerboard is the product of
+# two sines of the rotated, zoomed position, anti-aliased by its screen
+# derivative and faded to grey where its squares grow too small. Each
+# copper bar has a shaded profile and a hue of its own, dimmed while it
+# is behind. The scroller's dots sit in fixed slots along x (the scroll
+# counted in slots, so it wraps cleanly), each pixel looking only at its
+# own slot and its neighbours.
+#
+# Each hit of the music is felt at once, through pulses of the bass, mids
+# and treble that rise in a tick or two and die away over a fraction of a
+# second (soft-limited, so a bigger hit still means more): a kick punches
+# the checkerboard's zoom in and spins it on (accumulated), rotates the
+# palette on (accumulated, a smooth slide rather than a flash) and makes
+# the copper bars swing and flare; the mids warp the plasma; the treble
+# speeds the scroller (accumulated) and makes its dots sparkle. Bass
+# brightens the ridges (smoothed).
+version = 1
+
+[meta]
+name = "Demoscene Plasma"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+pal = 0; ph = 0; ra = 0; zl = 0; cb = 0; sc = 0; dp = 0;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+tp = 6.2831853;
+// The palette's rotation, a kick sliding it on.
+pal = pal + (0.02 + 0.35 * pb) / 60; pal = pal - floor(pal);
+// The plasma's flow (whole multiples of it are used, so it wraps cleanly).
+ph = ph + (0.3 + 0.5 * pm + 0.6 * pb) / 60; ph = ph - tp * floor(ph / tp);
+// The checkerboard's turn and its zoom's swing, a kick driving both on.
+ra = ra + (0.1 + 1.6 * pb) / 60; ra = ra - tp * floor(ra / tp);
+zl = zl + (0.1 + 1.2 * pb) / 60; zl = zl - tp * floor(zl / tp);
+// The copper bars' swing.
+cb = cb + (0.9 + 1.8 * pb) / 60; cb = cb - tp * floor(cb / tp);
+// The scroller (in dot slots; 48 slots repeat) and its wave.
+sc = sc + (0.4 + 6.0 * pt) / 60; sc = sc - 48 * floor(sc / 48);
+dp = dp + (1.0 + 2.0 * pt) / 60; dp = dp - tp * floor(dp / tp);
+q1 = pal; q2 = ph; q3 = ra; q4 = zl;
+q5 = cb; q6 = sc; q7 = dp; q8 = pb;
+q9 = pm; q10 = pt; q11 = sb;
+'''
+
+[shader]
+comp = '''
+let asp = u.texsize.x * u.texsize.w;
+let lw = u.texsize.y / 540.0;
+let pal = u.q[0].x;
+let ph = u.q[0].y;
+let ra = u.q[0].z;
+let zl = u.q[0].w;
+let cb = u.q[1].x;
+let scr = u.q[1].y;
+let dp = u.q[1].z;
+let pb = u.q[1].w;
+let pm = u.q[2].x;
+let pt = min(u.q[2].y, 1.5);
+let sb = min(u.q[2].z, 2.0) * 0.5;
+let x = (uv.x - 0.5) * asp;
+let y = 0.5 - uv.y;
+// The plasma, warped by the mids.
+let wa = 0.12 + 0.45 * pm;
+let px = x + wa * sin(y * 4.0 + ph * 2.0);
+let py = y + wa * sin(x * 3.5 - ph);
+let cx = 0.45 * sin(ph);
+let cy = 0.3 * cos(ph * 2.0);
+var v = sin(px * 5.0 + ph);
+v += sin(py * 6.0 - ph * 2.0);
+v += sin((px + py) * 4.0 + ph * 3.0);
+v += sin(length(vec2f(px - cx, py - cy)) * 9.0 - ph * 2.0);
+let k = v * 0.16 + pal;
+var pcol = 0.5 + 0.5 * cos(6.2831853 * (vec3f(k) + vec3f(0.0, 0.3333333, 0.6666667)));
+pcol = pcol * pcol * 1.1 + pcol * 0.25;
+// The ridges fade to their average where they would be packed too
+// tightly for the pixels (so a small picture cannot alias).
+let rfw = fwidth(v) * 3.2;
+let ridge = 0.5 + 0.5 * sin(v * 3.2) * (1.0 - smoothstep(0.6, 1.6, rfw));
+var col = pcol * (0.18 + 0.82 * pow(ridge, 1.5)) * (0.85 + 0.3 * sb);
+// The rotozoomed checkerboard, a kick punching the zoom in.
+let zm = 3.0 * exp2(0.9 * sin(zl)) / (1.0 + 0.22 * pb);
+let cr = cos(ra);
+let sr = sin(ra);
+let rx = (cr * x - sr * y) * zm + 0.5 * sin(zl * 2.0);
+let ry = (sr * x + cr * y) * zm + 0.5 * cos(zl);
+let s = sin(rx * 3.1415927) * sin(ry * 3.1415927);
+let fs = max(fwidth(s), 1e-4);
+let chk = smoothstep(-fs, fs, s);
+// Squares under about ten pixels fade to an even grey.
+let sqpx = u.texsize.y / zm;
+let cfade = smoothstep(8.0, 18.0, sqpx);
+col *= mix(1.0, mix(0.45, 1.2, chk), cfade * 0.8);
+// The copper bars: shaded profiles, dimmed when behind.
+let hw = 0.05;
+// On a tiny picture the bars (a few pixels tall) fade, so they cannot
+// alias as they move.
+let bfade = smoothstep(2.0, 6.0, hw * u.texsize.y);
+// The highlight's sharpness, softer on a small picture.
+let hx = clamp(hw * u.texsize.y / 3.0, 1.5, 8.0);
+for (var i = 0; i < 5; i++) {
+    let fi = f32(i);
+    let a = cb + fi * 0.55;
+    let yc = 0.04 + 0.32 * sin(a) + 0.06 * sin(a * 2.0 + fi);
+    let d = (y - yc) / hw;
+    if (abs(d) < 1.0) {
+        let pr = 1.0 - d * d;
+        let front = 0.5 + 0.5 * cos(a);
+        let bc = 0.5 + 0.5 * cos(6.2831853 * (vec3f(fi * 0.2 + 0.05) + vec3f(0.0, 0.3333333, 0.6666667)));
+        let shade = mix(bc * bc, vec3f(1.0), pow(pr, hx) * 0.7) * pow(pr, 0.6) * 1.2 * (0.9 + 0.3 * pb);
+        let al = smoothstep(0.0, 0.25, pr) * mix(0.35, 1.0, front) * bfade;
+        col = mix(col, shade, al);
+    }
+}
+// The sine scroller: rainbow dots in slots along x, sparkling with the treble.
+let sp = asp / 32.0;
+let xs = (x + asp * 0.5) / sp + scr;
+let kc = floor(xs);
+var dots = vec3f(0.0);
+for (var j = -1; j <= 1; j++) {
+    let kk = kc + f32(j);
+    let kw = kk - 48.0 * floor(kk / 48.0);
+    let ang = kw * 6.2831853 / 48.0;
+    let dx = (xs - kk - 0.5) * sp;
+    let yd = -0.3 + 0.07 * sin(ang * 3.0 + dp) + 0.03 * sin(ang * 7.0 - dp * 2.0);
+    let dy = y - yd;
+    let r = length(vec2f(dx, dy)) * u.texsize.y;
+    let rr = max(6.0 * lw, 2.0);
+    let en = (6.0 * lw / rr) * (6.0 * lw / rr);
+    let hc = 0.5 + 0.5 * cos(6.2831853 * (vec3f(kw / 48.0 * 2.0 + pal) + vec3f(0.0, 0.3333333, 0.6666667)));
+    let g = exp(-r * r / (rr * rr)) * 1.4 + exp(-r / (rr * 1.5)) * 0.2 * (1.0 + 2.0 * pt);
+    let tw = fract(sin(kw * 12.9898 + floor(dp * 4.0)) * 43758.5);
+    let spk = pt * step(0.6, tw) * 1.5 * (exp(-abs(dx) * u.texsize.y / max(0.8 * lw, 0.6) - abs(dy) * u.texsize.y / (rr * 3.0)) + exp(-abs(dy) * u.texsize.y / max(0.8 * lw, 0.6) - abs(dx) * u.texsize.y / (rr * 3.0)));
+    dots += mix(hc, vec3f(1.0), 0.3) * g * en + vec3f(1.0) * spk * en;
+}
+col = col * (1.0 - 0.6 * min(length(dots), 1.0)) + dots;
+// A soft vignette.
+col *= 1.0 - 0.35 * dot(vec2f(x / asp, y), vec2f(x / asp, y)) * 2.0;
+return col / (1.0 + 0.35 * col);
+'''
