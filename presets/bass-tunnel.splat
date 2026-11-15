@@ -96,13 +96,15 @@ let hz = wz / (0.46 * L);
 let pw = 0.235 * (1.0 + 0.25 * pm) * (1.0 - hz * hz);
 let d = abs(wx) - pw;
 let inside = select(0.0, 1.0, d < 0.0 && abs(hz) < 1.0);
-let outline = exp(-pow(d / lw, 2.0)) * step(abs(hz), 1.02);
-let vein = exp(-pow(wx / lw, 2.0)) * inside * (1.0 - abs(hz)) * 0.7;
+// Pixel-wide lines cover more of a small image: thin them out there.
+let sc = clamp(u.texsize.y / 540.0, 0.15, 1.0);
+let outline = exp(-pow(d / lw, 2.0)) * step(abs(hz), 1.02) * sc;
+let vein = exp(-pow(wx / lw, 2.0)) * sc * inside * (1.0 - abs(hz)) * 0.7;
 let fill = inside * (0.12 + 0.26 * smoothstep(0.0, -0.14, d)) * (0.55 + 0.45 * (1.0 - abs(hz)));
 let halo = exp(-abs(d) / 0.05) * 0.32 * step(abs(hz), 1.1);
 // The hoops between rings.
 let fr = min(f, 1.0 - f) * L;
-let hoop = exp(-pow(fr / lw, 2.0)) + exp(-fr / 0.05) * 0.18;
+let hoop = exp(-pow(fr / lw, 2.0)) * sc + exp(-fr / 0.05) * 0.18;
 // Colour by ring: amber, magenta, cyan.
 let ci = n - 3.0 * floor(n / 3.0);
 let pc = select(select(vec3f(0.1, 0.75, 1.0), vec3f(1.0, 0.12, 0.62), ci < 1.5), vec3f(1.0, 0.48, 0.06), ci < 0.5);
@@ -112,7 +114,7 @@ let hc = select(select(vec3f(0.55, 0.9, 1.0), vec3f(1.0, 0.55, 0.85), ci2 < 1.5)
 // Sparks at the petals' tips on the treble.
 let hs = fract(sin(n * 12.9898 + pid * 78.233) * 43758.5453);
 let tip = vec2f(wx, (abs(hz) - 1.0) * 0.46 * L);
-let spark = exp(-dot(tip, tip) / (lw * lw * 6.0)) * step(0.45, hs) * (0.3 + 3.0 * pt);
+let spark = exp(-dot(tip, tip) / (lw * lw * 6.0)) * sc * step(0.45, hs) * (0.3 + 3.0 * pt);
 // Light falls off with depth; sub-pixel detail fades out.
 let att = exp(-z * 0.2) * smoothstep(0.12, 0.9, z);
 let fine = clamp(L * 0.5 / fz - 0.5, 0.0, 1.0);
