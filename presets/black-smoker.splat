@@ -1,0 +1,264 @@
+# Black Smoker: hydrothermal vents on the pitch-black floor of the deep
+# ocean. Three rough mineral chimneys rise from the seabed, their cracks
+# glowing orange-red with the heat inside, and from each one a plume of
+# superheated water billows up, white-gold at the mouth, cooling through
+# orange and crimson into a dim violet smoke as it climbs and drifts in
+# the current, the water behind it shimmering in the heat haze. Thickets
+# of bioluminescent tube worms crowd the chimneys' feet, pale cyan stalks
+# swaying in the vent flow with glowing scarlet plumes at their tips, and
+# marine snow drifts down through the dark.
+#
+# Everything is in the composite. The chimneys are tapered columns with
+# a noisy outline and noise-textured cracks, hotter near the top. Each
+# plume is a cone widening and bending with height, its density turbulent
+# noise scrolled up the cone (so it billows), its colour a temperature
+# ramp; the heat haze bends the picture behind each plume by the gradient
+# of fast-moving noise. The worms are curved stalks, one per narrow
+# column of the seabed where the hash puts one (more near the vents), and
+# the snow is three layers of hashed cells scrolled down.
+#
+# The frame code accumulates the plume flow, the haze, the worms' sway
+# and the snow, and runs the eruptions. Each hit of the music is felt at
+# once, through pulses of the bass, mids and treble that rise in a tick or
+# two and die away over a fraction of a second (soft-limited, so a bigger
+# hit still means more): a kick erupts a vent (the next of the three in
+# turn), flaring its mouth and the cracks and sending a blazing puff up
+# its plume with a ripple of shimmer, pushes the view in and bends the
+# worms; the mids thicken the haze and quicken the flow; the treble flares
+# the worms' plumes. Bass brightens the vents' glow (smoothed).
+version = 1
+
+[meta]
+name = "Black Smoker"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+fl = 0; hz = 0; sw = 0; sn = 0; cd = 0; sl = 0;
+e1 = 0; e2 = 0; e3 = 0; h1 = 9; h2 = 9; h3 = 9;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+ob = pb;
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+kk = max(pb - ob, 0);
+// A fresh kick erupts the next vent: its strength follows the kick up
+// while the puff is young, then fades as the puff climbs the plume.
+cd = cd + 1;
+if(kk > 0.1 && cd > 8,
+  cd = 0; sl = (sl + 1) % 3;
+  if(sl == 0, e1 = max(e1, 0.5); h1 = 0, 0);
+  if(sl == 1, e2 = max(e2, 0.5); h2 = 0, 0);
+  if(sl == 2, e3 = max(e3, 0.5); h3 = 0, 0),
+  0);
+if(h1 < 0.08, e1 = max(e1, min(0.5 + pb, 1.6)), 0);
+if(h2 < 0.08, e2 = max(e2, min(0.5 + pb, 1.6)), 0);
+if(h3 < 0.08, e3 = max(e3, min(0.5 + pb, 1.6)), 0);
+h1 = min(h1 + 0.009, 9); h2 = min(h2 + 0.009, 9); h3 = min(h3 + 0.009, 9);
+e1 = e1 * 0.975; e2 = e2 * 0.975; e3 = e3 * 0.975;
+// The plumes' flow, the haze, the worms' sway, the snow.
+fl = fl + 0.004 + 0.006 * pm + 0.01 * pb; fl = fl - 1024 * floor(fl / 1024);
+hz = hz + 0.03 + 0.04 * pm + 0.06 * pb; hz = hz - 1024 * floor(hz / 1024);
+sw = sw + 0.025 + 0.03 * pm; sw = sw - 6283.1853 * floor(sw / 6283.1853);
+sn = sn + 0.0006 + 0.0006 * pb; sn = sn - 64 * floor(sn / 64);
+q1 = fl; q2 = hz; q3 = sw; q4 = sn;
+q5 = pb; q6 = pm; q7 = pt; q8 = sb;
+q9 = e1; q10 = e2; q11 = e3;
+q13 = h1; q14 = h2; q15 = h3;
+'''
+
+[shader]
+comp = '''
+let sz = u.texsize.xy;
+let asp = sz.x / sz.y;
+let px = 1.0 / sz.y;
+let lw = max(1.0, sz.y / 540.0);
+let fl = u.q[0].x;
+let hz = u.q[0].y;
+let sw = u.q[0].z;
+let sn = u.q[0].w;
+let pb = u.q[1].x;
+let pm = u.q[1].y;
+let pt = u.q[1].z;
+let sb = min(u.q[1].w, 2.0) * 0.5;
+// Glows held back a little on a tiny picture.
+let gk = min(1.0, sz.y / 200.0);
+// A kick pushes the view in (toward the middle vent).
+let zf = 1.0 / (1.0 + 0.05 * pb);
+let p0 = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y) * zf + vec2f(0.0, -0.04);
+// The three vents: x, base, height.
+var vx = array<f32, 3>(-0.52, 0.06, 0.64);
+var vh = array<f32, 3>(0.27, 0.42, 0.2);
+var vw = array<f32, 3>(0.045, 0.06, 0.04);
+var ve = array<f32, 3>(u.q[2].x, u.q[2].y, u.q[2].z);
+var vp = array<f32, 3>(u.q[3].x, u.q[3].y, u.q[3].z);
+// The heat haze: the picture behind each plume is bent by fast noise.
+var haze = vec2f(0.0);
+for (var i = 0; i < 3; i++) {
+    let gb = -0.3 + 0.03 * sin(vx[i] * 7.0);
+    let top = gb + vh[i];
+    let hg = p0.y - top;
+    if (hg > -0.02) {
+        let hh = max(hg, 0.0);
+        let cx = vx[i] + 0.25 * hh * hh + 0.03 * hh;
+        let pw = 0.035 + 0.28 * hh;
+        let d = (p0.x - cx) / pw;
+        let a = exp(-d * d * 0.7) * exp(-hh * 1.2) * smoothstep(-0.02, 0.03, hg);
+        let n1 = textureSampleLevel(sampler_noise_lq, s_fw, vec2f(p0.x * 1.5 + f32(i) * 0.31, p0.y * 1.0 - hz * 0.05), 0.0).r;
+        let n2 = textureSampleLevel(sampler_noise_lq, s_fw, vec2f(p0.x * 1.5 + f32(i) * 0.31 + 0.5, p0.y * 1.0 - hz * 0.05 + 0.37), 0.0).r;
+        haze += vec2f(n1 - 0.5, n2 - 0.5) * a * (0.012 + 0.012 * pm + 0.012 * pb + 0.02 * ve[i] * exp(-pow((hh - vp[i]) / 0.1, 2.0)));
+    }
+}
+let p = p0 + haze;
+// The deep water: near black, a faint blue far up.
+var col = vec3f(0.0, 0.006, 0.018) + vec3f(0.0, 0.015, 0.035) * smoothstep(-0.2, 0.6, p.y);
+// The ground line.
+let gn = textureSampleLevel(sampler_noise_lq, s_fw, vec2f(p.x * 0.3, 0.13), 0.0).r;
+let gy = -0.3 + 0.03 * sin(p.x * 7.0) + 0.05 * (gn - 0.5);
+// The vents' light, scattered in the water and pooled on the seabed.
+var lightw = 0.0;
+var lightg = 0.0;
+for (var i = 0; i < 3; i++) {
+    let gb = -0.3 + 0.03 * sin(vx[i] * 7.0);
+    let top = gb + vh[i];
+    let dvx = p.x - vx[i];
+    let dvy = p.y - top;
+    let ev = 0.6 + 0.4 * sb + 0.9 * ve[i];
+    lightw += exp(-sqrt(dvx * dvx + dvy * dvy) / 0.22) * ev;
+    lightg += exp(-abs(dvx) / 0.12) * ev;
+}
+col += vec3f(0.5, 0.14, 0.03) * lightw * 0.2;
+if (p.y < gy) {
+    // The seabed: dark basalt, ridged, lit orange near the vents.
+    let rn = textureSampleLevel(sampler_noise_lq, s_fw, vec2f(p.x * 1.2, p.y * 2.5), 0.0).r;
+    let dep = smoothstep(0.0, 0.25, gy - p.y);
+    var rc = vec3f(0.03, 0.025, 0.03) * (0.5 + rn);
+    rc += vec3f(0.8, 0.22, 0.05) * lightg * (0.06 + 0.2 * rn * rn) * (1.0 - 0.7 * dep);
+    // A rim of light along the ground line.
+    rc += vec3f(1.0, 0.35, 0.08) * exp(-(gy - p.y) / (0.008 + 0.004 * lw * px * 100.0)) * lightg * 0.25;
+    col = rc;
+}
+// The chimneys: tapered columns with noisy outlines and glowing cracks.
+for (var i = 0; i < 3; i++) {
+    let gb = -0.3 + 0.03 * sin(vx[i] * 7.0);
+    let top = gb + vh[i];
+    if (p.y < top && p.y > gb - 0.06) {
+        let s = clamp((p.y - gb) / vh[i], 0.0, 1.0);
+        let on = textureSampleLevel(sampler_noise_lq, s_fw, vec2f(p.y * 1.5, f32(i) * 0.23 + 0.1), 0.0).r;
+        let w = vw[i] * (1.15 - 0.6 * s) + 0.022 * (on - 0.5) + 0.03 * smoothstep(0.3, 0.0, s) ;
+        let cx = vx[i] + 0.012 * sin(s * 5.0 + f32(i));
+        let xd = (p.x - cx) / w;
+        let inside = 1.0 - smoothstep(0.9, 1.0 + 1.5 * px / w, abs(xd));
+        if (inside > 0.0) {
+            let tn = textureSampleLevel(sampler_noise_lq, s_fw, vec2f(xd * 0.15 + f32(i) * 0.4, p.y * 1.2), 0.0).r;
+            let tn2 = textureSampleLevel(sampler_noise_lq, s_fw, vec2f(xd * 0.3 + f32(i) * 0.7, p.y * 2.5 + 0.3), 0.0).r;
+            let crack = exp(-pow((tn - 0.5) / (0.03 + 0.02 * s), 2.0)) + 0.5 * exp(-pow((tn2 - 0.5) / 0.03, 2.0));
+            let shade = sqrt(max(1.0 - xd * xd, 0.0));
+            let hot = (0.25 + 0.75 * s * s) * (0.7 + 0.3 * sb + 1.2 * ve[i]);
+            var cc = vec3f(0.05, 0.035, 0.035) * (0.3 + shade) * (0.5 + tn2);
+            cc += vec3f(1.0, 0.28, 0.04) * crack * hot * 0.8;
+            cc += vec3f(1.0, 0.6, 0.2) * crack * hot * hot * 0.25;
+            // The glow from the plume on its top.
+            cc += vec3f(1.0, 0.4, 0.1) * exp(-(top - p.y) / 0.03) * (0.4 + 0.8 * ve[i]);
+            col = mix(col, cc, inside);
+        }
+    }
+}
+// The tube worms: curved stalks, thick near the vents.
+let cw = 0.011;
+let ci = floor(p.x / cw);
+for (var k = -1; k <= 1; k++) {
+    let c = ci + f32(k);
+    let h0 = (u32(i32(c) + 8192) * 1973u + 4099u) * 747796405u + 2891336453u;
+    let h = ((h0 >> ((h0 >> 28u) + 4u)) ^ h0) * 277803737u;
+    let ha = f32(h & 1023u) / 1023.0;
+    let hb = f32((h >> 10u) & 1023u) / 1023.0;
+    let hc = f32((h >> 20u) & 1023u) / 1023.0;
+    let x0 = (c + 0.2 + 0.6 * ha) * cw;
+    var near = 0.0;
+    for (var i = 0; i < 3; i++) {
+        near = max(near, exp(-pow((x0 - vx[i]) / (0.13 + 0.03 * f32(i)), 2.0)));
+    }
+    if (hb < near * 0.95) {
+        let gn0 = textureSampleLevel(sampler_noise_lq, s_fw, vec2f(x0 * 0.3, 0.13), 0.0).r;
+        let yb = -0.3 + 0.03 * sin(x0 * 7.0) + 0.05 * (gn0 - 0.5) - 0.01;
+        let ht = (0.03 + 0.09 * hc) * (0.4 + 0.6 * near);
+        let t = (p.y - yb) / ht;
+        if (t > -0.05 && t < 1.15) {
+            let tt = clamp(t, 0.0, 1.0);
+            let off = (0.012 * sin(sw + hc * 6.2831853 + x0 * 9.0) + 0.02 * pb * (0.5 + hb)) * tt * tt;
+            let xd = abs(p.x - x0 - off) / px;
+            let wd = lw * (1.2 + 0.8 * hc);
+            let stalk = exp(-xd * xd / (wd * wd)) * step(0.0, t) * step(t, 1.0);
+            col += vec3f(0.25, 0.85, 0.9) * stalk * (0.35 + 0.35 * tt) * (0.8 + 0.4 * sb);
+            // The plume at the tip, flaring with the treble.
+            let ty = (p.y - yb - ht) / px;
+            let tip = exp(-(xd * xd + ty * ty) / (wd * wd * 6.0));
+            let tc = mix(vec3f(1.0, 0.1, 0.25), vec3f(1.0, 0.4, 0.8), hb);
+            col += tc * (tip * 1.4 + exp(-sqrt(xd * xd + ty * ty) / (6.0 * lw)) * 0.3 * gk) * (0.6 + 1.2 * pt + 0.3 * pb);
+        }
+    }
+}
+// The plumes: turbulent cones, cooling with height, the puffs blazing up.
+for (var i = 0; i < 3; i++) {
+    let gb = -0.3 + 0.03 * sin(vx[i] * 7.0);
+    let top = gb + vh[i];
+    let hg = p0.y - top;
+    if (hg > -0.01) {
+        let hh = max(hg, 0.0);
+        let cx = vx[i] + 0.25 * hh * hh + 0.03 * hh;
+        let pw = 0.03 + 0.28 * hh;
+        let d = (p0.x - cx) / pw;
+        let fi = f32(i);
+        let n1 = textureSampleLevel(sampler_noise_lq, s_fw, vec2f(d * 0.08 + fi * 0.37, hh * 0.6 - fl * (1.0 + 0.2 * fi)), 0.0).r;
+        let n2 = textureSampleLevel(sampler_noise_lq, s_fw, vec2f(d * 0.18 + fi * 0.71 + 0.5, hh * 1.4 - fl * 2.1), 0.0).r;
+        let tb = n1 * 0.65 + n2 * 0.35;
+        let dens = smoothstep(0.25, 0.75, tb + 0.35 - abs(d) * 0.45) * exp(-d * d * 0.5) * smoothstep(-0.01, 0.01, hg);
+        let pf = ve[i] * exp(-pow((hh - vp[i]) / (0.05 + 0.15 * vp[i]), 2.0));
+        let tmp = exp(-hh * 5.0) * (1.0 + 0.6 * ve[i]) + 0.8 * pf;
+        // Shimmer: ripples running up the plume.
+        let shm = 1.0 + 0.35 * sin(hh * 70.0 - hz * 3.0 + n2 * 8.0) * (0.3 + 0.6 * pm + 0.8 * pf);
+        var pc = vec3f(0.35, 0.08, 0.45) * 0.35;
+        pc = mix(pc, vec3f(0.9, 0.08, 0.12), smoothstep(0.03, 0.25, tmp));
+        pc = mix(pc, vec3f(1.0, 0.45, 0.06), smoothstep(0.2, 0.6, tmp));
+        pc = mix(pc, vec3f(1.0, 0.9, 0.6), smoothstep(0.6, 1.2, tmp));
+        let fade = exp(-hh * 1.3);
+        col += pc * dens * fade * (0.55 + 1.1 * tmp) * shm * (0.8 + 0.3 * sb);
+    }
+    // The mouth's glow.
+    let md = vec2f(p0.x - vx[i], hg * 1.6);
+    col += vec3f(1.0, 0.5, 0.12) * exp(-length(md) / (0.015 + 0.02 * ve[i])) * (0.5 + 1.2 * ve[i]) * gk;
+}
+// Marine snow: three layers of hashed cells drifting down.
+for (var l = 0; l < 3; l++) {
+    let fl2 = f32(l);
+    let cs = 0.07 - 0.018 * fl2;
+    let q = vec2f(p0.x + 0.01 * sin(sw * 0.3 + fl2), p0.y + sn * (1.0 + 0.5 * fl2)) / cs;
+    let cc = floor(q);
+    let h0 = (u32(i32(cc.x) + 4096) * 1973u + u32(i32(cc.y) + 4096) * 9277u + u32(l) * 26699u) * 747796405u + 2891336453u;
+    let h = ((h0 >> ((h0 >> 28u) + 4u)) ^ h0) * 277803737u;
+    let sx = f32(h & 1023u) / 1023.0;
+    let sy = f32((h >> 10u) & 1023u) / 1023.0;
+    let sp = f32((h >> 20u) & 1023u) / 1023.0;
+    let dd = (q - cc - vec2f(0.2 + 0.6 * sx, 0.2 + 0.6 * sy)) * cs / px;
+    let rr = lw * (0.7 + 0.5 * fl2);
+    col += vec3f(0.6, 0.75, 0.85) * exp(-dot(dd, dd) / (rr * rr)) * step(0.65, sp) * (0.25 + 0.15 * fl2);
+}
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.15, vec3f(0.0)) * 1.35;
+return col / (1.0 + 0.45 * col);
+'''

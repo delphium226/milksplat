@@ -299,5 +299,7 @@ MIT OR Apache-2.0, at your option. See `LICENSE-MIT` and `LICENSE-APACHE`.
 | **Liquid Chrome**: a black liquid-metal sea mirroring neon signs, kicks dropping splashes of chrome droplets | **Prism Drift**: white beams split by drifting glass prisms into vivid spectra in the dark |
 | ![Pulse Grid](docs/images/pulse-grid.png) | ![Starfield Warp](docs/images/starfield-warp.png) |
 | **Pulse Grid**: a dark wall of crisp neon grid, scanning pulses and square pulse rings racing out on the kicks | **Starfield Warp**: streaks of coloured stars and nebula wisps rushing past, every kick punching the warp |
+| ![Black Smoker](docs/images/black-smoker.png) | |
+| **Black Smoker**: glowing hydrothermal chimneys on a pitch-black seabed billowing shimmering heat plumes over swaying bioluminescent tube worms, every kick erupting a vent | |
 
 These are single frames; every preset moves and changes with the music.
