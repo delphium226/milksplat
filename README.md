@@ -79,6 +79,12 @@ device, so just start your music and run it.
 | **Möbius Ribbon**: a fat neon Möbius strip turning through deep space, chevrons of light chasing round its one side, every kick wrenching its twist and launching a fresh arrow of light round the loop | **Origami Polyhedra**: paper polyhedra under coloured theatre gels folding from icosahedron to dodecahedron to spiky stellated star and back, every kick snapping the next fold and flaring the creases |
 | ![Volcano Lightning](docs/images/volcano-lightning.png) | ![Galaxy Collision](docs/images/galaxy-collision.png) |
 | **Volcano Lightning**: a volcano erupting at night, lava fountains and glowing rivers under a towering ash plume, every kick hurling a burst of lava and forking lightning through the ash | **Galaxy Collision**: two spiral galaxies wheeling round each other in a slow merger, tidal tails flung wide and strung with pink and blue star-forming knots, every kick setting off starbursts in both cores and a ripple through the disks |
+| ![Lichtenberg Figures](docs/images/lichtenberg-figures.png) | ![Desert Milky Way](docs/images/desert-milky-way.png) |
+| **Lichtenberg Figures**: electric-blue and violet discharge trees branching across a dark acrylic block, each kick firing a fresh one that forks out from a new strike point | **Desert Milky Way**: the blazing core of the Milky Way rising over moonless dunes and a lone rock arch, airglow drifting along the horizon, a meteor streaking down on each kick |
+| ![Mandelbulb](docs/images/mandelbulb.png) | ![Julia Morph](docs/images/julia-morph.png) |
+| **Mandelbulb**: the ray-marched three-dimensional Mandelbrot set in glowing neon orbit-trap colours, the camera circling it and pushing in on each kick as its buds morph | **Julia Morph**: a Julia set melting from shape to shape as its parameter creeps round the Mandelbrot cardioid, neon rings on black, each kick jolting it on and sweeping a ring of light in to its glowing edge |
+| ![Truchet Maze](docs/images/truchet-maze.png) | |
+| **Truchet Maze**: a scrolling maze of neon quarter-arc tubes with pulses of light racing along them, each kick sending a wave of tiles spinning to rewire the paths | |
 
 These are single frames; every preset moves and changes with the music.
 
