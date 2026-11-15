@@ -75,8 +75,8 @@ device, so just start your music and run it.
 | **Bioluminescent Surf**: night waves breaking in electric-blue plankton glow, foam sheets sliding up the sand under the Milky Way, a wave breaking on each kick | **Circuit City**: a low flight over an endless circuit-board metropolis of LED-studded chip towers, data packets racing along the traces as kicks send pulse waves through the grid |
 | ![Crystal Geode](docs/images/crystal-geode.png) | ![Lichtenberg Figures](docs/images/lichtenberg-figures.png) |
 | **Crystal Geode**: inside a giant geode, a turning cluster of amethyst and quartz lit from within, rainbow fringes on its facets, as each kick sends a flare of light up through the crystals | **Lichtenberg Figures**: electric-blue and violet discharge trees branching across a dark acrylic block, each kick firing a fresh one that forks out from a new strike point |
-| ![Desert Milky Way](docs/images/desert-milky-way.png) | |
-| **Desert Milky Way**: the blazing core of the Milky Way rising over moonless dunes and a lone rock arch, airglow drifting along the horizon, a meteor streaking down on each kick | |
+| ![Desert Milky Way](docs/images/desert-milky-way.png) | ![Mandelbulb](docs/images/mandelbulb.png) |
+| **Desert Milky Way**: the blazing core of the Milky Way rising over moonless dunes and a lone rock arch, airglow drifting along the horizon, a meteor streaking down on each kick | **Mandelbulb**: the ray-marched three-dimensional Mandelbrot set in glowing neon orbit-trap colours, the camera circling it and pushing in on each kick as its buds morph |
 
 These are single frames; every preset moves and changes with the music.
 

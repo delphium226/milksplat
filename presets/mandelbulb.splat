@@ -1,0 +1,203 @@
+# Mandelbulb: the three-dimensional Mandelbrot set, hanging in the dark.
+# A bulbous, budding sphere of power eight, every bud crowned with smaller
+# buds, crusted with folds and spirals that repeat all the way down. Its
+# surface is dark and glossy, and the orbits of its points paint it in
+# neon: veins of cyan, magenta and lime glowing where the orbit grazes a
+# trap, a halo of light round its silhouette. The camera circles it,
+# rising and falling, while the power breathes slowly about eight and the
+# buds swell and sharpen with it.
+#
+# Everything is in the composite. Each ray is clipped to a sphere round
+# the set and marched by the distance estimate (half log r times r over
+# the running derivative), six iterations of the spherical power map
+# z -> r^n (sin n theta cos n phi, sin n theta sin n phi, cos n theta) + c,
+# at most 72 steps, stopping a pixel's width from the surface. Along the
+# way each orbit keeps its traps: its nearest approach to the origin, to
+# the plane y = 0 and to the axis. A hit is lit from a normal taken by
+# four more distance estimates; its colour is a neon palette indexed by
+# the traps, and the plane trap glows on its own. Every step adds a little
+# glow by how near the ray passes, so near misses make the halo.
+#
+# The camera's orbit and the palette are accumulated phases. Bass swells
+# the halo (smoothed). Each hit of the music is felt at once, through
+# pulses of the bass, mids and treble that rise in a tick or two and die
+# away over a fraction of a second (soft-limited, so a bigger hit still
+# means more): a kick pushes the camera in and morphs the power a little
+# (so the buds jump), and flares the trap colours; the mids turn the
+# palette; the treble glints on the folds.
+version = 1
+
+[meta]
+name = "Mandelbulb"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+az = 0.7; el = 0; pp = 0; hu = 0;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+// The camera: once round in 50 s, a kick throwing it on a little;
+// rising and falling over 37 s.
+az = az + 6.2831853 / 50 / 60 + 0.006 * pb;
+az = az - 6.2831853 * floor(az / 6.2831853);
+el = el + 6.2831853 / 37 / 60;
+el = el - 6.2831853 * floor(el / 6.2831853);
+// The power breathes about eight over 45 s.
+pp = pp + 6.2831853 / 45 / 60;
+pp = pp - 6.2831853 * floor(pp / 6.2831853);
+// The palette turns, quicker with the mids.
+hu = hu + (0.01 + 0.35 * pm) / 60;
+hu = hu - floor(hu);
+q1 = az; q2 = 0.45 * sin(el) + 0.15;
+// A kick pushes the camera in.
+q3 = 3.15 - 0.5 * pb / (1 + 0.3 * pb);
+q4 = 8 + 0.6 * sin(pp) + 0.7 * pb / (1 + 0.5 * pb);
+q5 = hu; q6 = pb; q7 = pm; q8 = pt;
+q9 = sb;
+'''
+
+[shader]
+comp = '''
+let sz = u.texsize.xy;
+let asp = sz.x / sz.y;
+let az = u.q[0].x;
+let el = u.q[0].y;
+let cdist = u.q[0].z;
+let pw = u.q[0].w;
+// The palette swings about cyan and magenta (the phase accumulated).
+let hu = 0.06 * sin(6.2831853 * u.q[1].x);
+let pb = u.q[1].y;
+let pt = min(u.q[1].w, 1.5);
+let sb = min(u.q[2].x, 2.0) * 0.5;
+let sp = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
+let ro = vec3f(cos(el) * cos(az), sin(el), cos(el) * sin(az)) * cdist;
+let fw = normalize(-ro);
+let rt = normalize(cross(fw, vec3f(0.0, 1.0, 0.0)));
+let up = cross(rt, fw);
+let fl = 1.3;
+let rd = normalize(fw * fl + rt * sp.x + up * sp.y);
+let pix = 1.0 / (fl * sz.y);
+// The background: black, a deep violet glow behind the set.
+let vg = max(dot(rd, fw), 0.0);
+var col = vec3f(0.014, 0.008, 0.035) + vec3f(0.1, 0.03, 0.18) * pow(vg, 6.0);
+let R = 1.2;
+let bb = dot(ro, rd);
+let cc = dot(ro, ro) - R * R;
+let disc = bb * bb - cc;
+var glow = 0.0;
+var hit = false;
+var t = 0.0;
+var tr0 = 1e9;
+var tr1 = 1e9;
+var tr2 = 1e9;
+var steps = 0.0;
+if (disc > 0.0) {
+    let sq = sqrt(disc);
+    t = max(-bb - sq, 0.0);
+    let t1 = -bb + sq;
+    for (var i = 0; i < 72; i++) {
+        let p = ro + rd * t;
+        // The distance estimate, keeping the orbit traps.
+        var z = p;
+        var dr = 1.0;
+        var r = length(z);
+        var a0 = 1e9;
+        var a1 = 1e9;
+        var a2 = 1e9;
+        for (var k = 0; k < 6; k++) {
+            if (r > 2.0) {
+                break;
+            }
+            let th = acos(clamp(z.y / max(r, 1e-6), -1.0, 1.0)) * pw;
+            let ph = atan2(z.z, z.x) * pw;
+            let rp = pow(r, pw - 1.0);
+            dr = rp * pw * dr + 1.0;
+            z = rp * r * vec3f(sin(th) * cos(ph), cos(th), sin(th) * sin(ph)) + p;
+            r = length(z);
+            a0 = min(a0, r);
+            a1 = min(a1, abs(z.y));
+            a2 = min(a2, length(z.xz));
+        }
+        let d = 0.5 * log(max(r, 1e-6)) * r / dr;
+        glow += exp(-max(d, 0.0) * 28.0) * 0.022;
+        steps += 1.0;
+        if (d < pix * t * 1.2) {
+            hit = true;
+            tr0 = a0;
+            tr1 = a1;
+            tr2 = a2;
+            break;
+        }
+        t += d * 0.95;
+        if (t > t1) {
+            break;
+        }
+    }
+}
+// The neon palette.
+let h0 = 6.2831853 * hu;
+if (hit) {
+    let p = ro + rd * t;
+    // The normal, from four more distance estimates (a tetrahedron).
+    let e = max(pix * t, 1e-4);
+    var nn = vec3f(0.0);
+    for (var j = 0; j < 4; j++) {
+        let o = select(select(select(vec3f(-1.0, -1.0, 1.0), vec3f(-1.0, 1.0, -1.0), j == 2), vec3f(1.0, -1.0, -1.0), j == 1), vec3f(1.0, 1.0, 1.0), j == 0);
+        let c = p + o * e;
+        var z = c;
+        var dr = 1.0;
+        var r = length(z);
+        for (var k = 0; k < 6; k++) {
+            if (r > 2.0) {
+                break;
+            }
+            let th = acos(clamp(z.y / max(r, 1e-6), -1.0, 1.0)) * pw;
+            let ph = atan2(z.z, z.x) * pw;
+            let rp = pow(r, pw - 1.0);
+            dr = rp * pw * dr + 1.0;
+            z = rp * r * vec3f(sin(th) * cos(ph), cos(th), sin(th) * sin(ph)) + c;
+            r = length(z);
+        }
+        nn += o * (0.5 * log(max(r, 1e-6)) * r / dr);
+    }
+    let n = normalize(nn + vec3f(1e-7));
+    let lt = normalize(vec3f(0.6, 0.8, -0.3));
+    let df = max(dot(n, lt), 0.0);
+    let rim = pow(1.0 - max(dot(n, -rd), 0.0), 2.5);
+    let spec = pow(max(dot(reflect(rd, n), lt), 0.0), 30.0);
+    // Ambient occlusion from the march (crevices take more steps).
+    let ao = clamp(1.0 - steps / 60.0, 0.15, 1.0);
+    let k0 = h0 + tr0 * 7.0 + tr2 * 5.0;
+    // Two saturated hues (cyan and magenta to start), turning with hu.
+    let ha = clamp(abs(fract(vec3f(hu + 0.5) + vec3f(0.0, 0.6666667, 0.3333333)) * 6.0 - 3.0) - 1.0, vec3f(0.0), vec3f(1.0));
+    let hb = clamp(abs(fract(vec3f(hu + 0.86) + vec3f(0.0, 0.6666667, 0.3333333)) * 6.0 - 3.0) - 1.0, vec3f(0.0), vec3f(1.0));
+    let neon = mix(ha, hb, smoothstep(0.25, 0.75, 0.5 + 0.5 * sin(tr0 * 14.0 + tr2 * 9.0 + h0)));
+    let vein = exp(-tr1 * 70.0);
+    let vc = clamp(abs(fract(vec3f(hu + 0.25 + 0.08 * sin(tr0 * 6.0)) + vec3f(0.0, 0.6666667, 0.3333333)) * 6.0 - 3.0) - 1.0, vec3f(0.0), vec3f(1.0));
+    col = neon * (0.32 + 0.95 * df) * ao + neon * rim * (0.9 + 0.9 * pb);
+    col += vc * vein * (0.35 + 1.2 * pb) * ao;
+    col += vec3f(1.0, 0.95, 1.0) * spec * (0.35 + 1.4 * pt) * ao;
+}
+// The halo of near misses.
+let hc = clamp(abs(fract(vec3f(hu + 0.7) + vec3f(0.0, 0.6666667, 0.3333333)) * 6.0 - 3.0) - 1.0, vec3f(0.0), vec3f(1.0));
+col += (hc * 0.6 + vec3f(0.15, 0.05, 0.3)) * glow * (0.7 + 0.5 * sb + 0.6 * pb);
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.3, vec3f(0.0));
+return col / (1.0 + 0.4 * col);
+'''
