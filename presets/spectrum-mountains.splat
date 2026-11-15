@@ -1,0 +1,219 @@
+# Spectrum Mountains: the live audio spectrum as a landscape. Rows of
+# glowing neon ridges stand on a black plain under a magenta horizon
+# glow, the bass piled into two great ranges either side of a deep
+# central valley and the highs running off to the sides, mirrored. Every row is one moment
+# of the music: the newest rises at the far edge and the rows march
+# toward the viewer, so the land is a history of the last couple of
+# seconds of sound (a waterfall terrain), each ridge a neon line over a
+# dark face striped with faint frequency lines.
+#
+# The history lives in the fp16 feedback buffer, one texel a frequency
+# band and one row a tick, in its top left corner: 128 bands across (or
+# the buffer's width, if smaller) and 160 rows down (or its height; on a
+# shorter buffer the older ridges lie flat). Each tick the warp shader
+# moves every row down one and writes the newest at the top, reading the
+# 512-bin spectrum texture on a log scale of frequency (red), with the
+# kick pulse (green) and the treble pulse (blue) of that moment, over a
+# few fixed low hills so silence still has a shape. A resized buffer
+# just restarts the history. The composite draws 48 ridges, one every
+# third row of the history, front to back: each pixel shows the face of
+# the nearest ridge whose line stands above it, and the ridges slide
+# forward a third of a spacing every tick, so the march is smooth.
+#
+# A ridge glows by how loud its moment was, so quiet land lies dim. Mids
+# drift the hues (accumulated). Each hit of the music is felt at once,
+# through pulses of the bass, mids and treble that rise in a tick or two
+# and die away over a fraction of a second (soft-limited, so a bigger hit
+# still means more): a kick raises a shockwave that runs out across the
+# ridges from the far middle and brightens the ridges and the horizon
+# glow, and the moment of the kick, stored in the history, rolls toward
+# the viewer as a brighter, taller ridge; the treble lights the peaks
+# white-hot (both the moment's, rolling forward, and the live treble's).
+version = 1
+
+[meta]
+name = "Spectrum Mountains"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+feedback_format = "fp16"
+decay = 1.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+hu = 0; fc = 0; sr = 40; sa = 0; cd = 0; cs = 0;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+st = st + (min(treb_att, 2.5) - st) * 0.1;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+ob = pb;
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+fc = fc + 1;
+// A fresh kick starts a shockwave at the far middle of the land.
+kk = max(pb - ob, 0);
+cd = cd + 1;
+if(kk > 0.1 && cd > 8, cd = 0; sr = 0; sa = min(pb, 1), 0);
+sr = min(sr + 0.45, 60);
+sa = sa * 0.975;
+// The hues drift (accumulated, quicker with the mids).
+hu = hu + (0.01 + 0.12 * pm) / 60;
+hu = hu - floor(hu);
+// A slow sway of the camera.
+cs = cs + 6.2831853 / 40 / 60;
+cs = cs - 6.2831853 * floor(cs / 6.2831853);
+q1 = min(128, pixelsx); q2 = min(160, pixelsy); q3 = fc % 3; q4 = hu;
+q5 = pb; q6 = pm; q7 = pt; q8 = sb;
+q9 = sr; q10 = sa; q11 = st; q12 = cs;
+'''
+
+[shader]
+warp = '''
+let sz = u.texsize.xy;
+let nb = u.q[0].x;
+let nr = u.q[0].y;
+let c = floor(uv_orig * sz);
+if (c.x >= nb || c.y >= nr) {
+    return vec3f(0.0);
+}
+if (c.y < 0.5) {
+    // The newest moment: the spectrum on a log scale of frequency, a
+    // little tilted up toward the highs, averaged over a few bins.
+    let uu = c.x / max(nb - 1.0, 1.0);
+    let bin = 2.5 * pow(190.0, uu);
+    let spread = 0.5 + bin * 0.04;
+    var s = 0.0;
+    for (var k = -1; k <= 1; k++) {
+        let b = clamp(bin + f32(k) * spread, 0.5, 511.5);
+        s += textureSampleLevel(sampler_spectrum, s_fc, vec2f(b / 512.0, 0.5), 0.0).r;
+    }
+    s = s / 3.0 * (0.8 + 1.4 * uu);
+    // Low hills, the same every tick, so silence lies still.
+    let h = 0.5 + 0.5 * sin(c.x * 0.9 + 1.3) * sin(c.x * 0.37 + 0.4);
+    return vec3f(s + 0.06 * h, u.q[1].x, u.q[1].z);
+}
+return textureLoad(sampler_main, vec2i(c - vec2f(0.0, 1.0)), 0).rgb;
+'''
+comp = '''
+let sz = u.texsize.xy;
+let asp = sz.x / sz.y;
+let nb = u.q[0].x;
+let nr = u.q[0].y;
+let mph = u.q[0].z;
+let hu = u.q[0].w;
+let pb = u.q[1].x;
+let pm = u.q[1].y;
+let pt = u.q[1].z;
+let sb = min(u.q[1].w, 2.0) * 0.5;
+let sr = u.q[2].x;
+let sa = u.q[2].y;
+let st = max(0.0, min(u.q[2].z, 2.5) - 0.3);
+let cs = u.q[2].w;
+// Line widths are measured against a 540-line frame at every resolution,
+// so on a tiny buffer the many ridge lines do not fill it and flicker.
+let lw = sz.y / 540.0;
+let sp = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
+let ch = 2.4;
+let hy = 0.2;
+let fo = 1.1;
+let px = sp.x + 0.04 * sin(cs);
+// The sky: black above, a magenta and violet glow at the horizon, stars.
+let ab = sp.y - hy;
+var sky = vec3f(0.004, 0.003, 0.012);
+sky += vec3f(0.85, 0.12, 0.55) * exp(-abs(ab) * 14.0) * 0.55 * (1.0 + 0.9 * pb);
+sky += vec3f(0.3, 0.1, 0.65) * exp(-max(ab, 0.0) * 3.5) * 0.22;
+sky += vec3f(1.0, 0.45, 0.2) * exp(-abs(ab) * 45.0) * 0.35;
+let scell = floor(sp * 70.0);
+let sh = fract(sin(vec2f(dot(scell, vec2f(127.1, 311.7)), dot(scell, vec2f(269.5, 183.3)))) * 43758.5453);
+let sd = length(sp * 70.0 - scell - vec2f(0.5) - (sh - vec2f(0.5)) * 0.6) * sz.y / 70.0 / lw;
+let tw = 0.7 + 0.3 * sin(u.time * (1.5 + sh.y * 3.0) + sh.x * 30.0) + 0.8 * pt * step(0.5, sh.y);
+sky += vec3f(0.7, 0.8, 1.0) * step(0.86, sh.x) * exp(-sd * sd * 0.7) * smoothstep(0.0, 0.1, ab) * 0.6 * tw;
+var col = sky;
+// The ridges, front to back.
+let dz = 0.55;
+let z0 = 1.5;
+// The glow profiles, in real pixels: never sharper than about a pixel,
+// their strength scaled to keep the same total light, so a small buffer
+// sees the lines soft rather than aliased.
+let e1 = min(0.45 / lw, 0.7);
+let e2 = min(0.05 / lw, 0.7);
+let e3 = min(0.025 / lw, 0.7);
+let e4 = min(0.1 / lw, 0.7);
+let g1 = 1.5 * e1 * lw / 0.45;
+let g2 = 0.3 * e2 * lw / 0.05;
+let g3 = 0.18 * e3 * lw / 0.025;
+let g4 = 0.15 * e4 * lw / 0.1;
+var halo = vec3f(0.0);
+var face = vec3f(0.0);
+var covered = false;
+for (var i = 0; i < 48; i++) {
+    // The oldest moments nearest; the newest at the far edge.
+    let age = f32(47 - i) * 3.0 + mph;
+    let z = z0 + (145.0 - age) / 3.0 * dz;
+    // Ridges rise in at the far edge and sink away at the front.
+    // On a buffer too short for the whole history, the ridges past its
+    // end lie flat.
+    let grow = smoothstep(0.0, 6.0, age) * smoothstep(z0, z0 + 1.2, z) * smoothstep(nr - 1.0, nr - 12.0, age);
+    let x = px * z / fo;
+    let uu = abs(x) / (0.8 * z + 1.0);
+    let ag = min(age, nr - 1.0);
+    let tx = vec2f((min(uu, 1.0) * (nb - 1.0) + 0.5) / sz.x, (ag + 0.5) / sz.y);
+    let hv = textureSampleLevel(sampler_main, s_fc, tx, 0.0).rgb;
+    let edge = smoothstep(1.2, 0.95, uu);
+    let hr = hv.r * 1.15 / (1.0 + 0.2 * hv.r);
+    var h = hr * edge + 0.04 * (1.0 - edge) * hv.r;
+    // The moment of a kick, carried in the history: a taller ridge.
+    h += hv.g * 0.5 * exp(-uu * uu * 5.0);
+    h *= grow;
+    // The live shockwave, running out from the far middle.
+    let ds = length(vec2f(x, z - 24.0));
+    h += sa * 0.7 * exp(-(ds - sr) * (ds - sr) * 1.2);
+    let ys = (h - ch) / z * fo + hy;
+    let dh = (sp.y - ys) * sz.y / lw;
+    // Only the ridge whose face this is, and the few just below the pixel
+    // (their glow), need their colours.
+    if (dh > 40.0) {
+        continue;
+    }
+    let fade = exp(-z * 0.055);
+    let hh = 6.2831853 * (hu + 0.55 * uu + 0.02 * (145.0 - age) / 3.0);
+    var rc = 0.55 + 0.45 * vec3f(cos(hh), cos(hh - 2.094), cos(hh + 2.094));
+    rc = mix(rc, vec3f(1.0, 0.3, 0.8), 0.25);
+    let pk = smoothstep(0.7, 2.0, h) * (0.3 + 1.6 * hv.b / (1.0 + hv.b) + 0.5 * pt / (1.0 + pt));
+    // A ridge glows by how loud its moment was: quiet land lies dim.
+    let lv = 0.2 + 0.8 * smoothstep(0.08, 0.9, hv.r) + 0.5 * hv.g / (1.0 + hv.g);
+    // Faded in at the far edge and out at the front, as it rises and sinks,
+    // so no ridge pops.
+    let lc = (rc * lv * (1.0 + 0.35 * pb) + vec3f(1.0, 0.95, 0.9) * pk) * fade * grow;
+    if (dh <= 0.0) {
+        // The face of this ridge: a neon edge over a dark face, striped
+        // with faint frequency lines.
+        let d = -dh * lw;
+        var fc = lc * (exp(-d * e1) * g1 + exp(-d * e2) * g2);
+        let stripe = pow(0.5 + 0.5 * cos(uu * 6.2831853 * 20.0), 12.0);
+        fc += rc * fade * grow * stripe * exp(-d * e3) * g3;
+        fc += rc * fade * grow * 0.06;
+        // Fog into the horizon glow with distance.
+        face = mix(vec3f(0.35, 0.05, 0.22) * 0.25, fc, 0.35 + 0.65 * fade);
+        covered = true;
+        break;
+    }
+    // A soft glow above the ridges in front.
+    halo += lc * exp(-dh * lw * e4) * g4;
+}
+col = select(sky, face, covered) + halo;
+col *= 1.0 + 0.25 * sb;
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.15, vec3f(0.0));
+return col / (1.0 + 0.45 * col);
+'''

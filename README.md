@@ -93,8 +93,12 @@ device, so just start your music and run it.
 | **Hex Hive**: a vast glowing honeycomb brimming with amber, magenta and cyan nectar as bees of light dart over it, each kick sending a ripple of cells lighting outward | **Demoscene Plasma**: a 90s demo-scene homage done hi-fi: a sum-of-sines plasma under a rotozoomed checkerboard, swinging copper bars and a sine dot scroller, each kick punching the zoom and sliding the palette |
 | ![Impossible Geometry](docs/images/impossible-geometry.png) | ![Clockwork](docs/images/clockwork.png) |
 | **Impossible Geometry**: a neon Penrose triangle between two Escher cubes in an isometric void, light running round their edges, each kick snapping them round a twelfth of a turn | **Clockwork**: an exploded clock movement of brass and neon wheels meshing in parallax layers, a pendulum swinging over the escapement, each kick ticking the whole train on a tooth |
-| ![Op Art Waves](docs/images/op-art-waves.png) | |
-| **Op Art Waves**: Riley-style neon bands rippling over black round a Vasarely bulging sphere, each kick swelling the sphere and sending a ring wave through the bands | |
+| ![Op Art Waves](docs/images/op-art-waves.png) | ![Wireframe Planet](docs/images/wireframe-planet.png) |
+| **Op Art Waves**: Riley-style neon bands rippling over black round a Vasarely bulging sphere, each kick swelling the sphere and sending a ring wave through the bands | **Wireframe Planet**: a huge neon globe drawn in glowing grid lines and coastlines turning over a starfield, satellites trailing light round it and cities glittering on its night side, every kick sending a ring of light from pole to pole and spinning it on |
+| ![Neon Koi Pond](docs/images/neon-koi-pond.png) | ![Nebula Flythrough](docs/images/nebula-flythrough.png) |
+| **Neon Koi Pond**: looking down into a dark pond at night, glowing koi in orange, white, crimson and gold swimming sinuous paths beneath lily pads and lotus flowers, every kick dropping a spreading ripple and making the koi dart | **Nebula Flythrough**: flying through a star nursery of glowing magenta and teal gas, past dark dust pillars and young stars burning in their cocoons, every kick surging the camera forward and flaring the stars |
+| ![Laser Cathedral](docs/images/laser-cathedral.png) | ![Spectrum Mountains](docs/images/spectrum-mountains.png) |
+| **Laser Cathedral**: a dark gothic nave full of haze, sliced by sweeping coloured laser beams from a stage beneath a glowing rose window, every kick firing a scanning laser fan and swinging the beams on | **Spectrum Mountains**: the live spectrum as a neon waterfall landscape, every moment of the music a glowing ridge rising at the horizon and marching toward the viewer, every kick raising a shockwave across the ridges |
 
 These are single frames; every preset moves and changes with the music.
 

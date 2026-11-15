@@ -1,0 +1,191 @@
+# Nebula Flythrough: flying through the heart of an emission nebula, a
+# star nursery. Glowing gas billows on every side, magenta where the
+# hydrogen shines and teal where the oxygen does, and great dark pillars
+# of dust rise past, their edges lit gold where the young stars eat them
+# away. Newborn stars burn inside the gas, each in its own glowing
+# cocoon with four-pointed diffraction spikes, and a field of distant
+# stars shows through the thinner parts.
+#
+# Everything is in the composite. Each ray is marched 32 steps into the
+# gas (steps lengthening with distance), sampling two octaves of the 3D
+# noise texture, twisted round the flight path. The pillars are columns
+# in a repeating grid beside the path, their surfaces roughened by the
+# same noise: dark, absorbing dust with a bright rim. At every step the
+# gas glows by its density, tinted between magenta and teal by a third
+# noise, lit by the nearest young star (one in each slab of space along
+# the path), and dims what lies behind it. The young stars' points and
+# spikes are drawn on top, and the distant stars behind, both dimmed by
+# the gas in front.
+#
+# The camera flies forward (accumulated, wrapped after 336 units, a
+# whole number of periods of everything along the path) and drifts on a
+# slow weave.
+# Bass brightens the gas (smoothed). Each hit of the music is felt at
+# once, through pulses of the bass, mids and treble that rise in a tick
+# or two and die away over a fraction of a second (soft-limited, so a
+# bigger hit still means more): a kick surges the camera forward
+# (accumulated) and flares the young stars and their cocoons; the mids
+# swirl the gas round the path (accumulated); the treble sparkles the
+# distant stars.
+version = 1
+
+[meta]
+name = "Nebula Flythrough"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+cz = 0; sw = 0; wv = 0; hu = 0;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+st = st + (min(treb_att, 2.5) - st) * 0.1;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+// The flight: steady, surging on the kicks (accumulated, wrapped on the
+// pillars' and stars' period).
+cz = cz + 0.045 + 0.09 * pb;
+cz = cz - 336 * floor(cz / 336);
+// The swirl of the gas round the path (accumulated, quicker with the
+// mids), and the camera's weave.
+sw = sw + (0.04 + 1.2 * pm) / 60;
+sw = sw - 6.2831853 * floor(sw / 6.2831853);
+wv = wv + 6.2831853 / 47 / 60;
+wv = wv - 6.2831853 * floor(wv / 6.2831853);
+q1 = cz; q2 = sw; q3 = wv; q4 = sb;
+q5 = pb; q6 = pm; q7 = pt; q8 = st;
+'''
+
+[shader]
+comp = '''
+let sz = u.texsize.xy;
+let asp = sz.x / sz.y;
+let cz = u.q[0].x;
+let sw = u.q[0].y;
+let wv = u.q[0].z;
+let sb = min(u.q[0].w, 2.0) * 0.5;
+let pb = u.q[1].x;
+let pm = u.q[1].y;
+let pt = u.q[1].z;
+let st = max(0.0, min(u.q[1].w, 2.5) - 0.3);
+// Star sizes are measured against a 540-line frame at every resolution,
+// so on a tiny buffer a flaring star never fills a large part of it.
+let lw = sz.y / 540.0;
+let sp = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
+// The camera: forward along z, weaving gently.
+let cam = vec3f(1.2 * sin(wv), 0.7 * sin(wv * 2.0 + 1.0), cz);
+let yaw = 0.12 * cos(wv);
+let pit = 0.08 * cos(wv * 2.0 + 1.0);
+var rd = normalize(vec3f(sp.x, sp.y, 1.25));
+rd = vec3f(rd.x * cos(yaw) + rd.z * sin(yaw), rd.y, -rd.x * sin(yaw) + rd.z * cos(yaw));
+rd = vec3f(rd.x, rd.y * cos(pit) + rd.z * sin(pit), -rd.y * sin(pit) + rd.z * cos(pit));
+let flare = 1.0 + 2.5 * pb;
+let cflare = 1.0 + 0.25 * pb;
+var col = vec3f(0.0);
+var T = 1.0;
+var t = 0.25;
+var n3 = vec4f(0.5);
+for (var i = 0; i < 32; i++) {
+    let P = cam + rd * t;
+    // The swirl: the gas twisted round the path, more with distance.
+    let an = sw + P.z * 0.0373999;
+    let ca = cos(an);
+    let sa = sin(an);
+    let Q = vec3f(P.x * ca - P.y * sa, P.x * sa + P.y * ca, P.z);
+    let n1 = textureSampleLevel(sampler_noisevol_lq, s_fw, Q * 0.0535714, 0.0);
+    let n2 = textureSampleLevel(sampler_noisevol_hq, s_fw, Q * 0.0416667 + vec3f(0.37, 0.11, 0.73), 0.0);
+    let n = n1.x * 0.72 + n2.x * 0.28;
+    // The large-scale field changes slowly: read it every third step.
+    if (i % 3 == 0) {
+        n3 = textureSampleLevel(sampler_noisevol_lq, s_fw, Q * 0.0178571 + vec3f(0.6, 0.3, 0.1), 0.0);
+    }
+    // A clear lane down the flight path near the camera, the gas walling
+    // it.
+    let lane = mix(1.0, smoothstep(1.2, 4.0, length(P.xy) + (n - 0.5) * 3.0), exp(-(P.z - cam.z) * 0.07));
+    // Gas where the noise is high, glowing only where a large-scale field
+    // says it is lit (so there are bright clouds and dark ones), and dust
+    // lanes of a finer noise that only absorb.
+    let gas = smoothstep(0.5, 0.72, n) * lane;
+    let lit = smoothstep(0.42, 0.62, n3.z);
+    let dust = smoothstep(0.58, 0.72, n2.y) * lane * 1.2;
+    // The pillars: columns in a grid of 14 beside the path, rising up
+    // out of the dust below, roughened by the noise.
+    let cell = floor(P.z / 14.0);
+    let hc = fract(sin(cell * 91.7 + 3.1) * 43758.5453);
+    let side = select(-1.0, 1.0, hc > 0.5);
+    let pc = vec2f(side * (3.6 + 2.0 * fract(hc * 7.3)), cell * 14.0 + 7.0);
+    let dpil = length(vec2f(P.x, P.z) - pc) - (1.9 - 0.15 * P.y) + (n - 0.45) * 2.4;
+    let pil = smoothstep(0.35, -0.35, dpil) * smoothstep(5.5, 2.0, P.y);
+    let rim = exp(-dpil * dpil * 6.0) * smoothstep(5.5, 2.0, P.y);
+    // The nearest young star: one in each slab of 8 along the path, off
+    // the lane; it lights the gas round it into a cocoon.
+    let sc = floor(P.z / 8.0 + 0.5);
+    let hs = fract(sin(vec3f(sc * 12.9898, sc * 78.233, sc * 37.719)) * 43758.5453);
+    let S = vec3f(select(-1.0, 1.0, hs.x > 0.5) * (2.6 + 5.0 * abs(hs.x - 0.5)), (hs.y - 0.5) * 4.0, sc * 8.0);
+    let ds = P - S;
+    let lum = 3.0 / (dot(ds, ds) * 0.35 + 1.0);
+    // Emission: magenta hydrogen, teal oxygen.
+    let tint = smoothstep(0.38, 0.62, n3.y);
+    let em = mix(vec3f(1.0, 0.1, 0.5), vec3f(0.05, 0.8, 0.85), tint);
+    let starc = mix(vec3f(0.7, 0.85, 1.0), vec3f(1.0, 0.8, 0.6), hs.z);
+    let dt = 0.3 + t * 0.075;
+    let glow = em * gas * (0.15 + 1.6 * lit) * (0.5 + 0.4 * sb) + mix(em, starc, 0.5) * lum * (gas + 0.03) * 0.9 * cflare + vec3f(1.0, 0.65, 0.25) * rim * 0.5 * (0.3 + lum);
+    col += T * glow * dt * 0.26;
+    T *= exp(-(gas * 0.35 + dust + pil * 2.5) * dt);
+    if (T < 0.02) {
+        break;
+    }
+    t += dt;
+}
+// The young stars' points and spikes, for the next few slabs ahead.
+let c0 = floor(cam.z / 8.0 + 0.5);
+for (var k = 0; k < 4; k++) {
+    let sc = c0 + f32(k);
+    let hs = fract(sin(vec3f(sc * 12.9898, sc * 78.233, sc * 37.719)) * 43758.5453);
+    let S = vec3f(select(-1.0, 1.0, hs.x > 0.5) * (2.6 + 5.0 * abs(hs.x - 0.5)), (hs.y - 0.5) * 4.0, sc * 8.0);
+    var v = S - cam;
+    v = vec3f(v.x * cos(yaw) - v.z * sin(yaw), v.y, v.x * sin(yaw) + v.z * cos(yaw));
+    v = vec3f(v.x, v.y * cos(pit) - v.z * sin(pit), v.y * sin(pit) + v.z * cos(pit));
+    if (v.z > 0.3) {
+        let ss = v.xy / v.z * 1.25;
+        let d = (sp - ss) * sz.y / lw;
+        let near = smoothstep(32.0, 6.0, v.z) * smoothstep(0.3, 1.5, v.z);
+        let starc = mix(vec3f(0.75, 0.9, 1.0), vec3f(1.0, 0.85, 0.65), hs.z);
+        let core = exp(-dot(d, d) * 0.08) * 1.6 + exp(-length(d) * 0.12) * 0.25;
+        let spk = (exp(-abs(d.x) * 1.2) * exp(-abs(d.y) * 0.04) + exp(-abs(d.y) * 1.2) * exp(-abs(d.x) * 0.04)) * 0.35;
+        col += starc * (core + spk) * near * flare * (0.5 + 0.5 * T);
+    }
+}
+// The distant stars behind, through the thinner gas, sparkling with the
+// treble.
+for (var l = 0; l < 2; l++) {
+    let fl = f32(l);
+    let ls = 50.0 + fl * 40.0;
+    let q = (rd.xy / rd.z) * ls + vec2f(fl * 17.3 + cam.x * 0.3, fl * 5.1 + cam.y * 0.3);
+    let cell = floor(q);
+    let h = fract(sin(vec2f(dot(cell, vec2f(127.1, 311.7)), dot(cell, vec2f(269.5, 183.3)))) * 43758.5453);
+    let dd = length(q - cell - vec2f(0.5) - (h - vec2f(0.5)) * 0.6) / ls * sz.y / lw;
+    let tw = 0.7 + 0.3 * sin(u.time * (2.0 + 3.0 * h.y) + h.x * 40.0);
+    let spark = tw * (0.8 + 0.4 * st) + 2.5 * pt * step(0.55, h.y) * (0.5 + 0.5 * sin(u.time * 19.0 + h.x * 70.0));
+    col += vec3f(0.8, 0.9, 1.0) * step(0.9, h.x) * exp(-dd * dd * 0.7) * (0.6 - 0.2 * fl) * spark * T;
+}
+col += vec3f(0.03, 0.01, 0.05) * T;
+// More contrast: bright cores, dark lanes.
+col = pow(col, vec3f(1.25)) * 1.6;
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.35, vec3f(0.0));
+return col / (1.0 + 0.5 * col);
+'''
