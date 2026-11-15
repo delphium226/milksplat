@@ -93,6 +93,8 @@ device, so just start your music and run it.
 | **Wireframe Planet**: a huge neon globe drawn in glowing grid lines and coastlines turning over a starfield, satellites trailing light round it and cities glittering on its night side, every kick sending a ring of light from pole to pole and spinning it on | **Neon Koi Pond**: looking down into a dark pond at night, glowing koi in orange, white, crimson and gold swimming sinuous paths beneath lily pads and lotus flowers, every kick dropping a spreading ripple and making the koi dart |
 | ![Nebula Flythrough](docs/images/nebula-flythrough.png) | ![Laser Cathedral](docs/images/laser-cathedral.png) |
 | **Nebula Flythrough**: flying through a star nursery of glowing magenta and teal gas, past dark dust pillars and young stars burning in their cocoons, every kick surging the camera forward and flaring the stars | **Laser Cathedral**: a dark gothic nave full of haze, sliced by sweeping coloured laser beams from a stage beneath a glowing rose window, every kick firing a scanning laser fan and swinging the beams on |
+| ![Spectrum Mountains](docs/images/spectrum-mountains.png) |  |
+| **Spectrum Mountains**: the live spectrum as a neon waterfall landscape, every moment of the music a glowing ridge rising at the horizon and marching toward the viewer, every kick raising a shockwave across the ridges |  |
 
 These are single frames; every preset moves and changes with the music.
 
