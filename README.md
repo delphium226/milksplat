@@ -89,8 +89,8 @@ device, so just start your music and run it.
 | **Topographic Map**: a slow flight over dark mountains drawn as glowing neon contour lines coloured by height, every kick raising a swell that rolls out through the land as the isolines crowd and flare | **Smoke Rings**: luminous vortex rings of gel-lit smoke puffed out of the dark toward the viewer, their tubes curling as they swell and fray into swirling wisps, every kick puffing a new ring and pushing the rest on |
 | ![Game of Life Garden](docs/images/game-of-life-garden.png) | ![Slime Mold](docs/images/slime-mold.png) |
 | **Game of Life Garden**: Conway's Game of Life grown as a neon garden at night, every live cell a glowing flower opening as it is born and every death leaving a fading coloured afterglow, every kick planting a burst of gliders and R-pentominoes | **Slime Mold**: a Physarum network spread across a dark dish, fat yellow-green veins and a fine cyan mesh linking golden food sources, every kick sending a peristaltic pulse bulging out through the tubes and growing new tendrils |
-| ![Wireframe Planet](docs/images/wireframe-planet.png) |  |
-| **Wireframe Planet**: a huge neon globe drawn in glowing grid lines and coastlines turning over a starfield, satellites trailing light round it and cities glittering on its night side, every kick sending a ring of light from pole to pole and spinning it on |  |
+| ![Wireframe Planet](docs/images/wireframe-planet.png) | ![Neon Koi Pond](docs/images/neon-koi-pond.png) |
+| **Wireframe Planet**: a huge neon globe drawn in glowing grid lines and coastlines turning over a starfield, satellites trailing light round it and cities glittering on its night side, every kick sending a ring of light from pole to pole and spinning it on | **Neon Koi Pond**: looking down into a dark pond at night, glowing koi in orange, white, crimson and gold swimming sinuous paths beneath lily pads and lotus flowers, every kick dropping a spreading ripple and making the koi dart |
 
 These are single frames; every preset moves and changes with the music.
 

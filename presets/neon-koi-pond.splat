@@ -1,0 +1,290 @@
+# Neon Koi Pond: looking straight down into a dark pond at night. Six
+# glowing koi, orange and white kohaku, a crimson-capped tancho, gold,
+# crimson and a pale platinum, swim in long sinuous paths, their bodies
+# flexing as they go, fins paddling and tails fanning, each casting a
+# soft shadow on the pond floor. Lily pads float on the surface, some
+# with a pink lotus at the heart; ripple rings spread across the water
+# and bend everything beneath them, and faint caustics shimmer below.
+#
+# Everything is in the composite. Each koi follows a path made of sines
+# (its own mix), and its body is a chain of seven segments laid back
+# along the path behind the head, spaced by the path's speed so every
+# fish keeps its length; the body is the distance to the chain with a
+# tapering width, plus two pectoral fins and a fanned tail. The colours
+# are patches of noise along the body. The ripples are rings round the
+# points where they fell, displacing the view of the water beneath. The
+# pads are notched discs with radiating veins and a bright rim.
+#
+# The fish swim on their own (their phases accumulated). Bass brightens
+# the glow (smoothed). Each hit of the music is felt at once, through
+# pulses of the bass, mids and treble that rise in a tick or two and die
+# away over a fraction of a second (soft-limited, so a bigger hit still
+# means more): a kick drops a ripple at a random spot on the pond (up to
+# four spreading at once) and makes every koi dart forward (accumulated)
+# with a flick of the tail; the mids sway the lily pads (accumulated);
+# the treble glints on the water.
+version = 1
+
+[meta]
+name = "Neon Koi Pond"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+k1 = 0; k2 = 7; k3 = 13; k4 = 21; k5 = 29; k6 = 37;
+g1 = 9; g2 = 9; g3 = 9; g4 = 9; sl = 0; cd = 0; lp = 0;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+st = st + (min(treb_att, 2.5) - st) * 0.1;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+ob = pb;
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+// The koi swim along their paths, darting on the kicks.
+dk = 1 + 4 * pb;
+k1 = k1 + 0.10 / 60 * dk; k2 = k2 + 0.085 / 60 * dk; k3 = k3 + 0.11 / 60 * dk;
+k4 = k4 + 0.075 / 60 * dk; k5 = k5 + 0.095 / 60 * dk; k6 = k6 + 0.08 / 60 * dk;
+k1 = k1 - 1000 * floor(k1 / 1000); k2 = k2 - 1000 * floor(k2 / 1000);
+k3 = k3 - 1000 * floor(k3 / 1000); k4 = k4 - 1000 * floor(k4 / 1000);
+k5 = k5 - 1000 * floor(k5 / 1000); k6 = k6 - 1000 * floor(k6 / 1000);
+// The lily pads sway (accumulated, quicker with the mids).
+lp = lp + (0.4 + 5 * pm) / 60;
+lp = lp - 6283.1853 * floor(lp / 6283.1853);
+// A fresh kick drops a ripple at a random spot, in the next of four
+// slots; each spreads for a few seconds.
+kk = max(pb - ob, 0);
+cd = cd + 1;
+if(kk > 0.1 && cd > 8,
+  cd = 0; sl = (sl + 1) % 4;
+  rx = (rand(1000) / 1000 - 0.5) * 1.4; ry = (rand(1000) / 1000 - 0.5) * 0.8;
+  if(sl == 0, x1 = rx; y1 = ry; g1 = 0; a1 = min(pb, 1.5), 0);
+  if(sl == 1, x2 = rx; y2 = ry; g2 = 0; a2 = min(pb, 1.5), 0);
+  if(sl == 2, x3 = rx; y3 = ry; g3 = 0; a3 = min(pb, 1.5), 0);
+  if(sl == 3, x4 = rx; y4 = ry; g4 = 0; a4 = min(pb, 1.5), 0),
+  0);
+g1 = min(g1 + 1 / 60, 9); g2 = min(g2 + 1 / 60, 9); g3 = min(g3 + 1 / 60, 9); g4 = min(g4 + 1 / 60, 9);
+q1 = k1; q2 = k2; q3 = k3; q4 = k4;
+q5 = k5; q6 = k6; q7 = lp; q8 = sb;
+q9 = x1; q10 = y1; q11 = g1; q12 = a1;
+q13 = x2; q14 = y2; q15 = g2; q16 = a2;
+q17 = x3; q18 = y3; q19 = g3; q20 = a3;
+q21 = x4; q22 = y4; q23 = g4; q24 = a4;
+q25 = pb; q26 = pm; q27 = pt; q28 = st;
+'''
+
+[shader]
+comp = '''
+let sz = u.texsize.xy;
+let asp = sz.x / sz.y;
+let lp = u.q[1].z;
+let sb = min(u.q[1].w, 2.0) * 0.5;
+let pb = u.q[6].x;
+let pm = u.q[6].y;
+let pt = u.q[6].z;
+let st = max(0.0, min(u.q[6].w, 2.5) - 0.3);
+let lw = max(1.0, sz.y / 540.0);
+let px = lw / sz.y;
+let sp0 = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
+// The ripples bend the view of everything beneath the surface.
+var disp = vec2f(0.0);
+var ring = 0.0;
+for (var k = 0; k < 4; k++) {
+    let rq = u.q[2 + k];
+    let age = rq.z;
+    let dv = sp0 - rq.xy;
+    let dd = length(dv) + 1e-4;
+    let rr = 0.06 + age * 0.32;
+    let env = rq.w * exp(-age * 0.9) * smoothstep(0.0, 0.05, age);
+    let x = (dd - rr) / 0.025;
+    let wv = sin(x * 2.2) * exp(-x * x * 0.25);
+    disp += dv / dd * wv * env * 0.008;
+    ring += env * (exp(-x * x * 1.5) + 0.45 * exp(-(x + 2.6) * (x + 2.6) * 1.5) + 0.2 * exp(-(x + 5.2) * (x + 5.2) * 1.5));
+}
+let sp = sp0 + disp;
+// The pond: deep teal, darker at the edges, with slow caustics.
+let vg = length(sp0 * vec2f(0.75, 1.0));
+var col = mix(vec3f(0.02, 0.09, 0.13), vec3f(0.006, 0.02, 0.04), smoothstep(0.2, 0.75, vg));
+let c1 = textureSampleLevel(sampler_noise_lq, s_fw, sp * 1.1 + vec2f(u.time * 0.013, u.time * 0.009), 0.0).x;
+let c2 = textureSampleLevel(sampler_noise_lq, s_fw, sp * 1.3 - vec2f(u.time * 0.011, -u.time * 0.014), 0.0).x;
+let cau = pow(max(1.0 - abs(c1 - c2) * 2.0, 0.0), 10.0);
+col += vec3f(0.05, 0.22, 0.25) * cau * 0.35;
+// The koi: shadows first, then the fish.
+var shade = 1.0;
+var fish = vec3f(0.0);
+var cover = 0.0;
+for (var k = 0; k < 6; k++) {
+    let fk = f32(k);
+    let s = u.q[k / 4][k % 4];
+    // The path: a sum of sines, its own mix per fish.
+    let f1 = 0.55 + 0.11 * fk;
+    let f2 = 1.3 + 0.17 * fk;
+    let f3 = 0.7 + 0.09 * fk;
+    let f4 = 1.7 - 0.13 * fk;
+    let p1 = fk * 1.7;
+    let p2 = fk * 2.9 + 1.0;
+    let ax = 0.62 * asp * 0.5 + 0.04;
+    // The head and its speed along the path.
+    let hd = vec2f(ax * sin(s * f1 + p1) + 0.12 * sin(s * f2 + p2), 0.3 * sin(s * f3 + p2) + 0.08 * cos(s * f4 + p1));
+    let dh = vec2f(ax * f1 * cos(s * f1 + p1) + 0.12 * f2 * cos(s * f2 + p2), 0.3 * f3 * cos(s * f3 + p2) - 0.08 * f4 * sin(s * f4 + p1));
+    let ln = 0.15 + 0.02 * fract(fk * 0.37);
+    // Spaced by the path's speed at the head and mid-body, so the fish
+    // keeps its length.
+    let sm = s - 3.5 * ln / 7.0 / max(length(dh), 0.3);
+    let dm = vec2f(ax * f1 * cos(sm * f1 + p1) + 0.12 * f2 * cos(sm * f2 + p2), 0.3 * f3 * cos(sm * f3 + p2) - 0.08 * f4 * sin(sm * f4 + p1));
+    let dsp = ln / 7.0 / max(0.5 * (length(dh) + length(dm)), 0.3);
+    // The shadow, offset down and to the side.
+    let so = sp - vec2f(0.018, -0.026);
+    if (length(sp - hd) < ln * 1.35 || length(so - hd) < ln * 1.35) {
+        var best = 1e9;
+        var bt = 0.0;
+        var bside = 0.0;
+        var sbest = 1e9;
+        var stt = 0.0;
+        var pa = hd;
+        var tail = hd;
+        var tdir = vec2f(1.0, 0.0);
+        var fin = 1e9;
+        for (var j = 1; j < 8; j++) {
+            let sj = s - f32(j) * dsp;
+            let pbk = vec2f(ax * sin(sj * f1 + p1) + 0.12 * sin(sj * f2 + p2), 0.3 * sin(sj * f3 + p2) + 0.08 * cos(sj * f4 + p1));
+            let ab = pbk - pa;
+            let h = clamp(dot(sp - pa, ab) / max(dot(ab, ab), 1e-8), 0.0, 1.0);
+            let dv = sp - pa - ab * h;
+            let d = length(dv);
+            let tt = (f32(j - 1) + h) / 7.0;
+            let wdt = 0.026 * pow(max(sin(3.14159 * (0.12 + 0.8 * tt)), 0.0), 0.8) + 0.002;
+            if (d - wdt < best) {
+                best = d - wdt;
+                bt = tt;
+                bside = (ab.x * dv.y - ab.y * dv.x) / max(length(ab), 1e-6) / max(wdt, 1e-3);
+            }
+            let sh = clamp(dot(so - pa, ab) / max(dot(ab, ab), 1e-8), 0.0, 1.0);
+            let sd = length(so - pa - ab * sh) - wdt;
+            sbest = min(sbest, sd);
+            // The pectoral fins, behind the head, paddling.
+            if (j == 2) {
+                let nrm = normalize(vec2f(-ab.y, ab.x) + vec2f(1e-6));
+                let bk = normalize(ab + vec2f(1e-6));
+                let fl = 0.6 + 0.4 * sin(s * 40.0 + fk);
+                for (var q = 0; q < 2; q++) {
+                    let sg = select(-1.0, 1.0, q == 1);
+                    let fc = pa + nrm * sg * 0.024 + bk * 0.012;
+                    let lv = sp - fc;
+                    let fu = dot(lv, bk) - 0.012;
+                    let fv = dot(lv, nrm * sg) - 0.012 * fl;
+                    fin = min(fin, length(vec2f(fu / 1.6, fv / (0.8 * fl + 0.2))) - 0.009);
+                }
+            }
+            tdir = ab;
+            tail = pbk;
+            pa = pbk;
+        }
+        // The tail fin: a fan beyond the last segment, flicking with the
+        // kicks.
+        let td = normalize(tdir + vec2f(1e-6));
+        let tn = vec2f(-td.y, td.x);
+        let wag = sin(s * 25.0 + fk * 2.0) * (0.35 + 0.8 * pb);
+        let tv = sp - tail;
+        let tu = dot(tv, td);
+        let tw = dot(tv, tn) - wag * tu * 0.8;
+        let tfin = max(abs(tw) - tu * 1.0 - 0.003, max(-tu, tu - 0.024 - 0.6 * abs(tw)));
+        // The colours: a patterned body by fish.
+        let nz = textureSampleLevel(sampler_noise_lq, s_fw, vec2f(bt * 0.35 + fk * 0.21, bside * 0.06 + fk * 0.13), 0.0).x;
+        var base = vec3f(1.0, 0.45, 0.1);
+        var pat = vec3f(1.0, 0.95, 0.9);
+        var mixp = smoothstep(0.45, 0.55, nz);
+        if (k == 1) {
+            // Tancho: white with a crimson cap.
+            base = vec3f(1.0, 0.97, 0.94);
+            pat = vec3f(1.0, 0.1, 0.2);
+            mixp = smoothstep(0.17, 0.1, bt) * smoothstep(0.3, 0.1, abs(bside) * 0.3);
+        } else if (k == 2) {
+            base = vec3f(1.0, 0.78, 0.15);
+            pat = vec3f(1.0, 0.9, 0.5);
+            mixp = 0.3 * smoothstep(0.3, 0.7, nz);
+        } else if (k == 3) {
+            base = vec3f(1.0, 0.12, 0.22);
+            pat = vec3f(1.0, 0.92, 0.95);
+        } else if (k == 4) {
+            base = vec3f(1.0, 0.5, 0.06);
+            pat = vec3f(0.15, 0.1, 0.12);
+            mixp = 0.6 * smoothstep(0.6, 0.66, nz);
+        } else if (k == 5) {
+            base = vec3f(0.85, 0.92, 1.0);
+            pat = vec3f(1.0, 0.65, 0.3);
+            mixp = 0.5 * smoothstep(0.5, 0.6, nz);
+        }
+        let bc = mix(base, pat, mixp);
+        let ed = best / px;
+        let body = smoothstep(1.0, -1.0, ed);
+        let finc = mix(bc, vec3f(1.0), 0.4);
+        let fe = min(fin, tfin) / px;
+        let fins = smoothstep(1.0, -1.0, fe) * 0.55;
+        // A soft shadow on the pond floor.
+        shade *= 1.0 - 0.55 * smoothstep(0.02, -0.01, sbest);
+        let shine = 0.75 + 0.35 * (1.0 - abs(bside)) + 0.4 * sb;
+        let glow = exp(-max(best, 0.0) / 0.006) * 0.35 + exp(-max(min(best, min(fin, tfin)), 0.0) / 0.02) * 0.12;
+        let cov = max(body, fins);
+        fish = fish * (1.0 - cov) + bc * body * shine + finc * fins * (1.0 - body) + bc * glow * (1.0 - cov) * (0.8 + 0.6 * pb);
+        cover = max(cover, cov);
+    }
+}
+col = col * shade * (1.0 - cover) + fish;
+// The ripple rings on the surface.
+col += vec3f(0.55, 0.95, 1.0) * ring * 0.7;
+// The lily pads float over everything, swaying with the mids.
+for (var k = 0; k < 6; k++) {
+    let fk = f32(k);
+    let hp = fract(sin(vec2f(fk * 12.9898 + 1.0, fk * 78.233 + 3.0)) * 43758.5453);
+    let cen = vec2f((hp.x - 0.5) * asp * 0.9, (hp.y - 0.5) * 0.85) + 0.015 * vec2f(sin(lp * 0.7 + fk * 2.0), cos(lp * 0.6 + fk * 1.3));
+    let rad = 0.065 + 0.04 * fract(fk * 0.618);
+    let rot = fk * 1.9 + 0.25 * sin(lp * 0.9 + fk);
+    let dv = sp0 - cen;
+    let dd = length(dv);
+    if (dd < rad + 0.05) {
+        let an = atan2(dv.y, dv.x) - rot;
+        let aw = an - 6.2831853 * floor(an / 6.2831853 + 0.5);
+        let notch = smoothstep(0.03, 0.0, abs(aw) * dd - 0.004) * step(0.0, cos(aw));
+        let inside = smoothstep(1.0, -1.0, (dd - rad) / px) * (1.0 - notch);
+        let rim = exp(-abs(dd - rad) / px * 0.35) * (1.0 - notch);
+        let vein = pow(0.5 + 0.5 * cos(aw * 14.0), 10.0) * smoothstep(rad, rad * 0.2, dd);
+        let padc = vec3f(0.06, 0.32, 0.12) * (0.7 + 0.3 * dd / rad) + vec3f(0.2, 0.9, 0.4) * vein * 0.25;
+        col = mix(col, padc, inside * 0.94);
+        col += vec3f(0.3, 1.0, 0.5) * rim * 0.55;
+        col += vec3f(0.1, 0.5, 0.25) * exp(-max(dd - rad, 0.0) / 0.02) * 0.12 * (1.0 - inside);
+        // A lotus on some pads: pink petals round a golden heart.
+        if (fract(fk * 0.53) > 0.45) {
+            let la = atan2(dv.y, dv.x) + lp * 0.05;
+            let pr = rad * 0.42 * (0.55 + 0.45 * abs(cos(la * 4.0)));
+            let lot = smoothstep(1.0, -1.0, (dd - pr) / px);
+            col = mix(col, vec3f(1.0, 0.45, 0.75) * (0.8 + 0.4 * dd / max(pr, 1e-3)), lot);
+            col += vec3f(1.0, 0.4, 0.7) * exp(-max(dd - pr, 0.0) / 0.012) * 0.3;
+            col += vec3f(1.0, 0.85, 0.3) * exp(-dd * dd / (rad * rad * 0.012)) * 0.8;
+        }
+    }
+}
+// Glints on the water: hashed sparkles, flashing with the treble.
+let gq = sp0 * 60.0;
+let gc = floor(gq);
+let gh = fract(sin(vec2f(dot(gc, vec2f(127.1, 311.7)), dot(gc, vec2f(269.5, 183.3)))) * 43758.5453);
+let gd = length(gq - gc - vec2f(0.5) - (gh - vec2f(0.5)) * 0.6) / 60.0 / px;
+let gt = 0.5 + 0.5 * sin(u.time * (2.0 + 4.0 * gh.y) + gh.x * 60.0);
+let glint = step(0.92, gh.x) * exp(-gd * gd * 0.5) * (gt * gt * gt * (0.12 + 0.25 * st) + 2.5 * pt * step(0.4, gh.y) * gt);
+col += vec3f(0.8, 0.95, 1.0) * glint * (1.0 - cover);
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.15, vec3f(0.0));
+return col / (1.0 + 0.35 * col);
+'''
