@@ -1,0 +1,237 @@
+# Rule 30 Cascade: a one-dimensional cellular automaton printed down the
+# screen in neon. A glowing print head runs along the top, writing each
+# new generation of a row of cells from the one before it, and the
+# generations scroll down the screen as a tapestry: the chaotic nested
+# triangles of Rule 30, the Sierpinski triangles of Rule 90 and Rule
+# 150, the crawling lattices and gliders of Rule 110. The rule changes
+# every few seconds and the texture changes with it from that row on, so
+# the screen is a scrolling history of the rules, each drawn with its
+# own glyph (down triangles for 30, up triangles for 90, diamonds for
+# 110, rings for 150), in bands of colour, glowing over a faint grid.
+#
+# The automaton lives in the fp16 feedback buffer, one texel a cell in
+# its top left corner: 180 cells across (or the buffer's width, if
+# smaller), wrapping round at the sides, and as many rows as fill the
+# screen (or the buffer's height). Red is the cell (alive or dead), green
+# the colour it was born with, and blue the rule it was born under plus,
+# in its fraction, a flash that fades. When a generation is due the warp
+# shader moves every row down one and works out the new top row from the
+# old one by the rule (each cell from itself and its two neighbours, the
+# rule number's bits as the table), sowing any seed burst into it. It
+# starts from random soup, printing a generation every tick until the
+# screen is full of the rule's own pattern. The
+# composite draws the glyphs, sliding the rows down smoothly between
+# generations, with a glow from the blurred cells. Reading a cell is a
+# threshold, so a resized buffer only scrambles the pattern, and it goes
+# on.
+#
+# Each hit of the music is felt at once, through pulses of the bass, mids
+# and treble that rise in a tick or two and die away over a fraction of
+# a second (soft-limited, so a bigger hit still means more): a kick
+# prints a new generation at once and sows a burst into it round a
+# random cell, either a spray of random cells or a cleared span with a
+# single seed that grows into a clean triangle, the burst flashing white
+# as it scrolls away; it flares the print head, quickens the printing
+# (accumulated), and shifts the colour, so each kick starts a new band.
+# The mids drift the colour and brighten the glyphs' edges; the treble
+# twinkles live cells.
+version = 1
+
+[meta]
+name = "Rule 30 Cascade"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+feedback_format = "fp16"
+decay = 1.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+gp = 0; fc = 0; hu = 0.55; hj = 0.55; tr = 0; ri = 0; bt = 0; ka = 0; cd = 0;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+ob = pb;
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+fc = fc + 1;
+// The board: 180 cells across, square, as many rows as fill the screen.
+nc = min(180, pixelsx);
+nr = min(floor(nc * pixelsy / pixelsx) + 3, pixelsy);
+// The rule: 30, 90, 110, 30, 150, 90 in turn, 9 s each.
+tr = tr + 1 / 60;
+if(tr > 9, tr = 0; ri = (ri + 1) % 6, 0);
+rule = if(ri == 0 || ri == 3, 30, if(ri == 1 || ri == 5, 90, if(ri == 2, 110, 150)));
+gl = if(rule == 30, 0, if(rule == 90, 1, if(rule == 110, 2, 3)));
+// A generation is due about five times a second, much quicker with the bass
+// (accumulated).
+gp = gp + 0.08 + 0.05 * min(sb, 2) + 0.22 * pb;
+// (One a tick at first, until the screen is full.)
+stp = gp >= 1 || fc < nr;
+gp = gp - floor(gp);
+// A fresh kick prints a generation at once and sows a burst into it.
+kk = max(pb - ob, 0);
+cd = cd + 1;
+bw = 0;
+if(kk > 0.1 && cd > 8,
+  cd = 0; stp = 1; gp = 0;
+  bx = floor(rand(1000) / 1000 * nc);
+  bw = floor(8 + 16 * min(pb, 1.5));
+  bt = 1 - bt;
+  bs = rand(1000);
+  hj = hj + 0.07 + 0.08 * rand(1000) / 1000;
+  ka = min(pb, 1.5),
+  0);
+ka = ka * 0.93;
+// The colour drifts with the mids and moves quickly to each kick's shift.
+hj = hj + 0.0002 + 0.002 * pm;
+hu = hu + (hj - hu) * 0.3;
+hj = hj - floor(hu);
+hu = hu - floor(hu);
+q1 = nc; q2 = nr; q3 = stp; q4 = fc < 2;
+q5 = rule; q6 = gl; q7 = hu; q8 = gp;
+q9 = bx; q10 = bw; q11 = bt; q12 = bs;
+q13 = pb; q14 = pm; q15 = pt; q16 = sb;
+q17 = ka;
+'''
+
+[shader]
+warp = '''
+let sz = u.texsize.xy;
+let nc = u.q[0].x;
+let nr = u.q[0].y;
+let c = floor(uv_orig * sz);
+if (c.x >= nc || c.y >= nr) {
+    return vec3f(0.0);
+}
+let here = textureLoad(sampler_main, vec2i(c), 0).rgb;
+if (u.q[0].w > 0.5 && c.y > 0.5) {
+    // The first tick: random soup everywhere, written over from the top.
+    let hs = fract(sin(dot(c, vec2f(12.9898, 78.233))) * 43758.5453);
+    return vec3f(select(0.0, 1.0, hs < 0.4), u.q[1].z, u.q[1].y);
+}
+let stp = u.q[0].z > 0.5;
+if (!stp) {
+    // No generation this tick: only the flashes fade.
+    let rb = floor(clamp(here.b, 0.0, 3.0));
+    return vec3f(here.r, here.g, rb + fract(clamp(here.b, 0.0, 3.99)) * 0.94);
+}
+if (c.y > 0.5) {
+    // Every row moves down one.
+    let a = textureLoad(sampler_main, vec2i(c - vec2f(0.0, 1.0)), 0).rgb;
+    let rb = floor(clamp(a.b, 0.0, 3.0));
+    return vec3f(a.r, a.g, rb + fract(clamp(a.b, 0.0, 3.99)) * 0.94);
+}
+// The new top row, from the old one by the rule (wrapping round).
+let xl = c.x - 1.0 + select(0.0, nc, c.x < 0.5);
+let xr = select(c.x + 1.0, 0.0, c.x + 1.0 >= nc);
+let l = u32(textureLoad(sampler_main, vec2i(i32(xl), 0), 0).r > 0.5);
+let m = u32(here.r > 0.5);
+let r = u32(textureLoad(sampler_main, vec2i(i32(xr), 0), 0).r > 0.5);
+let rule = u32(u.q[1].x);
+var alive = ((rule >> (l * 4u + m * 2u + r)) & 1u) != 0u;
+var fl = 0.0;
+let h = fract(sin(dot(c + vec2f(u.q[2].w, 0.0), vec2f(12.9898, 78.233))) * 43758.5453);
+if (u.q[0].w > 0.5) {
+    // The first tick: random soup.
+    alive = h < 0.45;
+}
+// The kick's burst: a spray of random cells, or a cleared span with one
+// seed in the middle.
+let bw = u.q[2].y;
+if (bw > 0.5) {
+    var dx = abs(c.x - u.q[2].x);
+    dx = min(dx, nc - dx);
+    if (dx <= bw) {
+        fl = 0.95 * (1.0 - dx / (bw + 1.0));
+        if (u.q[2].z > 0.5) {
+            alive = dx < 0.5;
+        } else {
+            alive = h < 0.5;
+        }
+    }
+}
+return vec3f(select(0.0, 1.0, alive), u.q[1].z, u.q[1].y + fl);
+'''
+comp = '''
+let sz = u.texsize.xy;
+let nc = u.q[0].x;
+let nr = u.q[0].y;
+let gp = u.q[1].w;
+let pb = u.q[3].x;
+let pm = u.q[3].y;
+let pt = min(u.q[3].z, 1.5);
+let sb = min(u.q[3].w, 2.0) * 0.5;
+let ka = u.q[4].x;
+// Cells across the screen, square; rows slide down between generations.
+let cp = sz.x / nc;
+let xx = uv.x * nc;
+let yy = uv.y * sz.y / cp - gp;
+let cx = floor(xx);
+let row = floor(yy) + 1.0;
+let fx = xx - cx;
+let fy = yy - floor(yy);
+let rc = clamp(row, 0.0, nr - 1.0);
+let cv = textureLoad(sampler_main, vec2i(i32(min(cx, nc - 1.0)), i32(rc)), 0).rgb;
+let alive = cv.r > 0.5 && row < nr;
+let h6 = 6.2831853 * cv.g;
+var nc0 = 0.5 + 0.5 * cos(vec3f(h6, h6 - 2.094, h6 + 2.094));
+nc0 = nc0 * nc0 * 1.5 + vec3f(0.04);
+let fb = clamp(cv.b, 0.0, 3.99);
+let gl = floor(fb);
+let fl = fract(fb);
+// Dark ground, a faint grid, and a glow from the blurred cells.
+var col = vec3f(0.006, 0.008, 0.02);
+let aa = 1.2 / cp;
+let gd = min(min(fx, 1.0 - fx), min(fy, 1.0 - fy));
+col += vec3f(0.03, 0.05, 0.09) * (1.0 - smoothstep(0.0, 1.5 * aa, gd)) * smoothstep(3.0, 6.0, cp);
+let buv = vec2f((cx + fx) / sz.x, (rc + fy) / sz.y);
+let dn = GetBlur1(buv).r;
+col += nc0 * dn * (0.15 + 0.1 * sb + 0.05 * pm);
+if (alive) {
+    // The glyph: by the rule the cell was born under.
+    let qx = fx - 0.5;
+    let qy = fy - 0.5;
+    var d = 0.0;
+    if (gl < 0.5) {
+        // Rule 30: a triangle pointing down.
+        d = max(abs(qx) * 0.894 + qy * 0.447 - 0.19, -0.42 - qy);
+    } else if (gl < 1.5) {
+        // Rule 90: a triangle pointing up.
+        d = max(abs(qx) * 0.894 - qy * 0.447 - 0.19, qy - 0.42);
+    } else if (gl < 2.5) {
+        // Rule 110: a diamond.
+        d = (abs(qx) + abs(qy)) * 0.7071 - 0.3;
+    } else {
+        // Rule 150: a ring.
+        d = abs(length(vec2f(qx, qy)) - 0.3) - 0.09;
+    }
+    let fill = 1.0 - smoothstep(-aa, aa, d);
+    let edge = exp(-abs(d) / (aa * 1.2 + 0.02));
+    let tw = fract(sin(dot(vec2f(cx, rc) + vec2f(floor(u.time * 8.0) * 3.1, 0.0), vec2f(41.3, 289.1))) * 43758.5453);
+    let spark = step(1.0 - 0.035 * pt, tw);
+    var g = nc0 * (fill * 0.45 + edge * (0.45 + 0.15 * pm)) + vec3f(1.0) * fill * spark * 0.45;
+    // Tiny cells: a soft square of the glyph's average colour.
+    g = mix(nc0 * 0.6, g, smoothstep(2.5, 5.0, cp));
+    // The kick's burst flashes white as it scrolls away.
+    g = mix(g, vec3f(1.0, 0.95, 1.0) * (0.4 + 0.6 * fill), fl * 0.45);
+    col += g;
+}
+// The print head: a bright line along the top, flaring on the kicks.
+let hy = uv.y * sz.y / cp - gp;
+let hd = abs(hy);
+col += mix(nc0, vec3f(1.0), 0.4) * (exp(-hd * hd * 4.0) * (0.25 + 0.6 * ka) + exp(-hd / 1.5) * (0.06 + 0.22 * ka)) * (0.6 + 0.4 * sb);
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.15, vec3f(0.0));
+return col / (1.0 + 0.35 * col);
+'''
