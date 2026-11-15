@@ -1,7 +1,30 @@
-# Starfield Warp: a field of stars rushes toward you along fixed rays,
-# each leaving a short trail; the kick pushes you into hyperspace and a
-# soft blue glow (the first blur level) blooms around the brightest.
-# Two custom waves of dots: white-blue stars and a sparser gold dust.
+# Starfield Warp: a flight at warp speed through a deep black starfield.
+# Hundreds of stars in every colour, blue-white, cyan, gold, rose,
+# violet and ember, pour out of the point ahead and streak past, each a
+# white-hot head trailing a tail in its own colour, long and thin at
+# speed. Coloured wisps of nebula gas (magenta, teal, gold) stream past
+# the ship in long speed lines, and the point ahead burns with a small
+# blue-white core. There is no tunnel and no jump: the ship cruises, and
+# the music drives it, every kick punching the warp harder.
+#
+# Everything is in the composite. The stars are in ten layers of radial
+# sectors round the point ahead, one star per sector at a hashed angle,
+# depth and colour; its depth cycles as the ship travels, a star at depth
+# z sitting at 1/z from the centre with its streak running back to where
+# it was a few ticks earlier (so the streaks lengthen with the speed).
+# The wisps are the noise textures mapped onto a cylinder round the path
+# (angle round, 1/r along), stretched along it and scrolled by the travel.
+#
+# The frame code accumulates the speed, the travel, the roll, the slow
+# wander of the point ahead and the wisps' colour. Each hit of the music
+# is felt at once, through pulses of the bass, mids and treble that rise
+# in a tick or two and die away over a fraction of a second (soft-limited,
+# so a bigger hit still means more): a kick punches the warp (the speed
+# jumps and coasts back down over a second or so, piling up on a run of
+# kicks), stretching every streak, flaring the core and pushing the view
+# in; the mids swing the nebula's colours and brighten the wisps; the
+# treble twinkles the star heads. Bass raises the cruising speed
+# (smoothed).
 version = 1
 
 [meta]
@@ -10,93 +33,138 @@ author = "Milksplat"
 license = "MIT OR Apache-2.0"
 
 [params]
-decay = 0.92
-zoom = 0.985
+decay = 0.0
+zoom = 1.0
 warp = 0.0
 wave_a = 0.0
-mesh = [48, 36]
+mesh = [8, 6]
 
 [code]
+init = '''
+tr = 0; v = 0.006; vc = 0.006; vk = 0; vs = 0; rl = 0; ph = 0; hu = 0;
+'''
 frame = '''
-// Distance travelled: speed rises with the bass.
-travel = travel + 0.004 + 0.01 * min(bass_att, 2) / 2;
-q1 = travel;
-q2 = 0.0015 * sin(time * 0.3) + 0.003 * min(mid, 1.5) / 1.5;
-'''
-vertex = '''
-// Trails pull back toward the centre, more at the rim.
-zoom = 0.99 - 0.03 * rad;
-rot = q2;
-'''
-
-[[wave]]
-enabled = true
-samples = 200
-usedots = 1
-thick = 1
-additive = 1
-r = 0.85
-g = 0.92
-b = 1.0
-a = 1.0
-frame = '''
-a = 0.7 + 0.3 * min(treb, 1.5) / 1.5;
-'''
-point = '''
-// Star i keeps its ray (angle) and its place in the cycle; depth f
-// cycles 0 -> 1 and its distance grows like a perspective projection.
-h1 = sin(sample * 12345.678) * 43758.5453;
-h1 = h1 - floor(h1);
-h2 = sin(sample * 7654.321 + 1.7) * 24634.6345;
-h2 = h2 - floor(h2);
-f = q1 * (0.6 + 0.8 * h2) + h2;
-f = f - floor(f);
-d = 0.02 + 0.75 * f * f * f;
-p = h1 * 6.2832;
-x = 0.5 + d * cos(p) * aspecty;
-y = 0.5 + d * sin(p);
-r = 0.6 + 0.4 * h2;
-g = 0.75 + 0.25 * h2;
-a = a * min(1, f * 4);
-'''
-
-[[wave]]
-enabled = true
-samples = 40
-usedots = 1
-thick = 1
-additive = 1
-r = 1.0
-g = 0.75
-b = 0.35
-a = 0.9
-frame = '''
-a = 0.4 + 0.6 * min(bass, 2) / 2;
-'''
-point = '''
-h1 = sin(sample * 3141.59 + 0.3) * 13758.5453;
-h1 = h1 - floor(h1);
-h2 = sin(sample * 2718.28 + 2.9) * 31415.9265;
-h2 = h2 - floor(h2);
-f = q1 * 1.3 + h2;
-f = f - floor(f);
-d = 0.03 + 0.7 * f * f;
-p = h1 * 6.2832;
-x = 0.5 + d * cos(p) * aspecty;
-y = 0.5 + d * sin(p);
-a = a * min(1, f * 4);
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+ob = pb;
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+// The warp speed: a cruise (a little faster with the bass), and each
+// kick's rise punches it up; it coasts back down over a second or so.
+kk = max(pb - ob, 0);
+vt = 0.005 + 0.004 * min(sb, 2) / 2 + 0.004 * pm;
+vc = vc + (vt - vc) * 0.035;
+vk = vk * 0.965 + 0.045 * kk;
+vs = vs + (vk - vs) * 0.3;
+v = min(vc + vs, 0.1);
+tr = tr + v; tr = tr - 4096 * floor(tr / 4096);
+// The roll and the point ahead's wander, quicker at speed.
+rl = rl + 0.0006 + 0.05 * v; rl = rl - 6.2831853 * floor(rl / 6.2831853);
+ph = ph + 0.002 + 0.1 * v; ph = ph - 6283.1853 * floor(ph / 6283.1853);
+hu = hu + 0.0004 + 0.006 * pm; hu = hu - floor(hu);
+q1 = tr; q2 = v; q3 = 0.07 * sin(ph * 0.7); q4 = 0.045 * sin(ph * 1.13 + 1.0);
+q5 = rl; q6 = pb; q7 = pm; q8 = pt;
+q9 = hu; q10 = sb;
 '''
 
 [shader]
 comp = '''
-let c = GetMain(uv);
-let glow = GetBlur1(uv);
-// Deep blue space with a slowly turning violet nebula.
-let p = ms_centre_offset(uv) * 2.0;
-let t = u.time * 0.03;
-let n1 = 0.5 + 0.5 * sin(p.x * 1.3 + sin(p.y * 1.7 + t) * 1.5 + t);
-let n2 = 0.5 + 0.5 * sin(p.y * 1.9 - sin(p.x * 1.1 - t * 0.7) * 1.4 - t * 0.6);
-let neb = vec3f(0.22, 0.08, 0.3) * n1 * n1 + vec3f(0.03, 0.12, 0.26) * n2 * n2;
-let space = vec3f(0.07, 0.09, 0.2) + vec3f(0.08, 0.05, 0.14) * (1.0 - rad) + neb * 0.7;
-return space + c * 1.3 + glow * vec3f(1.1, 1.4, 2.6);
+let sz = u.texsize.xy;
+let asp = sz.x / sz.y;
+let px = 1.0 / sz.y;
+// Line widths scale with the picture (down to half a pixel at 270
+// lines), so thin features keep their share of it.
+let lw = max(0.5, sz.y / 540.0);
+let tr = u.q[0].x;
+let v = u.q[0].y;
+let pb = u.q[1].y;
+let pm = u.q[1].z;
+let pt = u.q[1].w;
+let hu = u.q[2].x;
+let sb = min(u.q[2].y, 2.0) * 0.5;
+// A kick pushes the view in.
+let zf = 1.0 / (1.0 + 0.06 * pb);
+let p0 = vec2f((uv.x - 0.5) * asp - u.q[0].z, (0.5 - uv.y) - u.q[0].w) * zf;
+let cr = cos(u.q[1].x);
+let sr = sin(u.q[1].x);
+let p = vec2f(p0.x * cr - p0.y * sr, p0.x * sr + p0.y * cr);
+let r = max(length(p), 1e-4);
+let a = atan2(p.y, p.x);
+let tu = a / 6.2831853 + 0.5;
+var col = vec3f(0.0, 0.0, 0.004);
+// The nebula wisps: noise on a cylinder round the path, stretched along
+// it into speed lines, scrolled by the travel.
+let dep = 0.22 / r + tr * 0.35;
+let fade = smoothstep(0.02, 0.35, r);
+let n1 = textureSampleLevel(sampler_noise_hq, s_fw, vec2f(tu * 6.0, dep * 0.12), 0.0).r;
+let n2 = textureSampleLevel(sampler_noise_hq, s_fw, vec2f(tu * 11.0 + 0.37, dep * 0.2 + 0.5), 0.0).r;
+let n3 = textureSampleLevel(sampler_noise_lq, s_fw, vec2f(tu * 5.0 + 0.71, dep * 0.07 + 0.2), 0.0).r;
+let h6 = 6.2831853 * hu;
+let c1 = 0.5 + 0.5 * cos(vec3f(h6, h6 + 2.1, h6 + 4.2) + vec3f(0.0, 0.0, 0.0));
+let c2 = 0.5 + 0.5 * cos(vec3f(h6, h6 + 2.1, h6 + 4.2) + vec3f(2.6, 2.6, 2.6));
+// The wisps gather in clouds; between them space is black.
+let cl = smoothstep(0.35, 0.75, n3);
+// The fine streaks give way to their average on a tiny picture, where
+// they would alias as they scroll.
+let fq = smoothstep(80.0, 250.0, sz.y);
+let w1 = mix(0.1, pow(n1, 4.0) * 1.6, fq);
+let w2 = mix(0.045, pow(n2, 5.0) * 1.4, fq);
+col += (c1 * c1 * (w1 + 0.25 * cl * cl) + c2 * c2 * w2) * fade * (0.08 + 1.4 * cl) * (0.55 + 0.25 * sb + 0.5 * pm);
+// The stars: ten layers of radial sectors, one star in each.
+for (var l = 0; l < 10; l++) {
+    let fl = f32(l);
+    let ns = 20.0 + 11.0 * fl;
+    let an = tu * ns;
+    let si = floor(an);
+    let fa = an - si;
+    let h0 = (u32(i32(si)) * 1973u + u32(l) * 9277u + 17u) * 747796405u + 2891336453u;
+    let h = ((h0 >> ((h0 >> 28u) + 4u)) ^ h0) * 277803737u;
+    let hx = f32(h & 1023u) / 1023.0;
+    let hz = f32((h >> 10u) & 1023u) / 1023.0;
+    let hc = f32((h >> 20u) & 1023u) / 1023.0;
+    let da = (fa - (0.2 + 0.6 * hx)) / ns * 6.2831853;
+    let z = 1.0 - fract(hz + tr * 0.35);
+    let zz = 0.035 + z;
+    let rh = 0.06 / zz;
+    let rt = 0.06 / (zz + 0.35 * v * 6.0);
+    // Its width; never under most of a pixel (so it never flickers as it
+    // slides across them), dimmed to match where it is widened.
+    let w0 = px * lw * (0.6 + 2.2 * (1.0 - z) * (1.0 - z));
+    let w = max(w0, px * 0.8);
+    let wk = w0 / w;
+    let dpp = r * da;
+    let drr = max(max(rt - r, r - rh), 0.0);
+    let core = exp(-(dpp * dpp + drr * drr) / (w * w));
+    if (core > 0.002) {
+        let along = clamp((r - rt) / max(rh - rt, 1e-5), 0.0, 1.0);
+        // Its colour, from a jewel palette: blue-white, cyan, gold, rose,
+        // violet, ember.
+        let k = floor(hc * 6.0);
+        var sc = vec3f(0.65, 0.8, 1.0);
+        if (k == 1.0) { sc = vec3f(0.15, 0.9, 1.0); }
+        if (k == 2.0) { sc = vec3f(1.0, 0.75, 0.2); }
+        if (k == 3.0) { sc = vec3f(1.0, 0.25, 0.55); }
+        if (k == 4.0) { sc = vec3f(0.6, 0.3, 1.0); }
+        if (k == 5.0) { sc = vec3f(1.0, 0.4, 0.12); }
+        // Longer streaks are a little fainter, so the picture brightens with
+        // the speed but not in proportion; a star fades in far off and fades
+        // out as it passes (so its streak never vanishes at once).
+        let br = min(0.1 / (zz + 0.06), 1.4) * (1.0 - smoothstep(0.85, 1.0, z)) * smoothstep(0.0, 0.15, z) / (1.0 + 12.0 * v);
+        let tw = 1.0 + 0.8 * pt * step(0.6, fract(hc * 37.0));
+        let head = smoothstep(0.75, 1.0, along);
+        col += mix(sc * (0.35 + 0.65 * along), vec3f(1.0, 0.97, 0.92) * tw, head * 0.7) * core * br * wk * 3.0;
+    }
+}
+// The point ahead: a small blue-white core and a soft glow, flaring with
+// the kicks and brighter at speed.
+let gl = (0.25 + 0.9 * pb + 4.0 * v);
+col += vec3f(0.55, 0.7, 1.0) * exp(-r / 0.012) * gl;
+col += vec3f(0.35, 0.4, 0.9) * exp(-r / 0.16) * (0.06 + 0.12 * pb + 1.0 * v);
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.2, vec3f(0.0));
+return col / (1.0 + 0.4 * col);
 '''

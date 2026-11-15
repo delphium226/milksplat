@@ -108,7 +108,7 @@ device, so just start your music and run it.
 | ![Liquid Chrome](docs/images/liquid-chrome.png) | ![Prism Drift](docs/images/prism-drift.png) |
 | **Liquid Chrome**: a black liquid-metal sea mirroring neon signs, kicks dropping splashes of chrome droplets | **Prism Drift**: white beams split by drifting glass prisms into vivid spectra in the dark |
 | ![Pulse Grid](docs/images/pulse-grid.png) | ![Starfield Warp](docs/images/starfield-warp.png) |
-| **Pulse Grid**: a dark wall of crisp neon grid, scanning pulses and square pulse rings racing out on the kicks | **Starfield Warp**: stars streaming out of a violet void at warp speed |
+| **Pulse Grid**: a dark wall of crisp neon grid, scanning pulses and square pulse rings racing out on the kicks | **Starfield Warp**: streaks of coloured stars and nebula wisps rushing past, every kick punching the warp |
 
 These are single frames; every preset moves and changes with the music.
 
