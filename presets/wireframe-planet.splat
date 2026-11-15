@@ -1,0 +1,254 @@
+# Wireframe Planet: a huge neon globe hangs over a dark starfield, drawn
+# as glowing lines like a vector display: a latitude and longitude grid,
+# the coastlines of invented continents, and the grid's far side seen
+# faintly through the near. The sun lights one side; on the night side
+# the cities glitter. A thin atmosphere glows round the limb, and four
+# satellites circle on tilted orbits, each trailing a fading line along
+# its path, passing behind the globe and out again.
+#
+# Everything is in the composite, with an orthographic view. Each pixel
+# inside the globe's disc finds the near and the far point on the sphere,
+# turns them back into the planet's frame (tilt, then spin) and reads
+# latitude and longitude: the grid is the distance to the nearest line,
+# the continents a threshold of two octaves of 3D noise on the sphere,
+# their coastlines where the noise crosses it. The cities are hashed
+# points on a fine grid of the land. Each satellite's orbit is a circle
+# in 3D, an ellipse on screen: the pixel's nearest point on it comes from
+# inverting the ellipse, and the trail fades with the angle behind the
+# satellite, hidden where it passes behind the globe.
+#
+# The globe spins (a turn in about a minute, accumulated) and the
+# satellites circle at their own rates. Bass brightens the lines
+# (smoothed). Each hit of the music is felt at once, through pulses of
+# the bass, mids and treble that rise in a tick or two and die away over
+# a fraction of a second (soft-limited, so a bigger hit still means
+# more): a kick sends a bright ring of light travelling up the globe from
+# the south pole to the north (up to three at once), spins the globe on
+# and speeds the satellites (accumulated); the mids tilt the globe and
+# shift the hues (both accumulated); the treble twinkles the cities.
+version = 1
+
+[meta]
+name = "Wireframe Planet"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+spn = 0; tp = 0; hu = 0; s1 = 0.3; s2 = 2.1; s3 = 4.0; s4 = 5.2;
+l1 = 3; l2 = 3; l3 = 3; sl = 0; cd = 0;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+st = st + (min(treb_att, 2.5) - st) * 0.1;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+ob = pb;
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+// The spin: a turn in 60 s, each kick throwing it on.
+spn = spn + 6.2831853 / 60 / 60 + 0.03 * pb;
+spn = spn - 6.2831853 * floor(spn / 6.2831853);
+// The tilt nods slowly, further on with the mids (accumulated phase).
+tp = tp + (6.2831853 / 30 + 1.5 * pm) / 60;
+tp = tp - 6.2831853 * floor(tp / 6.2831853);
+hu = hu + (0.006 + 0.1 * pm) / 60;
+hu = hu - floor(hu);
+// The satellites, each at its own rate, quicker on the kicks.
+s1 = s1 + (6.2831853 / 9 / 60) * (1 + 2.5 * pb);
+s2 = s2 + (6.2831853 / 13 / 60) * (1 + 2.5 * pb);
+s3 = s3 + (6.2831853 / 17 / 60) * (1 + 2.5 * pb);
+s4 = s4 + (6.2831853 / 23 / 60) * (1 + 2.5 * pb);
+s1 = s1 - 6.2831853 * floor(s1 / 6.2831853);
+s2 = s2 - 6.2831853 * floor(s2 / 6.2831853);
+s3 = s3 - 6.2831853 * floor(s3 / 6.2831853);
+s4 = s4 - 6.2831853 * floor(s4 / 6.2831853);
+// A fresh kick sends a ring from the south pole to the north, in the next
+// of three slots.
+kk = max(pb - ob, 0);
+cd = cd + 1;
+if(kk > 0.1 && cd > 8,
+  cd = 0; sl = (sl + 1) % 3;
+  if(sl == 0, l1 = -1.6; a1 = min(pb, 1.5), 0);
+  if(sl == 1, l2 = -1.6; a2 = min(pb, 1.5), 0);
+  if(sl == 2, l3 = -1.6; a3 = min(pb, 1.5), 0),
+  0);
+l1 = min(l1 + 0.05, 3); l2 = min(l2 + 0.05, 3); l3 = min(l3 + 0.05, 3);
+q1 = spn; q2 = 0.38 + 0.22 * sin(tp); q3 = hu; q4 = sb;
+q5 = pb; q6 = pm; q7 = pt; q8 = st;
+q9 = l1; q10 = a1; q11 = l2; q12 = a2;
+q13 = l3; q14 = a3;
+q17 = s1; q18 = s2; q19 = s3; q20 = s4;
+'''
+
+[shader]
+comp = '''
+let sz = u.texsize.xy;
+let asp = sz.x / sz.y;
+let spn = u.q[0].x;
+let tl = u.q[0].y;
+let hu = u.q[0].z;
+let sb = min(u.q[0].w, 2.0) * 0.5;
+let pb = u.q[1].x;
+let pm = u.q[1].y;
+let pt = u.q[1].z;
+let st = max(0.0, min(u.q[1].w, 2.5) - 0.3);
+let lw = max(1.0, sz.y / 540.0);
+let px = 1.0 / sz.y;
+let sp = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
+let R = 0.4;
+let cx = 0.06 * asp;
+let p = sp - vec2f(cx, -0.01);
+let r = length(p);
+// The sky: deep violet to black, a starfield.
+var col = vec3f(0.014, 0.01, 0.04) + vec3f(0.05, 0.025, 0.12) * exp(-r * 1.8);
+for (var l = 0; l < 2; l++) {
+    let fl = f32(l);
+    let ls = 55.0 + fl * 45.0;
+    let q = sp * ls + vec2f(fl * 13.7, fl * 7.1);
+    let cell = floor(q);
+    let hs = fract(sin(vec2f(dot(cell, vec2f(127.1, 311.7)), dot(cell, vec2f(269.5, 183.3)))) * 43758.5453);
+    let dd = length(q - cell - vec2f(0.5) - (hs - vec2f(0.5)) * 0.6) / ls * sz.y / lw;
+    let tw = 0.75 + 0.25 * sin(u.time * (1.0 + 2.0 * hs.y) + hs.x * 40.0);
+    col += vec3f(0.7, 0.8, 1.0) * step(0.94, hs.x) * exp(-dd * dd * 0.8) * (0.55 - 0.2 * fl) * tw * step(R, r);
+}
+// The line palette, drifting with the mids.
+let h0 = 6.2831853 * hu;
+let cA = 0.5 + 0.5 * vec3f(cos(h0), cos(h0 + 2.094), cos(h0 - 2.094));
+let cA2 = mix(cA, vec3f(0.2, 0.9, 1.0), 0.55);
+let cB = mix(vec3f(1.0, 0.25, 0.8), cA, 0.3);
+let sun = normalize(vec3f(-0.85, 0.35, 0.12));
+let ct = cos(tl);
+let stl = sin(tl);
+let cp = cos(spn);
+let spp = sin(spn);
+let gain = 0.85 + 0.5 * sb;
+// The ring pulses: latitude and strength.
+let rl = vec3f(u.q[2].x, u.q[2].z, u.q[3].x);
+let ra = vec3f(u.q[2].y, u.q[2].w, u.q[3].y);
+if (r < R) {
+    let zf = sqrt(R * R - r * r);
+    // The far side first (faint, behind), then the near side.
+    for (var side = 0; side < 2; side++) {
+        let sgn = select(-1.0, 1.0, side == 1);
+        let nv = vec3f(p.x, p.y, sgn * zf) / R;
+        // Into the planet's frame: undo the tilt (about x), then the spin
+        // (about y).
+        let y1 = nv.y * ct + nv.z * stl;
+        let z1 = -nv.y * stl + nv.z * ct;
+        let x2 = nv.x * cp - z1 * spp;
+        let z2 = nv.x * spp + z1 * cp;
+        let pp = vec3f(x2, y1, z2);
+        let lat = asin(clamp(pp.y, -1.0, 1.0));
+        let lon = atan2(pp.z, pp.x);
+        let clat = max(cos(lat), 0.02);
+        // The grid: every 15 degrees.
+        let stp = 0.2617994;
+        let dla = abs(fract(lat / stp + 0.5) - 0.5) * stp * R / px / lw;
+        let dlo = abs(fract(lon / stp + 0.5) - 0.5) * stp * R * clat / px / lw;
+        let eq = select(1.0, 1.8, abs(lat) < 0.01);
+        var g = exp(-dla * dla * 0.5) * eq + exp(-dlo * dlo * 0.5);
+        g += 0.12 * (exp(-dla * 0.3) + exp(-dlo * 0.3));
+        // The continents: two octaves of noise on the sphere.
+        let n1 = textureSampleLevel(sampler_noisevol_lq, s_fw, pp * 0.2 + vec3f(0.31, 0.17, 0.53), 0.0).x;
+        let n2 = textureSampleLevel(sampler_noisevol_lq, s_fw, pp * 0.55 + vec3f(0.7, 0.2, 0.9), 0.0).x;
+        let f = (n1 + 0.35 * n2) / 1.35;
+        let thr = 0.5;
+        let coast = exp(-(f - thr) * (f - thr) * 25000.0);
+        let land = smoothstep(thr - 0.004, thr + 0.004, f);
+        let day = dot(nv, sun);
+        if (side == 0) {
+            col += (cA2 * g * 0.18 + cB * coast * 0.25) * gain;
+        } else {
+            // The near side: a dark ocean with a glow toward the lit limb,
+            // land hatched faintly, the bright coasts and grid.
+            let rim = pow(1.0 - nv.z, 2.5);
+            let lit = smoothstep(-0.25, 0.6, day);
+            col = col * 0.35 + vec3f(0.015, 0.04, 0.1) + vec3f(0.06, 0.2, 0.36) * lit * 0.75;
+            let hatch = pow(0.5 + 0.5 * sin((pp.x + pp.y * 0.7) * 160.0), 6.0);
+            col += cB * land * (0.07 + 0.16 * hatch) * (0.4 + 0.6 * lit);
+            col += cA2 * g * (0.3 + 0.25 * lit) * gain;
+            col += mix(cB, vec3f(1.0, 0.6, 0.3), 0.2) * coast * (1.0 + 0.5 * lit) * gain;
+            col += vec3f(0.25, 0.6, 1.0) * rim * (0.25 + 0.35 * lit);
+            // Cities on the night side's land: hashed points on a fine
+            // grid, twinkling with the treble.
+            let night = smoothstep(0.05, -0.2, day);
+            if (night * land > 0.01) {
+                let cg = vec2f(lon * 30.0 / 3.14159, lat * 30.0 / 3.14159);
+                let cc = floor(cg);
+                let hc = fract(sin(vec2f(dot(cc, vec2f(41.3, 289.1)), dot(cc, vec2f(157.7, 71.9)))) * 43758.5453);
+                let off = cg - cc - vec2f(0.5) - (hc - vec2f(0.5)) * 0.6;
+                let dc = length(vec2f(off.x * clat, off.y)) * (3.14159 / 30.0) * R / px / lw;
+                let tw = 0.6 + 0.4 * sin(u.time * (3.0 + 5.0 * hc.y) + hc.x * 50.0);
+                let twk = tw * (0.7 + 0.4 * st) + 2.2 * pt * step(0.45, hc.y) * (0.5 + 0.5 * sin(u.time * 23.0 + hc.x * 90.0));
+                col += vec3f(1.0, 0.72, 0.3) * night * land * step(0.4, hc.x) * (exp(-dc * dc * 0.25) * 1.4 + exp(-dc * 0.5) * 0.25) * twk;
+            }
+        }
+        // The kick rings, travelling from pole to pole.
+        for (var k = 0; k < 3; k++) {
+            let dl = (lat - rl[k]) * R / px / lw;
+            let w = ra[k] * smoothstep(1.6, 1.2, abs(rl[k]));
+            let ringc = mix(vec3f(0.6, 1.0, 1.0), cB, 0.3);
+            col += ringc * w * (exp(-dl * dl * 0.12) * 1.1 + exp(-abs(dl) * 0.05) * 0.25) * select(0.3, 1.0, side == 1);
+        }
+    }
+}
+// The atmosphere: a thin glow round the limb, brighter on the day side.
+let dr = (r - R) / px / lw;
+let ldir = dot(normalize(p + vec2f(1e-5)), normalize(vec2f(sun.x, sun.y)));
+let atm = exp(-max(dr, 0.0) * 0.09) * 0.45 + exp(-max(dr, 0.0) * 0.012) * 0.12;
+col += vec3f(0.2, 0.55, 1.0) * atm * (0.5 + 0.5 * smoothstep(-0.6, 0.8, ldir)) * step(0.0, dr) * gain;
+col += vec3f(0.5, 0.85, 1.0) * exp(-abs(dr) * 0.6) * 0.35;
+// The satellites: tilted circular orbits, an ellipse each on screen.
+let sat = vec4f(u.q[4].x, u.q[4].y, u.q[4].z, u.q[4].w);
+for (var k = 0; k < 4; k++) {
+    let fk = f32(k);
+    let inc = 0.35 + 0.33 * fk;
+    let nod = 0.8 + 1.7 * fk;
+    let rk = R * (1.22 + 0.13 * fk);
+    // The orbit's basis: a unit vector in the view plane and one tilted
+    // toward the viewer.
+    let ea = vec3f(cos(nod), sin(nod) * 0.3, sin(nod) * 0.2);
+    let ean = normalize(ea);
+    let tmp = normalize(vec3f(-ean.y, ean.x, 0.0));
+    let eb = normalize(tmp * cos(inc) + vec3f(0.0, 0.0, 1.0) * sin(inc));
+    let ax = ean.x * rk;
+    let ay = ean.y * rk;
+    let bx = eb.x * rk;
+    let by = eb.y * rk;
+    let det = ax * by - bx * ay;
+    let iv = vec2f(by * p.x - bx * p.y, -ay * p.x + ax * p.y) / select(det, 1e-4, abs(det) < 1e-4);
+    let th = atan2(iv.y, iv.x);
+    let qx = ax * cos(th) + bx * sin(th);
+    let qy = ay * cos(th) + by * sin(th);
+    let qz = (ean.z * cos(th) + eb.z * sin(th)) * rk;
+    let hid = select(1.0, 0.0, qz < 0.0 && qx * qx + qy * qy < R * R);
+    let dd = length(p - vec2f(qx, qy)) / px / lw;
+    let beh = sat[k] - th;
+    let da = beh - 6.2831853 * floor(beh / 6.2831853);
+    let hk = 6.2831853 * (hu + 0.18 * fk + 0.4);
+    let sc = mix(0.5 + 0.5 * vec3f(cos(hk), cos(hk + 2.094), cos(hk - 2.094)), vec3f(1.0), 0.3);
+    let trail = exp(-da * 1.3) * 0.8 + 0.07;
+    col += sc * hid * trail * (exp(-dd * dd * 0.4) + 0.2 * exp(-dd * 0.3)) * (0.8 + 0.6 * pb);
+    // The satellite itself.
+    let sx = ax * cos(sat[k]) + bx * sin(sat[k]);
+    let sy = ay * cos(sat[k]) + by * sin(sat[k]);
+    let sz2 = (ean.z * cos(sat[k]) + eb.z * sin(sat[k])) * rk;
+    let shid = select(1.0, 0.0, sz2 < 0.0 && sx * sx + sy * sy < R * R);
+    let ds = length(p - vec2f(sx, sy)) / px / lw;
+    col += vec3f(1.0, 0.95, 0.85) * shid * (exp(-ds * ds * 0.15) * 1.2 + exp(-ds * 0.15) * 0.3) * (1.0 + 0.8 * pb);
+}
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.15, vec3f(0.0));
+return col / (1.0 + 0.4 * col);
+'''
