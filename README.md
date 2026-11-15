@@ -14,9 +14,12 @@ It comes with 100 presets and also runs as a Windows screensaver.
 
 ## Running
 
-1. Unzip the release anywhere.
-2. Run `milksplat.exe`.
-3. Play some music.
+1. Download `milksplat-0.1.0-win64.zip` from the
+   [latest release](https://github.com/delphium226/milksplat/releases/latest).
+2. Unzip it into a folder of its own (the files are at the top level of the
+   zip).
+3. Run `milksplat.exe`.
+4. Play some music.
 
 Windows may warn that the app is unrecognised; click More info → Run anyway.
 (The release is not code-signed yet.)
