@@ -669,7 +669,7 @@ fn bundled_set_is_complete() {
 /// to settle; every bundled preset but the gentle default is covered).
 const LONG_RUN: [(&str, usize); 100] = [
     ("ink-bloom", 3600),
-    ("bass-tunnel", 1200),
+    ("bass-tunnel", 3600),
     ("prism-drift", 1200),
     ("pulse-grid", 1200),
     ("aurora-sweep", 1200),

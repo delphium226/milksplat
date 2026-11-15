@@ -1,5 +1,30 @@
-# Bass Tunnel: a ring of amber hexagons spins at the far end of a tunnel;
-# the kick drives you forward through it. Pure equations, no shaders.
+# Bass Tunnel: a flight down an endless tunnel of glowing petals in the
+# dark. The tunnel's wall is ringed every few metres by a thin hoop of
+# light, and between the hoops eight pointed petals stand out round the
+# wall, each a crisp neon outline with a bright central vein and a soft
+# glow inside; the rings turn by half a petal each, so the petals
+# interlock, and the whole tunnel slowly twists. The rings cycle amber,
+# magenta and cyan, fading into a dark void toward the far end, where a
+# warm light burns. The bass surges you forward down the tunnel.
+#
+# Everything is in the composite. Each pixel's ray from the centre of a
+# cylinder of radius 1 meets the wall at depth k / r (r its distance
+# from the centre of the screen); depth plus the distance travelled,
+# counted in rings, gives the ring and the place within it, and the angle
+# gives the petal. Each petal is a pointed lens in the wall's own
+# coordinates (its half-width 0.3 (1 - (2z/L)^2)), its outline and vein
+# drawn a pixel wide by working out how much wall one pixel covers at
+# that depth and angle, so the lines stay crisp near and far. Light falls
+# off with depth, and lines finer than a pixel fade out instead of
+# shimmering.
+#
+# The frame code accumulates the distance travelled, the twist and the
+# sway of the far end. Each hit of the music is felt at once, through
+# pulses of the bass, mids and treble that rise in a tick or two and die
+# away over a fraction of a second (soft-limited): a kick surges you
+# forward several rings, widens the view and makes the nearest rings flare
+# and the far light swell; the mids twist the tunnel and spread its
+# petals; the treble lights sparks at the petals' tips.
 version = 1
 
 [meta]
@@ -8,69 +33,93 @@ author = "Milksplat"
 license = "MIT OR Apache-2.0"
 
 [params]
-feedback_format = "fp16"
-decay = 0.96
-gamma = 1.7
-zoom = 1.03
-warp = 0.15
-wave_mode = 0
+decay = 0.0
+zoom = 1.0
+warp = 0.0
 wave_a = 0.0
-mesh = [48, 36]
+mesh = [8, 6]
 
 [code]
 frame = '''
-q1 = 0.02 + 0.05 * min(bass_att, 2);
-q2 = 0.006 + 0.01 * min(mid, 1.5);
-q3 = time;
-'''
-vertex = '''
-// Faster toward the rim, so the tunnel walls stream past.
-zoom = 1 + q1 * (0.3 + rad * 1.2);
-rot = q2 * (1 - rad);
-'''
-
-[[shape]]
-enabled = true
-sides = 6
-instances = 8
-rad = 0.035
-r = 1.0
-g = 0.3
-b = 0.04
-a = 0.55
-r2 = 0.8
-g2 = 0.03
-b2 = 0.02
-a2 = 0.15
-border_r = 1.0
-border_g = 0.45
-border_b = 0.15
-border_a = 0.4
-additive = 1
-frame = '''
-a0 = instance / 8 * 6.2832 + q3 * (0.4 + 0.2 * min(mid, 1));
-ring = 0.12 + 0.05 * min(bass, 2);
-x = 0.5 + ring * cos(a0) * aspecty;
-y = 0.5 + ring * sin(a0);
-ang = -a0;
-rad = 0.025 + 0.02 * min(bass, 2);
-g = 0.2 + 0.25 * min(treb, 1);
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+// Distance travelled, in rings (wrapped at 24, a whole colour cycle).
+tr = tr + (0.6 + 6 * pb + 1.2 * pm) / 60;
+tr = tr - 24 * floor(tr / 24);
+// The twist and the sway of the far end.
+tw = tw + (0.12 + 1.4 * pm) / 60;
+tw = tw - 6.2831853 * floor(tw / 6.2831853);
+sw = sw + (0.25 + 0.6 * pb) / 60;
+sw = sw - 6.2831853 * floor(sw / 6.2831853);
+q1 = tr; q2 = tw; q3 = pb; q4 = pm;
+q5 = pt; q6 = 0.18 * sin(sw); q7 = 0.12 * sin(sw * 1.7 + 1.3);
 '''
 
-[[shape]]
-enabled = true
-sides = 32
-rad = 0.06
-r = 0.3
-g = 0.05
-b = 0.0
-a = 0.5
-r2 = 0.0
-g2 = 0.0
-b2 = 0.0
-a2 = 0.0
-additive = 1
-frame = '''
-rad = 0.04 + 0.03 * min(bass, 2);
-r = 0.4 + 0.3 * min(treb, 1);
+[shader]
+comp = '''
+let asp = u.texsize.x * u.texsize.w;
+let tr = u.q[0].x;
+let tw = u.q[0].y;
+let pb = u.q[0].z;
+let pm = u.q[0].w;
+let pt = u.q[1].x;
+// Screen position, the far end swaying a little off centre.
+var p = vec2f((uv.x - 0.5) * asp * 2.0, (0.5 - uv.y) * 2.0);
+let pix = 2.0 / u.texsize.y;
+let r0 = length(p);
+p -= vec2f(u.q[1].y, u.q[1].z) * exp(-r0 * 1.5);
+let r = max(length(p), 1e-3);
+let a = atan2(p.y, p.x);
+// Depth along the tunnel: a kick widens the view.
+let kz = 0.55 / (1.0 + 0.12 * pb);
+let z = kz / r;
+let L = 0.42;
+let zs = z / L + tr;
+let n = floor(zs);
+let f = zs - n;
+// How much wall one pixel covers: across (angle) and along (depth).
+let fa = pix / r;
+let fz = pix * z / r;
+let lw = max(max(fa, fz), 0.002) * 1.1;
+// The petals: eight per ring, each ring turned half a petal.
+let N = 10.0;
+let ua = (a + tw + n * 0.07853982) / 6.2831853 * N + n * 0.5;
+let pid = floor(ua);
+let wx = (ua - pid - 0.5) * 6.2831853 / N;
+let wz = (f - 0.5) * L;
+let hz = wz / (0.46 * L);
+let pw = 0.235 * (1.0 + 0.25 * pm) * (1.0 - hz * hz);
+let d = abs(wx) - pw;
+let inside = select(0.0, 1.0, d < 0.0 && abs(hz) < 1.0);
+let outline = exp(-pow(d / lw, 2.0)) * step(abs(hz), 1.02);
+let vein = exp(-pow(wx / lw, 2.0)) * inside * (1.0 - abs(hz)) * 0.7;
+let fill = inside * (0.12 + 0.26 * smoothstep(0.0, -0.14, d)) * (0.55 + 0.45 * (1.0 - abs(hz)));
+let halo = exp(-abs(d) / 0.05) * 0.32 * step(abs(hz), 1.1);
+// The hoops between rings.
+let fr = min(f, 1.0 - f) * L;
+let hoop = exp(-pow(fr / lw, 2.0)) + exp(-fr / 0.05) * 0.18;
+// Colour by ring: amber, magenta, cyan.
+let ci = n - 3.0 * floor(n / 3.0);
+let pc = select(select(vec3f(0.1, 0.75, 1.0), vec3f(1.0, 0.12, 0.62), ci < 1.5), vec3f(1.0, 0.48, 0.06), ci < 0.5);
+let nn = n + 1.0;
+let ci2 = nn - 3.0 * floor(nn / 3.0);
+let hc = select(select(vec3f(0.55, 0.9, 1.0), vec3f(1.0, 0.55, 0.85), ci2 < 1.5), vec3f(1.0, 0.8, 0.45), ci2 < 0.5);
+// Sparks at the petals' tips on the treble.
+let hs = fract(sin(n * 12.9898 + pid * 78.233) * 43758.5453);
+let tip = vec2f(wx, (abs(hz) - 1.0) * 0.46 * L);
+let spark = exp(-dot(tip, tip) / (lw * lw * 6.0)) * step(0.45, hs) * (0.3 + 3.0 * pt);
+// Light falls off with depth; sub-pixel detail fades out.
+let att = exp(-z * 0.2) * smoothstep(0.12, 0.9, z);
+let fine = clamp(L * 0.5 / fz - 0.5, 0.0, 1.0);
+let flare = 1.0 + 0.9 * pb * exp(-z);
+var col = (pc * (outline * 1.3 + vein + fill + halo) + hc * hoop * 1.1 + vec3f(1.0, 0.95, 0.85) * spark) * att * fine * flare;
+// The faint wall between petals, and the light at the far end.
+col += pc * 0.035 * att * fine;
+col += vec3f(1.0, 0.75, 0.5) * (0.55 + 0.4 * pb) * exp(-r * 16.0) + vec3f(0.6, 0.2, 0.5) * 0.12 * exp(-r * 2.5);
+return col / (1.0 + 0.3 * col);
 '''
