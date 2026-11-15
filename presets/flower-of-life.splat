@@ -1,0 +1,258 @@
+# Flower of Life: sacred geometry drawn in glowing gold and violet light
+# on black. The Flower of Life fills the picture, its overlapping circles
+# making petals and its points of crossing twinkling; over it Metatron's
+# Cube, thirteen circles and the seventy-eight lines joining their
+# centres, turns the other way; and in the heart a Sri Yantra of nine
+# interlocking triangles, four pointing up and five down, ringed by
+# circles and a lotus of eight petals, turns slowly on its own. Every
+# half minute the figure builds itself up: the outer ring of the flower
+# grows in, the cube's lines draw themselves one by one and the yantra's
+# triangles appear from the outside in; it holds, then lets the cube and
+# the yantra go again and starts over.
+#
+# Everything is in the composite. The flower's circles sit on a
+# hexagonal lattice: each pixel looks only at the lattice points round
+# it, drawing the circles centred there (out to the third ring, the last
+# clipped by the bounding circle) and counting how many it is inside, so
+# the petals shade by that count. The cube's thirteen centres are worked
+# out once per pixel and its lines are segments between every pair; the
+# yantra's triangles are three segments each. Line widths follow the
+# picture's resolution, each line a crisp core in a soft glow.
+#
+# The frame code accumulates the three layers' turns (the cube against
+# the others), the build-up's clock, and the colours. Each hit of the
+# music is felt at once, through pulses of the bass, mids and treble that
+# rise in a tick or two and die away over a fraction of a second
+# (soft-limited, so a bigger hit still means more): a kick sends a wave
+# of light out through the rings in sequence (the centre circle, then
+# each ring of the flower in turn, the cube and yantra lighting as it
+# passes), kicks the three layers round faster against each other (the
+# spin piling up on a run of kicks and coasting back), and pushes the
+# view in; the mids brighten the glow and fill the petals; the treble
+# twinkles the crossing points.
+version = 1
+
+[meta]
+name = "Flower of Life"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+a1 = 0; a2 = 0.3; a3 = 0; tb = 12; kw = 9; ka = 0; hu = 0; vs = 0; cd = 0;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+ob = pb;
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+kk = max(pb - ob, 0);
+// The spin: slow, kicked faster on each rise of the bass, coasting back.
+vs = vs * 0.95 + 0.012 * kk;
+a1 = a1 + 0.0007 + vs;
+a1 = a1 - 6.2831853 * floor(a1 / 6.2831853);
+a2 = a2 - 0.0011 - 1.6 * vs;
+a2 = a2 - 6.2831853 * floor(a2 / 6.2831853);
+a3 = a3 + 0.0016 + 2.2 * vs;
+a3 = a3 - 6.2831853 * floor(a3 / 6.2831853);
+// A fresh kick sends a wave of light out through the rings.
+cd = cd + 1;
+if(kk > 0.1 && cd > 8, cd = 0; kw = -0.5; ka = min(pb, 1.5), 0);
+kw = min(kw + 0.16, 9);
+ka = ka * 0.97;
+// The build-up: 20 s to build, 10 s held, 6 s to let go.
+tb = tb + 1 / 60;
+tb = tb - 36 * floor(tb / 36);
+bu = if(tb < 30, min(tb / 20, 1), 1 - (tb - 30) / 6);
+hu = hu + 0.0002 + 0.002 * pm;
+hu = hu - floor(hu);
+q1 = a1; q2 = a2; q3 = a3; q4 = bu;
+q5 = pb; q6 = pm; q7 = pt; q8 = sb;
+q9 = kw; q10 = ka; q11 = hu;
+'''
+
+[shader]
+comp = '''
+let sz = u.texsize.xy;
+let asp = sz.x / sz.y;
+let px = 1.0 / sz.y;
+let a1 = u.q[0].x;
+let a2 = u.q[0].y;
+let a3 = u.q[0].z;
+let bu = u.q[0].w;
+let pb = u.q[1].x;
+let pm = u.q[1].y;
+let pt = min(u.q[1].z, 1.5);
+let sb = min(u.q[1].w, 2.0) * 0.5;
+let kw = u.q[2].x;
+// (The kicks' whole-figure reactions are gentler on a tiny picture,
+// where the lines fill much of it.)
+let rq = 0.3 + 0.7 * smoothstep(60.0, 200.0, u.texsize.y);
+let ka = u.q[2].y * rq;
+let hu = u.q[2].z;
+// A kick pushes the view in.
+let zf = 1.0 / (1.0 + 0.05 * pb * rq);
+let p = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y) * zf;
+let pl = length(p);
+// The twinkling fades out on a tiny picture.
+let lw = max(0.8, sz.y / 540.0) * px * zf;
+let fq = smoothstep(80.0, 250.0, sz.y);
+// The colours: gold and violet, drifting a little.
+let gold = vec3f(1.0, 0.72 + 0.08 * sin(hu * 6.2831853), 0.28);
+let vio = vec3f(0.62 + 0.15 * sin(hu * 6.2831853 + 1.0), 0.3, 1.0);
+let glow = 0.8 + 0.4 * pm + 0.2 * sb;
+var col = vec3f(0.006, 0.003, 0.014) + vio * 0.08 * exp(-pl * 1.6);
+// The Flower of Life: circles of radius R on a hexagonal lattice.
+let R = 0.155;
+let c1 = cos(a1);
+let s1 = sin(a1);
+let pf = vec2f(p.x * c1 + p.y * s1, -p.x * s1 + p.y * c1);
+let lj = pf.y / (R * 0.8660254);
+let li = pf.x / R - lj * 0.5;
+let bi = floor(li);
+let bj = floor(lj);
+var cnt = 0.0;
+var fl = 0.0;
+var nd = 0.0;
+let ring3 = smoothstep(0.35, 0.6, bu);
+// (Only inside the flower's bounding circle and its glow.)
+if (length(pf) < 3.5 * R) {
+    for (var j = -1; j <= 2; j++) {
+        for (var i = -1; i <= 2; i++) {
+            let ci = bi + f32(i);
+            let cj = bj + f32(j);
+            let rg = max(max(abs(ci), abs(cj)), abs(ci + cj));
+            if (rg > 3.0) {
+                continue;
+            }
+            let cc = vec2f((ci + cj * 0.5) * R, cj * R * 0.8660254);
+            let dd = length(pf - cc);
+            // The third ring only inside the bounding circle, as it builds.
+            var vis = 1.0;
+            if (rg > 2.5) {
+                vis = ring3 * (1.0 - smoothstep(3.0 * R - lw, 3.0 * R + lw, length(pf)));
+            }
+            let e = abs(dd - R);
+            // The kicks' wave lights the rings in sequence.
+            let wv = 1.0 + 2.2 * ka * exp(-(rg - kw) * (rg - kw) / 0.35);
+            fl += (exp(-e * e / (lw * lw * 1.4)) + exp(-e / (lw * 6.0)) * 0.25) * vis * wv;
+            cnt += smoothstep(R + lw, R - lw, dd) * vis;
+            // The crossing points, which twinkle with the treble.
+            let h = fract(sin(ci * 12.9898 + cj * 78.233) * 43758.5453);
+            nd += exp(-dd * dd / (lw * lw * 4.0)) * (0.5 + (1.5 * pt + 0.3) * fq * (0.5 + 0.5 * sin(h * 40.0 + u.time * 3.0))) * step(rg, 3.0 - 0.5 * (1.0 - ring3));
+        }
+    }
+}
+// The petals, shaded by how many circles overlap there.
+let par = 0.5 - 0.5 * cos(cnt * 3.14159265);
+col += mix(vio, gold, 0.25) * (0.04 + 0.025 * cnt + 0.05 * par) * (0.7 + 0.8 * pm) * smoothstep(0.0, 1.0, cnt);
+col += vio * fl * 0.85 * glow;
+col += vec3f(1.0, 0.92, 1.0) * nd * 0.8;
+// The bounding circles.
+let eb = abs(length(pf) - 3.0 * R);
+let eb2 = abs(length(pf) - 3.12 * R);
+let wb = 1.0 + 2.2 * ka * exp(-(3.6 - kw) * (3.6 - kw) / 0.35);
+col += gold * (exp(-eb * eb / (lw * lw * 1.4)) + exp(-eb / (lw * 6.0)) * 0.25 + exp(-eb2 * eb2 / (lw * lw)) * 0.7) * glow * wb;
+// Metatron's Cube: thirteen centres and the lines joining every pair.
+let c2 = cos(a2);
+let s2 = sin(a2);
+let pm2 = vec2f(p.x * c2 + p.y * s2, -p.x * s2 + p.y * c2);
+let rm = 0.105;
+var pts: array<vec2f, 13>;
+pts[0] = vec2f(0.0);
+for (var k = 0; k < 6; k++) {
+    let an = f32(k) * 1.0471976 + 0.5235988;
+    pts[1 + k] = vec2f(cos(an), sin(an)) * 2.0 * rm;
+    pts[7 + k] = vec2f(cos(an), sin(an)) * 4.0 * rm;
+}
+let mb = smoothstep(0.0, 0.5, bu);
+var ml = 0.0;
+var mc = 0.0;
+var idx = 0.0;
+// (Only where the cube reaches.) The nearest line and the nearest circle
+// are drawn; a line not yet drawn in counts as far away.
+if (pl < 0.58) {
+    var dl = 9.0;
+    var dcm = 9.0;
+    for (var i = 0; i < 13; i++) {
+        dcm = min(dcm, abs(length(pm2 - pts[i]) - rm));
+        for (var j = i + 1; j < 13; j++) {
+            let a = pts[i];
+            let ab = pts[j] - a;
+            let t = clamp(dot(pm2 - a, ab) / dot(ab, ab), 0.0, 1.0);
+            let ds = length(pm2 - a - ab * t);
+            // Drawn one by one as the figure builds.
+            let on = smoothstep(idx / 78.0, idx / 78.0 + 0.03, mb * 1.03);
+            dl = min(dl, ds / max(on, 0.01));
+            idx += 1.0;
+        }
+    }
+    ml = exp(-dl * dl / (lw * lw)) + exp(-dl / (lw * 5.0)) * 0.15;
+    mc = exp(-dcm * dcm / (lw * lw * 1.2)) + exp(-dcm / (lw * 5.0)) * 0.15;
+}
+let wm = 1.0 + 2.0 * ka * exp(-(pl * 8.0 - kw) * (pl * 8.0 - kw) / 0.5);
+col += gold * ml * 0.55 * glow * wm;
+col += mix(gold, vio, 0.5) * mc * 0.45 * glow * wm * smoothstep(0.0, 0.15, bu);
+// The Sri Yantra: nine interlocking triangles, circles and a lotus.
+let c3 = cos(a3);
+let s3 = sin(a3);
+let S = 0.125;
+let py = vec2f(p.x * c3 + p.y * s3, -p.x * s3 + p.y * c3) / S;
+let yb = smoothstep(0.3, 0.9, bu);
+// The yantra sits on a dark disc that hides the figures behind it.
+let yr = length(py);
+col *= 1.0 - 0.85 * smoothstep(1.5, 1.35, yr);
+var yl = 0.0;
+var dy = 9.0;
+// (Only on the yantra's disc.)
+if (yr < 1.45) {
+    for (var k = 0; k < 9; k++) {
+        let fk = f32(k);
+        let ty = select(select(select(select(select(select(select(select(-0.15, -0.3, k == 7), -0.5, k == 6), -0.7, k == 5), -0.95, k == 4), 0.12, k == 3), 0.3, k == 2), 0.55, k == 1), 0.9, k == 0);
+        let tb2 = select(select(select(select(select(select(select(select(0.1, 0.38, k == 7), 0.25, k == 6), 0.62, k == 5), 0.45, k == 4), -0.18, k == 3), -0.32, k == 2), -0.65, k == 1), -0.5, k == 0);
+        let hw = select(select(select(select(select(select(select(select(0.18, 0.42, k == 7), 0.5, k == 6), 0.78, k == 5), 0.86, k == 4), 0.2, k == 3), 0.4, k == 2), 0.72, k == 1), 0.85, k == 0);
+        // The three corners.
+        let ap = vec2f(0.0, ty);
+        let bl = vec2f(-hw, tb2);
+        let br = vec2f(hw, tb2);
+        var dmin = 9.0;
+        for (var e = 0; e < 3; e++) {
+            let a = select(select(br, bl, e == 1), ap, e == 0);
+            let b = select(select(ap, br, e == 1), bl, e == 0);
+            let ab = b - a;
+            let t = clamp(dot(py - a, ab) / dot(ab, ab), 0.0, 1.0);
+            dmin = min(dmin, length(py - a - ab * t));
+        }
+        // They appear from the outside in.
+        let on = smoothstep(fk / 9.0, fk / 9.0 + 0.1, 1.0 - (1.0 - yb) * 1.1);
+        dy = min(dy, dmin * S / max(on, 0.01));
+    }
+    yl = exp(-dy * dy / (lw * lw)) + exp(-dy / (lw * 5.0)) * 0.2;
+}
+let ya = atan2(py.y, py.x);
+let ec1 = abs(yr - 1.02) * S;
+let ec2 = abs(yr - 1.12) * S;
+let lot = 1.14 + 0.24 * pow(abs(sin(ya * 4.0)), 0.6);
+let el = abs(yr - lot) * S;
+var yc = exp(-ec1 * ec1 / (lw * lw)) + exp(-ec2 * ec2 / (lw * lw)) + exp(-el * el / (lw * lw)) * smoothstep(0.1, 0.4, bu);
+yc += exp(-yr * yr * S * S / (lw * lw * 5.0)) * 1.5;
+let wy = 1.0 + 2.5 * ka * exp(-(kw + 0.3) * (kw + 0.3) / 0.4);
+let hot = mix(gold, vec3f(1.0, 0.45, 0.7), 0.45);
+col += hot * yl * 0.85 * glow * wy;
+col += mix(hot, vio, 0.4) * yc * 0.7 * glow * wy;
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.15, vec3f(0.0));
+return col / (1.0 + 0.4 * col);
+'''

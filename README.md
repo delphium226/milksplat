@@ -5,7 +5,7 @@ that react to whatever your PC is playing. It is inspired by the classic
 MilkDrop-style visualizers. It captures the audio from your default output
 device, so just start your music and run it.
 
-It comes with 100 presets and also runs as a Windows screensaver.
+It comes with 110 presets and also runs as a Windows screensaver.
 
 ## Requirements
 
@@ -303,7 +303,11 @@ MIT OR Apache-2.0, at your option. See `LICENSE-MIT` and `LICENSE-APACHE`.
 | **Black Smoker**: glowing hydrothermal chimneys on a pitch-black seabed billowing shimmering heat plumes over swaying bioluminescent tube worms, every kick erupting a vent | **Glitch Mosaic**: a neon geometric mosaic torn by datamosh glitches, block jumps, RGB splits, scanline tears and pixel-sorted streaks bursting in bands on the kicks |
 | ![Total Eclipse](docs/images/total-eclipse.png) | ![Neon Rain Window](docs/images/neon-rain-window.png) |
 | **Total Eclipse**: a black moon in a pearly corona of streamers and magenta prominences, with Baily's beads and a diamond ring, kicks swelling the corona and flaring the limb | **Neon Rain Window**: rain beading and trickling down a fogged window onto blurred neon city bokeh, every drop a tiny lens, kicks shaking fresh drops onto the glass |
-| ![Pendulum Wave](docs/images/pendulum-wave.png) | |
-| **Pendulum Wave**: sixteen glowing pendulums rolling through waves, snakes and chaos above a mirror floor, kicks pushing every swing wider | |
+| ![Pendulum Wave](docs/images/pendulum-wave.png) | ![Magnetosphere](docs/images/magnetosphere.png) |
+| **Pendulum Wave**: sixteen glowing pendulums rolling through waves, snakes and chaos above a mirror floor, kicks pushing every swing wider | **Magnetosphere**: a dark blue-green world in looping neon field lines, solar wind bending round its bow shock, every kick a storm gust that squeezes the field and flares the aurorae |
+| ![Equalizer Skyline](docs/images/equalizer-skyline.png) | ![Rorschach Bloom](docs/images/rorschach-bloom.png) |
+| **Equalizer Skyline**: a night city whose forty towers are level meters for the live spectrum, searchlights thrown into a sweep and beacons rippling across the roofs on every kick | **Rorschach Bloom**: mirror-symmetric neon inkblots blooming, bleeding and morphing into moths, masks and faces, every kick pushing a fresh bloom of ink out from the fold |
+| ![Flower of Life](docs/images/flower-of-life.png) | ![Rule 30 Cascade](docs/images/rule-30-cascade.png) |
+| **Flower of Life**: the Flower of Life, Metatron's Cube and a Sri Yantra in gold and violet light, turning against each other and building up, kicks lighting the rings in sequence | **Rule 30 Cascade**: Rule 30, 90, 110 and 150 printed down the screen in neon glyphs, every kick printing a burst of seeds and a new band of colour |
 
 These are single frames; every preset moves and changes with the music.
