@@ -1,7 +1,30 @@
-# Pulse Grid: an oscilloscope screen. Two custom waves sweep the waveform
-# across the glass (one across, one up), motion-vector ticks mark the grid,
-# and the frame lights up on the kick. The composite lights the glass with
-# a green phosphor glow, a faint graticule and bloom around the traces.
+# Pulse Grid: a vast wall of neon grid in the dark, seen a little off
+# square so it recedes to one side, slowly swinging. Fine electric-blue
+# lines mark every cell, brighter violet lines every fourth, and nodes
+# sit where the bright lines cross. Two scanning pulses sweep it, a band
+# of white-cyan light running down the wall and another running across,
+# each lighting the lines it passes and leaving a fading trail. Each kick
+# sends a square pulse ring racing out from a node across the grid, the
+# lines it crosses flaring hot magenta and gold; the treble lights random
+# nodes like status lights, and the mids fill random cells with a faint
+# glow of data.
+#
+# Everything is in the composite. The screen is mapped onto the wall
+# through a gentle perspective tilt (a projective divide), and each
+# pixel's distance to the nearest line, in pixels, comes from where it
+# falls in its cell and how many cells a pixel covers there, so the lines
+# stay crisp and the same width near and far. The pulse rings are squares
+# (Chebyshev distance), in keeping with the grid, lighting only the lines
+# and nodes they cross.
+#
+# The frame code accumulates the scans, the swing and the drift, and runs
+# the rings. Each hit of the music is felt at once, through pulses of the
+# bass, mids and treble that rise in a tick or two and die away over a
+# fraction of a second (soft-limited, so a bigger hit still means more):
+# a kick fires a pulse ring from a node (up to four at once), kicks the
+# scans forward and pushes the view in; the mids light the data cells and
+# speed the cross scan; the treble switches on a new scatter of node
+# lights with each hit. Bass brightens the grid (smoothed).
 version = 1
 
 [meta]
@@ -10,83 +33,162 @@ author = "Milksplat"
 license = "MIT OR Apache-2.0"
 
 [params]
-decay = 0.93
-zoom = 0.997
+decay = 0.0
+zoom = 1.0
 warp = 0.0
 wave_a = 0.0
-mv_x = 16
-mv_y = 9
-mv_l = 0.6
-mv_r = 0.2
-mv_g = 0.7
-mv_b = 0.4
-mv_a = 0.35
-ob_size = 0.006
-ob_r = 0.3
-ob_g = 1.0
-ob_b = 0.5
-ib_size = 0.006
-ib_r = 0.1
-ib_g = 0.4
-ib_b = 0.3
-ib_a = 0.3
-mesh = [32, 24]
+mesh = [8, 6]
 
 [code]
+init = '''
+s1 = 0.3; s2 = 0.6; tp = 0; dw = 0; sd = 0; sl = 0; cd = 0; ct = 0;
+x1 = 0; y1 = 0; r1 = 99; a1 = 0;
+x2 = 0; y2 = 0; r2 = 99; a2 = 0;
+x3 = 0; y3 = 0; r3 = 99; a3 = 0;
+x4 = 0; y4 = 0; r4 = 99; a4 = 0;
+'''
 frame = '''
-ob_a = 0.12 + 0.24 * min(bass, 2) / 2;
-// The smoothed treble, so the ticks swell rather than flicker.
-mv_l = 0.3 + 0.6 * min(treb_att, 1.5);
-mv_a = 0.15 + 0.25 * min(mid, 1.5);
-dy = -0.002 * min(bass_att, 2);
-q1 = (time * 0.21) - int(time * 0.21);
-q2 = (time * 0.13) - int(time * 0.13);
-'''
-
-[[wave]]
-enabled = true
-samples = 256
-r = 0.4
-g = 1.0
-b = 0.55
-a = 0.9
-thick = 1
-additive = 1
-frame = '''
-a = 0.5 + 0.4 * min(bass, 2) / 2;
-'''
-point = '''
-// A horizontal trace that scans down the screen.
-x = sample;
-y = 1 - q1 + 0.12 * value1;
-g = 0.7 + 0.3 * sample;
-'''
-
-[[wave]]
-enabled = true
-samples = 256
-r = 0.9
-g = 1.0
-b = 0.3
-a = 0.7
-additive = 1
-frame = '''
-a = 0.3 + 0.5 * min(treb, 1.5) / 1.5;
-'''
-point = '''
-// A vertical trace that scans across.
-y = sample;
-x = q2 + 0.08 * value2;
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+ob = pb;
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+ot = pt;
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+kk = max(pb - ob, 0);
+// The scans (in screen heights), kicked forward by the bass.
+s1 = s1 + 0.0022 + 0.012 * pb; s1 = s1 - floor(s1);
+s2 = s2 + 0.0016 + 0.006 * pm + 0.006 * pb; s2 = s2 - floor(s2);
+// The wall's slow swing and drift.
+tp = tp + 0.0015 + 0.006 * pb; tp = tp - 6283.1853 * floor(tp / 6283.1853);
+dw = dw + 0.003 + 0.02 * pb; dw = dw - 256 * floor(dw / 256);
+// A new scatter of node lights with each treble hit.
+ct = ct + 1;
+if(pt - ot > 0.06 && ct > 4, ct = 0; sd = sd + 1; sd = sd - 1000 * floor(sd / 1000), 0);
+// A fresh kick fires a square pulse ring from a node, in the next of four
+// slots.
+cd = cd + 1;
+if(kk > 0.1 && cd > 8,
+  cd = 0; sl = (sl + 1) % 4;
+  nx = (floor(rand(7)) - 3) * 4 + 4 * floor(dw / 4 + 0.5); ny = (floor(rand(3)) - 1) * 4; na = min(0.5 + pb, 1.5);
+  if(sl == 0, x1 = nx; y1 = ny; r1 = 0; a1 = na, 0);
+  if(sl == 1, x2 = nx; y2 = ny; r2 = 0; a2 = na, 0);
+  if(sl == 2, x3 = nx; y3 = ny; r3 = 0; a3 = na, 0);
+  if(sl == 3, x4 = nx; y4 = ny; r4 = 0; a4 = na, 0),
+  0);
+r1 = min(r1 + 0.32, 99); r2 = min(r2 + 0.32, 99); r3 = min(r3 + 0.32, 99); r4 = min(r4 + 0.32, 99);
+// While a ring is young its strength follows the kick up.
+if(r1 < 1.5, a1 = max(a1, min(0.5 + pb, 1.5)), 0); if(r2 < 1.5, a2 = max(a2, min(0.5 + pb, 1.5)), 0);
+if(r3 < 1.5, a3 = max(a3, min(0.5 + pb, 1.5)), 0); if(r4 < 1.5, a4 = max(a4, min(0.5 + pb, 1.5)), 0);
+a1 = a1 * 0.97; a2 = a2 * 0.97; a3 = a3 * 0.97; a4 = a4 * 0.97;
+q1 = s1; q2 = s2; q3 = tp; q4 = dw;
+q5 = pb; q6 = pm; q7 = pt; q8 = sb;
+q9 = x1; q10 = y1; q11 = r1; q12 = a1;
+q13 = x2; q14 = y2; q15 = r2; q16 = a2;
+q17 = x3; q18 = y3; q19 = r3; q20 = a3;
+q21 = x4; q22 = y4; q23 = r4; q24 = a4;
+q25 = sd;
 '''
 
 [shader]
 comp = '''
-let c = GetMain(uv);
-let bloom = GetBlur1(uv);
-// Lit phosphor glass: brighter in the middle, a faint 10 x 8 graticule.
-let g = abs(fract(uv * vec2f(10.0, 8.0)) - vec2f(0.5));
-let line = smoothstep(0.47, 0.5, max(g.x, g.y));
-let glass = mix(vec3f(0.06, 0.18, 0.13), vec3f(0.13, 0.34, 0.24), 1.0 - rad) + line * vec3f(0.06, 0.16, 0.1);
-let light = c + bloom * vec3f(0.4, 0.75, 0.55);
-return glass * (1.0 - 0.5 * min(light, vec3f(1.0))) + light;
+let sz = u.texsize.xy;
+let asp = sz.x / sz.y;
+let lw = max(1.0, sz.y / 540.0);
+let s1 = u.q[0].x;
+let s2 = u.q[0].y;
+let tp = u.q[0].z;
+let dw = u.q[0].w;
+let pb = u.q[1].x;
+let pm = u.q[1].y;
+let pt = u.q[1].z;
+let sb = min(u.q[1].w, 2.0) * 0.5;
+let sd = u.q[6].x;
+// Glows held back on a tiny picture (where a line is a larger share).
+let gk = min(1.0, sz.y / 200.0);
+// On a tiny picture the lines are softened (same total light), so one
+// sliding across the pixels never flickers.
+let ls = max(1.0, 120.0 / sz.y);
+let p = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
+// The wall, a little off square and slowly swinging; a kick pushes in.
+let tx = 0.42 * sin(tp * 0.6);
+let ty = 0.22 * sin(tp * 0.43 + 1.0);
+let w = 1.0 + tx * p.x + ty * p.y;
+let cells = 15.0 / (1.0 + 0.06 * pb);
+let g = p * cells / w + vec2f(dw, 0.0);
+// Cells per pixel there.
+let cpp = cells / (w * sz.y) * lw;
+// Distance to the nearest fine line and the nearest bright line, in
+// pixels.
+let fg = abs(fract(g + vec2f(0.5)) - vec2f(0.5));
+let dfine = min(fg.x, fg.y) / cpp;
+let gm = g * 0.25;
+let fm = abs(fract(gm + vec2f(0.5)) - vec2f(0.5)) * 4.0;
+let dmaj = min(fm.x, fm.y) / cpp;
+let fine = exp(-dfine * dfine / (0.6 * ls * ls)) / ls;
+let maj = exp(-dmaj * dmaj / (ls * ls)) / ls;
+let halo = exp(-dmaj / (5.0 * gk + 0.5)) * 0.35 + exp(-dfine / (3.0 * gk + 0.5)) * 0.12;
+// Depth fades the far side a little.
+let depth = clamp(1.4 - 0.6 * w, 0.4, 1.2);
+var col = vec3f(0.0, 0.004, 0.012) + vec3f(0.01, 0.02, 0.06) * exp(-length(p) * 1.5);
+let base = (0.75 + 0.35 * sb + 0.45 * pb * gk) * depth;
+col += vec3f(0.1, 0.45, 1.0) * fine * 1.0 * base;
+col += vec3f(0.55, 0.25, 1.0) * maj * 1.3 * base;
+col += vec3f(0.2, 0.25, 1.0) * halo * 1.5 * base;
+// The scans: a band running down the screen, one running across, each
+// with a fading trail behind it.
+let yy = 0.5 - p.y;
+let ds = fract(yy - s1 + 1.0);
+let sc1 = exp(-(1.0 - ds) * 60.0) * 0.25 + exp(-ds * ds * 900.0) + exp(-(1.0 - ds) * (1.0 - ds) * 900.0);
+let xx = (p.x / asp + 0.5);
+let dt = fract(xx - s2 + 1.0);
+let sc2 = exp(-(1.0 - dt) * 40.0) * 0.25 + exp(-dt * dt * 1500.0) + exp(-(1.0 - dt) * (1.0 - dt) * 1500.0);
+let lines = max(fine, maj);
+col += vec3f(0.55, 0.95, 1.0) * lines * (sc1 + sc2) * 2.0 * depth;
+col += vec3f(0.2, 0.6, 1.0) * (sc1 + sc2) * (halo * 1.5 + 0.06) * depth;
+// The nodes where the bright lines cross; some lit by the treble.
+let nc = floor(gm + vec2f(0.5));
+let nd = length(vec2f(fm.x, fm.y)) / cpp;
+let node = exp(-nd * nd / (9.0 * lw * ls * ls)) / ls + exp(-nd / (8.0 * gk + 0.5)) * 0.4;
+let hn0 = (u32(i32(nc.x) + 4096) * 1973u + u32(i32(nc.y) + 4096) * 9277u + u32(sd) * 26699u) * 747796405u + 2891336453u;
+let hn = ((hn0 >> ((hn0 >> 28u) + 4u)) ^ hn0) * 277803737u;
+let lit = step(0.72, f32(hn & 1023u) / 1023.0);
+let ncol = select(vec3f(0.2, 1.0, 0.6), vec3f(1.0, 0.35, 0.8), (hn & 2048u) != 0u);
+col += vec3f(0.6, 0.5, 1.0) * node * 0.5 * base;
+col += ncol * node * lit * (0.5 + 2.5 * pt) * 1.2 * gk;
+// The data cells: random cells of the wall glowing faintly, with the
+// mids.
+let cc = floor(g);
+let hc0 = (u32(i32(cc.x) + 4096) * 7919u + u32(i32(cc.y) + 4096) * 104729u + 31u) * 747796405u + 2891336453u;
+let hc = ((hc0 >> ((hc0 >> 28u) + 4u)) ^ hc0) * 277803737u;
+let fill = step(0.86, f32(hc & 1023u) / 1023.0) * smoothstep(0.0, 2.0, dfine);
+col += vec3f(0.1, 0.4, 1.0) * fill * (0.08 + 0.25 * pm) * depth;
+// The kicks' square pulse rings, lighting the lines and nodes they cross.
+var ring = 0.0;
+var rline = 0.0;
+for (var i = 0; i < 4; i++) {
+    let rq = u.q[2 + i];
+    if (rq.w > 0.01) {
+        let dv = abs(g - rq.xy);
+        let cheb = max(dv.x, dv.y);
+        let x = cheb - rq.z;
+        let band = exp(-x * x / 0.3) * 1.3 + select(0.0, exp(x * 1.2) * 0.4, x < 0.0);
+        ring += band * rq.w;
+        let xp = x / cpp;
+        rline += exp(-xp * xp / (2.0 * ls * ls)) / ls * rq.w;
+    }
+}
+// The rings are held back on a tiny picture, where the lines they light
+// are a large share of it.
+ring *= min(1.0, sz.y / 135.0);
+rline *= min(1.0, sz.y / 135.0);
+let rc = mix(vec3f(1.0, 0.2, 0.7), vec3f(1.0, 0.75, 0.2), clamp(ring * 0.5, 0.0, 1.0));
+col += rc * ring * (lines * 3.0 + node * 2.0 + halo * 1.5 + 0.05 * gk) * depth;
+col += vec3f(1.0, 0.55, 0.85) * rline * 1.4 * depth;
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.15, vec3f(0.0)) * 1.25;
+return col / (1.0 + 0.4 * col);
 '''
