@@ -1,0 +1,190 @@
+# Galaxy Collision: two spiral galaxies in the middle of a slow merger.
+# They wheel round each other, one seen nearly face-on, the other tipped
+# steeply away and turning the other way, each a warm golden bulge in a
+# disk of blue-white spiral arms with dark dust lanes along their inner
+# edges. The encounter has flung long curved tidal tails of stars out
+# from both, and the arms and tails are strung with star-forming knots
+# glowing pink and blue. Faint stars and far galaxies lie behind.
+#
+# Everything is in the composite. Each galaxy is drawn in its own tilted
+# plane: a pixel is carried into the disk's frame (turned and stretched by
+# the tilt), where the disk is an exponential, the arms a two-armed
+# logarithmic spiral made clumpy by noise turning with them, the dust a
+# narrower spiral just inside each arm, and the bulge a soft core. The
+# tails are much looser spirals that begin at the disk's edge and fade
+# slowly over a long reach. The knots are a grid of hashed points in the
+# disk's frame, lit where the arms or tails are.
+#
+# The galaxies' orbit round each other and the arms' turning are
+# accumulated, the arms faster with the mids. Bass brightens the disks
+# (smoothed). Each hit of the music is felt at once, through pulses of the
+# bass, mids and treble that rise in a tick or two and die away over a
+# fraction of a second (soft-limited, so a bigger hit still means more):
+# a kick sets off a starburst in both colliding cores (a flare with
+# diffraction spikes), sends a tidal ripple running out through both
+# disks (up to three at once) and lights the knots; the mids swirl the
+# arms on; the treble twinkles the knots and the stars.
+version = 1
+
+[meta]
+name = "Galaxy Collision"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+om = 0.8; g1 = 0; g2 = 1.5; r1 = 2; r2 = 2; r3 = 2;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+sm = sm + (min(mid_att, 2.5) - sm) * 0.03;
+st = st + (min(treb_att, 2.5) - st) * 0.1;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+ob = pb;
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+// A fresh kick sends a tidal ripple out through the disks, in the next
+// of three slots.
+kk = max(pb - ob, 0);
+cd = cd + 1;
+if(kk > 0.1 && cd > 8,
+  cd = 0; sl = (sl + 1) % 3;
+  if(sl == 0, r1 = 0; a1 = min(pb, 1.5), 0);
+  if(sl == 1, r2 = 0; a2 = min(pb, 1.5), 0);
+  if(sl == 2, r3 = 0; a3 = min(pb, 1.5), 0),
+  0);
+r1 = min(r1 + 0.007, 2); r2 = min(r2 + 0.007, 2); r3 = min(r3 + 0.007, 2);
+a1 = a1 * 0.97; a2 = a2 * 0.97; a3 = a3 * 0.97;
+// The galaxies wheel round each other (once in 3 minutes).
+om = om + 6.2831853 / 180 / 60;
+om = om - 6.2831853 * floor(om / 6.2831853);
+// The arms turn, swirled on by the mids and kicks.
+g1 = g1 + (6.2831853 / 50 + 0.8 * pm + 0.25 * pb) / 60;
+g1 = g1 - 6.2831853 * floor(g1 / 6.2831853);
+g2 = g2 + (6.2831853 / 40 + 0.8 * pm + 0.25 * pb) / 60;
+g2 = g2 - 6.2831853 * floor(g2 / 6.2831853);
+q1 = om; q2 = g1; q3 = g2;
+q5 = pb; q6 = pm; q7 = pt; q8 = sb;
+q9 = r1; q10 = r2; q11 = r3; q12 = a1;
+q13 = a2; q14 = a3; q15 = st;
+'''
+
+[shader]
+comp = '''
+let sz = u.texsize.xy;
+let asp = sz.x / sz.y;
+let om = u.q[0].x;
+let pb = u.q[1].x;
+let pm = u.q[1].y;
+let pt = min(u.q[1].z, 1.5);
+let sb = min(u.q[1].w, 2.0) * 0.5;
+let st = max(0.0, min(u.q[3].z, 2.5) - 0.3);
+let px = 1.0 / sz.y;
+let lw = max(1.0, sz.y / 540.0);
+let TAU = 6.2831853;
+let p = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
+// The sky: near black, a faint violet haze, stars and far galaxies.
+var col = vec3f(0.008, 0.006, 0.02) + vec3f(0.05, 0.02, 0.08) * exp(-dot(p, p) * 2.0);
+let cell = floor(uv * sz / lw);
+let h0 = (u32(cell.x) * 1973u + u32(cell.y) * 9277u) * 747796405u + 2891336453u;
+let h1 = ((h0 >> ((h0 >> 28u) + 4u)) ^ h0) * 277803737u;
+let hh = f32((h1 >> 22u) ^ h1) / 4294967296.0;
+let tws = 0.6 + 0.4 * sin(u.time * (1.0 + 3.0 * hh) + hh * 40.0) * min(st, 1.0);
+col += mix(vec3f(1.0, 0.8, 0.6), vec3f(0.7, 0.8, 1.0), fract(hh * 37.0)) * step(0.997, hh) * (0.2 + 0.5 * fract(hh * 911.0)) * (tws + 0.6 * pt);
+// The two galaxies, wheeling round each other.
+let sep = 0.4 + 0.05 * sin(om * 2.0);
+let c1 = vec2f(cos(om) * sep * 0.95, sin(om) * sep * 0.42 + 0.02);
+for (var i = 0; i < 2; i++) {
+    let first = i == 0;
+    let ci = select(-c1 * 0.85, c1, first);
+    let pa = select(-1.1, 0.5, first) + 0.35 * om;
+    let ci2 = select(0.38, 0.82, first);
+    let sgn = select(-1.0, 1.0, first);
+    let spin = select(u.q[0].z, u.q[0].y, first);
+    let gsc = select(1.45, 1.75, first);
+    let d = p - ci;
+    let cp = cos(pa);
+    let spa = sin(pa);
+    let q = vec2f(d.x * cp + d.y * spa, (-d.x * spa + d.y * cp) / ci2) / gsc;
+    let r = length(q);
+    let th = atan2(q.y, q.x) * sgn;
+    let lr = log(max(r, 0.004));
+    // The arms: a two-armed logarithmic spiral.
+    let arm = 2.0 * (th - spin) - lr * 5.0;
+    let armv = pow(0.5 + 0.5 * cos(arm), 3.0);
+    // Clumps turning with the arms.
+    let cs = cos(spin * sgn);
+    let ss = sin(spin * sgn);
+    let qs = vec2f(q.x * cs + q.y * ss, -q.x * ss + q.y * cs);
+    let cn = 0.6 * textureSampleLevel(sampler_noise_mq, s_fw, qs * 0.9 + vec2f(f32(i) * 0.37, 0.2), 0.0).r + 0.4 * textureSampleLevel(sampler_noise_mq, s_fw, qs * 2.3 + vec2f(0.13, f32(i) * 0.29), 0.0).r;
+    let cn2 = textureSampleLevel(sampler_noise_mq, s_fw, qs * 4.1 + vec2f(0.61, f32(i) * 0.53), 0.0).r;
+    let disk = exp(-r / 0.11);
+    let dust = 1.0 - 0.75 * pow(0.5 + 0.5 * cos(arm + 0.75), 10.0) * smoothstep(0.015, 0.05, r) * exp(-r / 0.25) * (0.5 + cn2);
+    // The tidal ripples running out through the disk.
+    let w1 = (r - u.q[2].x * 0.6) / 0.025;
+    let w2 = (r - u.q[2].y * 0.6) / 0.025;
+    let w3 = (r - u.q[2].z * 0.6) / 0.025;
+    let rip = u.q[2].w * exp(-w1 * w1) + u.q[3].x * exp(-w2 * w2) + u.q[3].y * exp(-w3 * w3);
+    var g = vec3f(0.0);
+    g += mix(vec3f(1.0, 0.8, 0.5), vec3f(0.45, 0.65, 1.0), smoothstep(0.02, 0.14, r)) * disk * (0.45 + 1.8 * armv * (0.5 + 0.9 * cn)) * dust * (0.85 + 0.35 * sb);
+    // Glowing pink star-forming regions along the arms.
+    g += vec3f(1.0, 0.3, 0.6) * disk * armv * smoothstep(0.5, 0.8, cn) * smoothstep(0.03, 0.1, r) * (0.8 + 0.8 * pb);
+    // A soft halo of old stars.
+    g += vec3f(0.35, 0.3, 0.45) * exp(-r / 0.3) * 0.12;
+    // The tails: loose spirals from the disk's edge, fading slowly.
+    var tl = 0.0;
+    for (var k = 0; k < 2; k++) {
+        let th0 = spin * 0.25 + f32(k) * 3.14159265 + select(0.4, 2.0, first);
+        let tth = th0 + 1.5 * log(max(r, 0.01) / 0.12);
+        let dt = th - tth;
+        let dw = dt - TAU * floor(dt / TAU + 0.5);
+        let reach = select(0.42, 0.7, k == 0);
+        let wd = 0.22 + 0.25 * smoothstep(0.1, 0.6, r);
+        tl += exp(-dw * dw / (wd * wd)) * exp(-max(r - 0.12, 0.0) / reach) * smoothstep(0.08, 0.2, r) * (1.0 - smoothstep(0.7, 1.2, r));
+    }
+    tl *= 0.5 + 0.8 * cn;
+    g += mix(vec3f(0.45, 0.6, 1.0), vec3f(0.8, 0.55, 1.0), cn2) * tl * 0.42;
+    g += vec3f(0.5, 0.7, 1.0) * rip * (disk * 2.5 + tl * 0.4) * (0.6 + 0.4 * armv);
+    // The bulge, and the starburst flaring in the core with the kicks.
+    let bul = exp(-r * r / 0.0016);
+    g += vec3f(1.0, 0.85, 0.6) * bul * 0.9 + vec3f(1.0, 0.95, 0.85) * exp(-r * r / 0.00012) * 1.2;
+    let fr = exp(-dot(d, d) / (0.0005 + 0.0025 * pb)) * pb * 1.4;
+    let spk = (exp(-abs(d.x) / (1.2 * px)) * exp(-abs(d.y) / 0.06) + exp(-abs(d.y) / (1.2 * px)) * exp(-abs(d.x) / 0.06)) * pb * min(1.0, sz.y / 540.0);
+    g += vec3f(1.0, 0.6, 0.9) * fr + vec3f(1.0, 0.85, 1.0) * spk * 0.8;
+    // Star-forming knots: hashed points in the disk's frame, lit where
+    // the arms and tails are, pink and blue.
+    let kq = q * 22.0;
+    // The knots' size: fixed on the sky, but never under a pixel and a half
+    // (dimmed to match, so they never throb a small picture).
+    let ks = max(0.004, 1.5 * px);
+    let ke = (0.004 / ks) * (0.004 / ks);
+    let kc = floor(kq);
+    var kn = vec3f(0.0);
+    for (var m = 0; m < 4; m++) {
+        let c = kc + vec2f(f32(m % 2), f32(m / 2)) - vec2f(0.5) + step(vec2f(0.5), fract(kq)) - vec2f(0.5);
+        let hk = fract(sin(vec2f(dot(c, vec2f(127.1, 311.7)), dot(c, vec2f(269.5, 183.3))) + f32(i) * 7.1) * 43758.5453);
+        let kp = c + vec2f(0.2) + hk * 0.6;
+        let dk = length(kq - kp) * gsc / 22.0;
+        let on = step(0.5, hk.x) * step(0.45, cn) * clamp(armv * disk * 8.0 + tl * 1.2, 0.0, 1.0);
+        let ktw = 0.7 + 0.3 * sin(u.time * (3.0 + 4.0 * hk.y) + hk.x * 30.0);
+        let kcol = select(vec3f(0.35, 0.7, 1.0), vec3f(1.0, 0.25, 0.6), hk.y > 0.4);
+        kn += kcol * on * (exp(-dk * dk / (ks * ks)) * 1.3 + exp(-dk / 0.011) * 0.12) * ke * (0.6 + 0.6 * pb + (0.25 * st + 1.4 * pt) * ktw);
+    }
+    g += kn;
+    col += g;
+}
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.2, vec3f(0.0));
+return col / (1.0 + 0.45 * col);
+'''

@@ -1,0 +1,302 @@
+# Volcano Lightning: a volcano erupting at night. Fountains of lava leap
+# from the crater and fall back glowing; rivers of lava run down the dark
+# cone, yellow-white at the vent cooling to red; a towering plume of ash
+# billows up and leans away on the wind, lit orange from beneath, and
+# inside it volcanic lightning forks and branches between the clouds of
+# ash. Embers drift up through the glow, and the sky above is deep blue,
+# reddened round the plume.
+#
+# Everything is in the composite. The plume is a column widening with
+# height into a spreading crown, its edge and density value noise that
+# rises and widens with it; the cone is a concave profile with gullies,
+# the lava flows meandering channels down it with their own flowing
+# texture. The fountains are ballistic sparks drawn as short streaks
+# along their velocity, each on its own cycle; a kick's burst is a fan of
+# faster ones thrown together. Each lightning bolt is a jagged line, a sum
+# of triangle waves offset from a straight path (its width kept even on
+# the steep jags), with two branches forking off it, a hot core, a halo,
+# and light that falls only on the ash close by.
+#
+# The plume's rise, the lava's flow and the fountains run on accumulated
+# clocks, faster with the mids. Bass brightens the lava (smoothed). Each
+# hit of the music is felt at once, through pulses of the bass, mids and
+# treble that rise in a tick or two and die away over a fraction of a
+# second (soft-limited, so a bigger hit still means more): a kick flares
+# the crater and the lava, hurls a burst of lava high out of the vent and
+# forks a lightning bolt through the lower plume (up to three of each at
+# once; a bolt's light stays in the ash round it); the mids churn the
+# plume; the treble twinkles the embers.
+version = 1
+
+[meta]
+name = "Volcano Lightning"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+pf = 0; lf = 0; fc = 0; e1 = 9; e2 = 9; e3 = 9;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+sm = sm + (min(mid_att, 2.5) - sm) * 0.03;
+st = st + (min(treb_att, 2.5) - st) * 0.1;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+ob = pb;
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+// A fresh kick forks a bolt somewhere in the lower plume and throws a
+// burst of lava, each in the next of three slots.
+kk = max(pb - ob, 0);
+cd = cd + 1;
+if(kk > 0.1 && cd > 6,
+  cd = 0; sl = (sl + 1) % 3;
+  hh = 0.12 + rand(1000) / 1000 * 0.26;
+  nx = -0.05 + 0.45 * hh * hh + (rand(1000) / 1000 - 0.5) * (0.04 + 0.42 * hh) * 0.8;
+  ny = -0.04 + hh + 0.1;
+  ns = rand(1000) / 1000 * 40;
+  na = min(0.5 + pb, 1.5);
+  if(sl == 0, l1x = nx; l1y = ny; l1s = ns; l1a = na; e1 = 0; f1 = na; g1 = ns, 0);
+  if(sl == 1, l2x = nx; l2y = ny; l2s = ns; l2a = na; e2 = 0; f2 = na; g2 = ns, 0);
+  if(sl == 2, l3x = nx; l3y = ny; l3s = ns; l3a = na; e3 = 0; f3 = na; g3 = ns, 0),
+  0);
+l1a = l1a * 0.88; l2a = l2a * 0.88; l3a = l3a * 0.88;
+e1 = min(e1 + 1 / 60, 9); e2 = min(e2 + 1 / 60, 9); e3 = min(e3 + 1 / 60, 9);
+// The plume rises and churns, faster with the mids; the lava flows.
+pf = pf + (0.05 + 0.04 * min(sm, 2) + 0.25 * pm) / 60;
+pf = pf - 64 * floor(pf / 64);
+lf = lf + (0.25 + 0.15 * min(sb, 2) + 0.8 * pb) / 60;
+lf = lf - 64 * floor(lf / 64);
+fc = fc + (1 + 0.5 * pb) / 60;
+fc = fc - 600 * floor(fc / 600);
+q1 = pf; q2 = lf; q3 = fc; q4 = st;
+q5 = pb; q6 = pm; q7 = pt; q8 = sb;
+q9 = l1x; q10 = l1y; q11 = l1s; q12 = l1a;
+q13 = l2x; q14 = l2y; q15 = l2s; q16 = l2a;
+q17 = l3x; q18 = l3y; q19 = l3s; q20 = l3a;
+q21 = e1; q22 = f1; q23 = g1; q24 = e2;
+q25 = f2; q26 = g2; q27 = e3; q28 = f3;
+q29 = g3;
+'''
+
+[shader]
+comp = '''
+let sz = u.texsize.xy;
+let asp = sz.x / sz.y;
+let pf = u.q[0].x;
+let lf = u.q[0].y;
+let fc = u.q[0].z;
+let st = max(0.0, min(u.q[0].w, 2.5) - 0.3);
+let pb = u.q[1].x;
+let pm = u.q[1].y;
+let pt = min(u.q[1].z, 1.5);
+let sb = min(u.q[1].w, 2.0) * 0.5;
+let px = 1.0 / sz.y;
+let p = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
+// The vent.
+let xv = -0.05;
+let yv = -0.04;
+// The sky: deep blue above, reddened round the plume, a few stars.
+let dv = p - vec2f(xv + 0.08, yv + 0.25);
+var col = mix(vec3f(0.05, 0.02, 0.05), vec3f(0.006, 0.01, 0.035), smoothstep(-0.2, 0.5, p.y));
+col += vec3f(0.38, 0.09, 0.08) * exp(-dot(dv, dv) * 2.5) * (0.8 + 0.25 * sb);
+let cell = floor(uv * sz / max(1.0, sz.y / 540.0));
+let h0 = (u32(cell.x) * 1973u + u32(cell.y) * 9277u) * 747796405u + 2891336453u;
+let h1 = ((h0 >> ((h0 >> 28u) + 4u)) ^ h0) * 277803737u;
+let hh = f32((h1 >> 22u) ^ h1) / 4294967296.0;
+col += vec3f(0.7, 0.75, 1.0) * step(0.998, hh) * smoothstep(0.0, 0.4, p.y) * 0.4;
+// The plume: a column widening into a crown, leaning on the wind.
+let h = p.y - yv;
+let xc = xv + 0.45 * max(h, 0.0) * max(h, 0.0);
+let pw = 0.07 + 0.5 * max(h, 0.0) + 0.55 * smoothstep(0.2, 0.62, h);
+let rx = (p.x - xc) / pw;
+let nq = vec2f((p.x - xc) * 0.8 + 0.3, h * 0.8 - pf);
+// Five octaves of value noise, each turned, warped by the first.
+let wq = textureSampleLevel(sampler_noise_mq, s_fw, nq * 0.23 + vec2f(0.5, 0.2), 0.0).rg - vec2f(0.5);
+var nn = 0.0;
+var oq = nq * 0.35 + wq * 0.25;
+var oa = 0.5;
+for (var o = 0; o < 5; o++) {
+    nn += oa * textureSampleLevel(sampler_noise_mq, s_fw, oq, 0.0).r;
+    oq = vec2f(oq.x * 0.8 - oq.y * 0.6, oq.x * 0.6 + oq.y * 0.8) * 2.03 + vec2f(0.17, 0.31);
+    oa *= 0.5;
+}
+nn = nn / 0.97;
+let edge = 1.0 - smoothstep(0.45, 1.05, abs(rx) + (nn - 0.5) * 1.3);
+let dens = edge * smoothstep(-0.03, 0.04, h) * (0.65 + 0.35 * smoothstep(0.25, 0.65, nn));
+// Billows: lighter where the ash is thick.
+let shd = clamp(0.35 + 1.3 * nn, 0.4, 1.4);
+// Lit from beneath by the lava, faintly from the sky above.
+let under = exp(-max(h, 0.0) * 4.0) * (1.0 + 1.0 * pb) + 0.3 * exp(-max(h, 0.0) * 1.2);
+var plc = (vec3f(0.13, 0.085, 0.08) * (0.5 + nn) + vec3f(1.0, 0.32, 0.1) * under * (0.45 + 0.7 * nn) * (0.85 + 0.3 * sb)) * shd;
+// The lightning: bolts forking through the ash.
+var core = 0.0;
+var halo = 0.0;
+var lit = 0.0;
+for (var k = 0; k < 3; k++) {
+    let bx = select(select(u.q[4].x, u.q[3].x, k == 1), u.q[2].x, k == 0);
+    let by = select(select(u.q[4].y, u.q[3].y, k == 1), u.q[2].y, k == 0);
+    let bs = select(select(u.q[4].z, u.q[3].z, k == 1), u.q[2].z, k == 0);
+    let ba = select(select(u.q[4].w, u.q[3].w, k == 1), u.q[2].w, k == 0);
+    if (ba < 0.01) {
+        continue;
+    }
+    let S = vec2f(bx, by);
+    let E = S + vec2f(0.16 * (fract(bs * 7.31) - 0.5), -(0.16 + 0.1 * fract(bs * 3.17)));
+    let dSE = p - (S + E) * 0.5;
+    if (dot(dSE, dSE) > 0.09) {
+        continue;
+    }
+    for (var b = 0; b < 3; b++) {
+        let fb = f32(b);
+        var A = S;
+        var B = E;
+        if (b > 0) {
+            let s0 = 0.25 + 0.35 * fract(bs * (2.3 + fb * 1.7));
+            A = mix(S, E, s0);
+            let mdx = E - S;
+            let ang = select(-0.75, 0.75, b == 1) + 0.3 * (fract(bs * 5.7 + fb) - 0.5);
+            let ca = cos(ang);
+            let sa = sin(ang);
+            B = A + vec2f(mdx.x * ca - mdx.y * sa, mdx.x * sa + mdx.y * ca) * (0.4 + 0.2 * fract(bs * 1.9 + fb));
+        }
+        let ab = B - A;
+        let L = length(ab);
+        let dir = ab / L;
+        let nrm = vec2f(-dir.y, dir.x);
+        let rel = p - A;
+        let s = dot(rel, dir) / L;
+        let sc = clamp(s, 0.0, 1.0);
+        // The jags: triangle waves, their slope known so the line keeps
+        // its width on the steep ones.
+        var off = 0.0;
+        var slope = 0.0;
+        var fq = 3.0;
+        var am = 0.5;
+        for (var o = 0; o < 4; o++) {
+            let x = sc * fq + bs * (1.3 + f32(o) * 0.71) + fb * 3.1;
+            let fr = fract(x);
+            off += am * (abs(fr - 0.5) * 4.0 - 1.0);
+            slope += am * fq * select(-4.0, 4.0, fr > 0.5);
+            fq *= 2.1;
+            am *= 0.5;
+        }
+        let env = sin(3.14159265 * sc);
+        let pr = dot(rel, nrm) - off * 0.09 * L * env;
+        let perp = pr / sqrt(1.0 + slope * slope * 0.0081 * env * env);
+        let along = (s - sc) * L;
+        let dd = sqrt(perp * perp + along * along);
+        let wgt = select(0.55, 1.0, b == 0) * ba;
+        let wc = max(0.0016, 0.9 * px);
+        core += exp(-dd * dd / (wc * wc)) * wgt;
+        let dr = sqrt(pr * pr + along * along);
+        halo += exp(-dr / 0.012) * wgt;
+        lit += exp(-dr / 0.07) * wgt;
+    }
+}
+plc += vec3f(0.6, 0.5, 1.0) * lit * 0.9;
+col = mix(col, plc, dens * 0.95);
+// Embers drifting up through the glow, twinkling with the treble.
+let eq = vec2f(p.x * 28.0, (p.y - pf * 3.0) * 28.0);
+let ec = floor(eq);
+let eh = fract(sin(dot(ec, vec2f(41.3, 289.1))) * 43758.5453);
+let ef = fract(eq) - vec2f(0.5) - (vec2f(fract(eh * 13.7), fract(eh * 29.3)) - vec2f(0.5)) * 0.6;
+let etw = 0.5 + 0.5 * sin(u.time * (5.0 + 7.0 * eh) + eh * 40.0);
+let emb = step(0.86, eh) * exp(-dot(ef, ef) * 60.0) * exp(-max(h, 0.0) * 4.0) * exp(-abs(p.x - xv) * 4.0) * (0.25 + 0.4 * st * etw + 2.0 * pt * etw);
+col += vec3f(1.0, 0.55, 0.15) * emb;
+// The cone: a concave profile with gullies, the crater a notch at the top.
+let dx = abs(p.x - xv);
+let gn = textureSampleLevel(sampler_noise_mq, s_fw, vec2f(p.x * 0.9, 0.23), 0.0).r;
+let ys = yv + 0.012 - 0.7 * pow(max(dx - 0.055, 0.0), 0.85) - 0.012 * (1.0 - dx * dx / 0.003) * step(dx, 0.055) - 0.02 * gn * smoothstep(0.05, 0.3, dx);
+let ground = smoothstep(ys + 1.2 * px, ys - 1.2 * px, p.y);
+if (ground > 0.0) {
+    let dy = max(ys - p.y, 0.0);
+    let ddy = max(yv - p.y, 0.0);
+    // Dark rock, lit by the lava glow near the top.
+    var rc = vec3f(0.025, 0.018, 0.025) + vec3f(0.4, 0.09, 0.03) * exp(-ddy * 5.0) * exp(-dx * 4.0) * (1.0 + 0.8 * pb) + vec3f(0.12, 0.03, 0.03) * exp(-dy * 25.0) * (0.6 + 0.4 * gn);
+    // The lava rivers: meandering channels down the flanks.
+    var lv = 0.0;
+    for (var k = 0; k < 9; k++) {
+        let fk = f32(k);
+        let sd = select(-1.0, 1.0, k % 2 == 0);
+        let spr = 0.25 + 0.7 * fract(fk * 0.618 + 0.2);
+        let xk = xv + sd * (0.035 + spr * ddy) + 0.025 * sin(ddy * 22.0 + fk * 1.7) * min(ddy * 6.0, 1.0);
+        let wk = 0.006 + 0.025 * ddy;
+        let lk = 0.2 + 0.32 * fract(fk * 0.377 + 0.5);
+        let tex = textureSampleLevel(sampler_noise_mq, s_fw, vec2f((p.x - xk) * 3.0 + fk * 0.13, ddy * 2.5 - lf * 0.6), 0.0).r;
+        let ch = exp(-pow((p.x - xk) / wk, 2.0)) * (1.0 - smoothstep(lk * 0.6, lk, ddy)) * (0.6 + 0.6 * tex);
+        lv = max(lv, ch * (1.0 - 0.5 * ddy / lk));
+    }
+    lv = lv * (0.85 + 0.35 * sb + 0.6 * pb);
+    let lc = vec3f(1.0, 0.25, 0.03) * smoothstep(0.0, 0.5, lv) + vec3f(0.0, 0.5, 0.15) * smoothstep(0.4, 0.9, lv) + vec3f(0.0, 0.2, 0.3) * smoothstep(0.8, 1.3, lv);
+    rc += lc * 1.4;
+    col = mix(col, rc, ground);
+}
+// The glow of the lava rivers and crater, over everything.
+let cv = p - vec2f(xv, yv + 0.01);
+col += vec3f(1.0, 0.4, 0.08) * exp(-dot(cv, cv) * 400.0) * (0.7 + 1.4 * pb);
+col += vec3f(0.6, 0.15, 0.03) * exp(-dot(cv, cv) * 30.0) * (0.25 + 0.25 * sb + 0.3 * pb);
+// The fountains: sparks on ballistic arcs, drawn as streaks, and the
+// kicks' bursts.
+if (dx < 0.75 && p.y > yv - 0.25) {
+    var sp = 0.0;
+    let wsp = max(0.003, 0.9 * px);
+    for (var i = 0; i < 112; i++) {
+        let fi = f32(i);
+        let hx = fract(sin(fi * 12.9898 + 1.3) * 43758.5453);
+        let hy = fract(sin(fi * 78.233 + 4.1) * 43758.5453);
+        let hz = fract(sin(fi * 37.719 + 2.7) * 43758.5453);
+        var age = 0.0;
+        var vx = 0.0;
+        var vy = 0.0;
+        var amp = 1.0;
+        if (i < 40) {
+            let tt = 0.6 + 0.5 * hz;
+            age = fract(fc / tt + hx) * tt;
+            vx = 0.3 * (hx - 0.5);
+            vy = 0.55 + 0.35 * hy;
+            amp = 0.8;
+        } else {
+            let k = (i - 40) / 24;
+            let ek = select(select(u.q[5].w, u.q[6].z, k == 2), u.q[5].x, k == 0);
+            let ak = select(select(u.q[6].x, u.q[6].w, k == 2), u.q[5].y, k == 0);
+            let gk = select(select(u.q[6].y, u.q[7].x, k == 2), u.q[5].z, k == 0);
+            let hk = fract(sin((fi + gk) * 17.13) * 43758.5453);
+            age = ek;
+            vx = 0.75 * (hk - 0.5);
+            vy = 0.95 + 0.45 * fract(hk * 7.7 + hy);
+            amp = ak * 1.3;
+            if (age > 1.6 || amp < 0.01) {
+                continue;
+            }
+        }
+        let g = 1.7;
+        let P = vec2f(xv + vx * age, yv + vy * age - 0.5 * g * age * age);
+        let V = vec2f(vx, vy - g * age);
+        // A streak back along the velocity.
+        let Q = P - V * 0.035;
+        let pq = P - Q;
+        let tq = clamp(dot(p - Q, pq) / max(dot(pq, pq), 1e-6), 0.0, 1.0);
+        let dq = length(p - Q - pq * tq);
+        let fade = exp(-age * 1.3);
+        sp += exp(-dq * dq / (wsp * wsp)) * amp * fade * (0.4 + 0.6 * tq);
+    }
+    col += vec3f(1.0, 0.6, 0.2) * sp * 1.4 + vec3f(0.0, 0.25, 0.15) * min(sp, 1.0);
+}
+// The bolts over the ash: a hot violet-white core and a halo.
+col += vec3f(0.55, 0.45, 1.0) * halo * 0.18 + vec3f(0.85, 0.85, 1.0) * core * 1.8 * min(1.0, sz.y / 270.0);
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.2, vec3f(0.0));
+return col / (1.0 + 0.4 * col);
+'''

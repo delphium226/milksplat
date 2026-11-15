@@ -1,0 +1,254 @@
+# Klein Bottle: a glowing glass Klein bottle turning slowly in a dark
+# violet void. Its neck rises out of the bulb, arcs over and plunges back
+# in through the bottle's own side, then flares out again as the bottom,
+# so the inside and the outside are one surface. It is drawn as a shell
+# of light, like neon in glass: brightest where the eye looks along it,
+# so every fold, the neck inside the bulb and the circle where the
+# surface passes through itself all show at once. Iridescent bands of
+# light flow round it, ring after ring, along its one long loop.
+#
+# Everything is in the composite. The bottle is a tube round a closed
+# spine: the bulb and the bottom are surfaces of revolution (a bulging
+# profile and half a torus), the neck and handle are arcs and lines of a
+# planar curve with a tube round them, and a short inner tube joins the
+# handle to the bottom. Each pixel's ray is clipped to a sphere round it
+# and marched through the distance to the nearest shell (not the nearest
+# solid: the shells pass through each other), adding light by how close it
+# passes, coloured by where along the loop it is. The motes behind are
+# hashed cells.
+#
+# The bottle turns and tilts (accumulated, faster with the mids) and the
+# bands flow round the loop (accumulated). Bass brightens the bands
+# (smoothed); mids drift the iridescence. Each hit of the music is felt
+# at once, through pulses of the bass, mids and treble that rise in a tick
+# or two and die away over a fraction of a second (soft-limited, so a
+# bigger hit still means more): a kick swells the bottle, pushes the
+# camera in, surges the bands on and sends a bright pulse racing from
+# the top of the handle down through the self-intersection into the bulb
+# (up to three at once); the mids spin it on; the treble glints across the
+# glass and twinkles the motes.
+version = 1
+
+[meta]
+name = "Klein Bottle"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+ya = 0.5; tl = 0; fl = 0; hu = 0; k1 = 20; k2 = 20; k3 = 20;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+sm = sm + (min(mid_att, 2.5) - sm) * 0.03;
+st = st + (min(treb_att, 2.5) - st) * 0.1;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+ob = pb;
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+// A fresh kick sends a pulse from the top of the handle round the loop,
+// in the next of three slots.
+kk = max(pb - ob, 0);
+cd = cd + 1;
+if(kk > 0.1 && cd > 8,
+  cd = 0; sl = (sl + 1) % 3;
+  if(sl == 0, k1 = 3.2; a1 = min(pb, 1.5), 0);
+  if(sl == 1, k2 = 3.2; a2 = min(pb, 1.5), 0);
+  if(sl == 2, k3 = 3.2; a3 = min(pb, 1.5), 0),
+  0);
+k1 = min(k1 + 0.1, 20); k2 = min(k2 + 0.1, 20); k3 = min(k3 + 0.1, 20);
+a1 = a1 * 0.97; a2 = a2 * 0.97; a3 = a3 * 0.97;
+// The bottle turns (once in 40 s) and tilts, on faster with the mids
+// and kicks.
+ya = ya + (6.2831853 / 40 + 0.5 * pm + 0.25 * pb) / 60;
+ya = ya - 6.2831853 * floor(ya / 6.2831853);
+tl = tl + 6.2831853 / 55 / 60;
+tl = tl - 6.2831853 * floor(tl / 6.2831853);
+// The bands flow round the loop, surging with the kicks.
+fl = fl + (0.25 + 0.15 * min(sb, 2) + 2.2 * pb) / 60;
+fl = fl - floor(fl);
+hu = hu + (0.01 + 0.02 * min(sm, 2) / 2 + 0.15 * pm) / 60;
+hu = hu - floor(hu);
+q1 = ya; q2 = 0.35 * sin(tl); q3 = fl; q4 = hu;
+q5 = pb; q6 = pm; q7 = pt; q8 = sb;
+q9 = k1; q10 = k2; q11 = k3; q12 = a1;
+q13 = a2; q14 = a3; q15 = st;
+'''
+
+[shader]
+comp = '''
+let sz = u.texsize.xy;
+let asp = sz.x / sz.y;
+let ya = u.q[0].x;
+let tl = u.q[0].y;
+let flw = u.q[0].z;
+let hu = u.q[0].w;
+let pb = u.q[1].x;
+let pm = u.q[1].y;
+let pt = min(u.q[1].z, 1.5);
+let sb = min(u.q[1].w, 2.0) * 0.5;
+let k1 = u.q[2].x;
+let k2 = u.q[2].y;
+let k3 = u.q[2].z;
+let a1 = u.q[2].w;
+let a2 = u.q[3].x;
+let a3 = u.q[3].y;
+let st = max(0.0, min(u.q[3].z, 2.5) - 0.3);
+let lw = max(1.0, sz.y / 540.0);
+let PI = 3.14159265;
+let LL = 8.947;
+let sp = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
+// The void: deep violet, brighter behind the bottle, with faint motes.
+let r0 = length(sp);
+var col = vec3f(0.014, 0.007, 0.035) + vec3f(0.09, 0.03, 0.15) * exp(-r0 * r0 * 2.5) + vec3f(0.0, 0.02, 0.04) * (1.0 - uv.y);
+let cell = floor(uv * sz / lw);
+let h0 = (u32(cell.x) * 1973u + u32(cell.y) * 9277u) * 747796405u + 2891336453u;
+let h1 = ((h0 >> ((h0 >> 28u) + 4u)) ^ h0) * 277803737u;
+let hh = f32((h1 >> 22u) ^ h1) / 4294967296.0;
+let tw = 0.6 + 0.4 * sin(u.time * (1.0 + 3.0 * hh) + hh * 40.0) * min(st, 1.0);
+col += vec3f(0.7, 0.75, 1.0) * step(0.997, hh) * (0.2 + 0.4 * fract(hh * 911.0)) * (tw + 0.6 * pt);
+// The camera, pushed in by the kicks.
+let fz = 1.8 * (1.0 + 0.05 * pb);
+let rd0 = normalize(vec3f(sp.x, sp.y, fz));
+// Orbit the camera: tilt about x, then turn about y.
+let ct = cos(tl);
+let stt = sin(tl);
+let cy = cos(ya);
+let sy = sin(ya);
+let ro1 = vec3f(0.0, 7.8 * stt, -7.8 * ct);
+let ro = vec3f(ro1.x * cy + ro1.z * sy, ro1.y, -ro1.x * sy + ro1.z * cy);
+let rd1 = vec3f(rd0.x, rd0.y * ct - rd0.z * stt, rd0.y * stt + rd0.z * ct);
+let rd = vec3f(rd1.x * cy + rd1.z * sy, rd1.y, -rd1.x * sy + rd1.z * cy);
+// The kick swells the bottle about its middle.
+let sc = 1.0 + 0.08 * pb;
+let C = vec3f(0.5, 0.35, 0.0);
+
+// Clip to the bounding sphere.
+let bq = dot(ro, rd);
+let cq = dot(ro, ro) - 4.7 * sc * sc;
+let disc = bq * bq - cq;
+var acc = vec3f(0.0);
+var haze = 0.0;
+if (disc > 0.0) {
+    let sq = sqrt(disc);
+    var t = max(-bq - sq, 0.0);
+    let t1 = -bq + sq;
+    let wl = 0.022 * (1.0 + 0.25 * pb);
+    let iw = 1.0 / (wl * wl);
+    for (var i = 0; i < 100; i++) {
+        if (t > t1) {
+            break;
+        }
+        let P = (ro + rd * t) / sc + C;
+        let x = P.x;
+        let y = P.y;
+        let z = P.z;
+        let rr = length(P.xz);
+        // The bulb: a surface of revolution about the y axis.
+        let yc = clamp(y, -1.1, 1.0);
+        let s = (yc + 1.1) / 2.1;
+        let R = 0.2 + 0.5 * (1.0 - smoothstep(0.15, 0.95, s)) + 0.35 * sin(PI * s) * (1.0 - s);
+        var d = length(vec2f(rr - R, y - yc));
+        var uu = yc + 1.1;
+        // The bottom: half a torus from the inner tube out to the bulb.
+        if (y < -1.1) {
+            let tq = vec2f(rr - 0.45, y + 1.1);
+            let dt = abs(length(tq) - 0.25);
+            if (dt < d) {
+                d = dt;
+                uu = 8.162 + (PI - atan2(-tq.y, tq.x)) * 0.25;
+            }
+        }
+        // The inner tube down the axis.
+        let yi = clamp(y, -1.1, -0.95);
+        let di = length(vec2f(rr - 0.2, y - yi));
+        if (di < d) {
+            d = di;
+            uu = 8.012 + (-0.95 - yi);
+        }
+        // The neck arcs over the top.
+        let a2_ = atan2(y - 1.0, x - 0.85);
+        let c2 = select(clamp(a2_, 0.0, PI), select(0.0, PI, a2_ < -1.5708), a2_ < 0.0);
+        let d2 = abs(length(vec3f(x - 0.85 - 0.85 * cos(c2), y - 1.0 - 0.85 * sin(c2), z)) - 0.2);
+        if (d2 < d) {
+            d = d2;
+            uu = 2.1 + (PI - c2) * 0.85;
+        }
+        // Down the far side.
+        let y3 = clamp(y, 0.0, 1.0);
+        let d3 = abs(length(vec3f(x - 1.7, y - y3, z)) - 0.2);
+        if (d3 < d) {
+            d = d3;
+            uu = 4.770 + (1.0 - y3);
+        }
+        // Round the lower bend.
+        let a4 = atan2(y, x - 1.2);
+        let c4 = select(select(-1.5708, 0.0, a4 > 0.0 && a4 < 2.356), a4, a4 <= 0.0 && a4 >= -1.5708);
+        let d4 = abs(length(vec3f(x - 1.2 - 0.5 * cos(c4), y - 0.5 * sin(c4), z)) - 0.2);
+        if (d4 < d) {
+            d = d4;
+            uu = 5.770 - c4 * 0.5;
+        }
+        // In through the side of the bulb.
+        let x5 = clamp(x, 0.45, 1.2);
+        let d5 = abs(length(vec3f(x - x5, y + 0.5, z)) - 0.2);
+        if (d5 < d) {
+            d = d5;
+            uu = 6.555 + (1.2 - x5);
+        }
+        // And down into the inner tube.
+        let a6 = atan2(y + 0.95, x - 0.45);
+        let c6 = select(select(PI, 1.5708, a6 >= -0.785 && a6 < 1.5708), a6, a6 >= 1.5708);
+        let d6 = abs(length(vec3f(x - 0.45 - 0.45 * cos(c6), y + 0.95 - 0.45 * sin(c6), z)) - 0.2);
+        if (d6 < d) {
+            d = d6;
+            uu = 7.305 + (c6 - 1.5708) * 0.45;
+        }
+        let dw = d * sc;
+        let stp = max(dw * 0.7, 0.012);
+        let e = exp(-dw * dw * iw);
+        if (e > 0.003) {
+            // Rings flowing round the loop.
+            let ph = uu * (12.0 / LL) - flw;
+            let band = pow(0.5 + 0.5 * cos(6.2831853 * ph), 10.0);
+            // The kicks' pulses racing round.
+            let w1 = uu - k1;
+            let w2 = uu - k2;
+            let w3 = uu - k3;
+            let e1 = w1 - LL * floor(w1 / LL + 0.5);
+            let e2 = w2 - LL * floor(w2 / LL + 0.5);
+            let e3 = w3 - LL * floor(w3 / LL + 0.5);
+            let race = a1 * exp(-e1 * e1 * 5.0) + a2 * exp(-e2 * e2 * 5.0) + a3 * exp(-e3 * e3 * 5.0);
+            // Iridescence: the hue runs round the loop and with the view.
+            let h = 6.2831853 * (hu + uu / LL + 0.15 * z);
+            let ir = 0.5 + 0.5 * vec3f(cos(h), cos(h - 2.094), cos(h + 2.094));
+            let ic = mix(ir, vec3f(0.3, 0.9, 1.0), 0.2);
+            // Treble glints, in cells on the glass.
+            let gq = P * 14.0;
+            let gc = floor(gq);
+            let gh = fract(sin(dot(gc, vec3f(12.9898, 78.233, 37.719))) * 43758.5453);
+            let gf = fract(gq) - vec3f(0.5);
+            let gl = step(0.93 - 0.05 * pt, gh) * exp(-dot(gf, gf) * 30.0) * (0.4 * st + 3.0 * pt);
+            acc += (ic * (0.35 + (0.9 + 0.6 * sb) * band * (1.0 + 0.8 * pb)) + vec3f(1.0, 0.9, 1.0) * (race * 2.2 + gl)) * e * stp;
+        }
+        haze += exp(-dw * 6.0) * stp;
+        t += stp;
+    }
+}
+col += acc * 10.0;
+col += vec3f(0.25, 0.12, 0.45) * haze * 0.06 * (1.0 + 0.5 * pb);
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.2, vec3f(0.0));
+return col / (1.0 + 0.4 * col);
+'''
