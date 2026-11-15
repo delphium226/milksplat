@@ -77,8 +77,8 @@ device, so just start your music and run it.
 | **Crystal Geode**: inside a giant geode, a turning cluster of amethyst and quartz lit from within, rainbow fringes on its facets, as each kick sends a flare of light up through the crystals | **Lichtenberg Figures**: electric-blue and violet discharge trees branching across a dark acrylic block, each kick firing a fresh one that forks out from a new strike point |
 | ![Desert Milky Way](docs/images/desert-milky-way.png) | ![Mandelbulb](docs/images/mandelbulb.png) |
 | **Desert Milky Way**: the blazing core of the Milky Way rising over moonless dunes and a lone rock arch, airglow drifting along the horizon, a meteor streaking down on each kick | **Mandelbulb**: the ray-marched three-dimensional Mandelbrot set in glowing neon orbit-trap colours, the camera circling it and pushing in on each kick as its buds morph |
-| ![Julia Morph](docs/images/julia-morph.png) | |
-| **Julia Morph**: a Julia set melting from shape to shape as its parameter creeps round the Mandelbrot cardioid, neon rings on black, each kick jolting it on and sweeping a ring of light in to its glowing edge | |
+| ![Julia Morph](docs/images/julia-morph.png) | ![Truchet Maze](docs/images/truchet-maze.png) |
+| **Julia Morph**: a Julia set melting from shape to shape as its parameter creeps round the Mandelbrot cardioid, neon rings on black, each kick jolting it on and sweeping a ring of light in to its glowing edge | **Truchet Maze**: a scrolling maze of neon quarter-arc tubes with pulses of light racing along them, each kick sending a wave of tiles spinning to rewire the paths |
 
 These are single frames; every preset moves and changes with the music.
 

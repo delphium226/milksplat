@@ -1,0 +1,193 @@
+# Truchet Maze: an endless maze of glowing neon tubes drifting past on
+# black. Every square tile holds two quarter-circle arcs joining the
+# middles of its sides, turned one way or the other at random, and
+# together they wind into long meandering paths and small closed loops.
+# Pulses of light race along the tubes. Now and then a wave sweeps out
+# across the maze and every tile it crosses spins a quarter turn,
+# rewiring the paths behind it, with a ring of light riding the front.
+#
+# Everything is in the composite. The plane (nine tiles down the screen,
+# scrolling diagonally, the scroll accumulated) is cut into tiles, and
+# each tile's turn is a hash of the tile, flipped once more by every wave
+# that has passed it: a wave reaches a tile when its front (growing at
+# 25 tiles a second from its start) passes the tile's centre, and the
+# tile spins through its quarter turn over the next fifth of a second. A
+# wave that has crossed the whole screen is folded into a global count,
+# so its slot can be reused. Each arc is drawn by its distance from its
+# corner, in pixels, so the tubes keep their width at any size; the
+# pulses are a sawtooth along the arc (the same at both ends, so they run
+# on unbroken from tile to tile), and the colour drifts across the plane
+# in neon hues.
+#
+# Each hit of the music is felt at once, through pulses of the bass, mids
+# and treble that rise in a tick or two and die away over a fraction of a
+# second (soft-limited, so a bigger hit still means more): a kick sends a
+# wave of flipping tiles out from a new point (in one of three slots) and
+# launches a burst of pulses racing along the tubes (accumulated); the
+# mids shift the hues (accumulated); the treble glints along the tubes.
+# Bass brightens the tubes (smoothed).
+version = 1
+
+[meta]
+name = "Truchet Maze"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+scx = 0; scy = 0; ph = 0; hu = 0; gc = 0; sl = 2; cd = 0;
+a1 = 9; a2 = 9; a3 = 9;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+ob = pb;
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+// The scroll (in tiles), a kick pushing it on.
+scx = scx + (0.25 + 2.0 * pb) / 60;
+scy = scy + (0.12 + 1.0 * pb) / 60;
+scx = scx - 1024 * floor(scx / 1024);
+scy = scy - 1024 * floor(scy / 1024);
+// The pulses' phase along the arcs: steady, a kick sending a burst on.
+ph = ph + (0.6 + 4.0 * pb) / 60;
+ph = ph - 64 * floor(ph / 64);
+hu = hu + (0.01 + 0.3 * pm) / 60;
+hu = hu - floor(hu);
+// The waves. A wave that has crossed the screen (0.85 s) is folded into
+// the global count gc, and its slot freed.
+dt = 1 / 60;
+if(a1 < 0.85 && a1 + dt >= 0.85, gc = gc + 1, 0);
+if(a2 < 0.85 && a2 + dt >= 0.85, gc = gc + 1, 0);
+if(a3 < 0.85 && a3 + dt >= 0.85, gc = gc + 1, 0);
+gc = gc - 2 * floor(gc / 2);
+a1 = min(a1 + dt, 9); a2 = min(a2 + dt, 9); a3 = min(a3 + dt, 9);
+// A fresh kick starts a wave from a new point, in a free slot.
+kk = max(pb - ob, 0);
+cd = cd + 1;
+fire = if(kk > 0.1 && cd > 12, 1, if(cd > 240, 1, 0));
+ns = if(a1 >= 0.85, 0, if(a2 >= 0.85, 1, if(a3 >= 0.85, 2, -1)));
+if(fire && ns >= 0,
+  stg = if(cd > 240, 0.4, min(pb, 1.4));
+  cd = 0;
+  nx = (rand(1000) / 1000 - 0.5) * 14 + scx; ny = (rand(1000) / 1000 - 0.5) * 7 - scy;
+  if(ns == 0, w1x = nx; w1y = ny; a1 = 0; s1 = stg, 0);
+  if(ns == 1, w2x = nx; w2y = ny; a2 = 0; s2 = stg, 0);
+  if(ns == 2, w3x = nx; w3y = ny; a3 = 0; s3 = stg, 0),
+  0);
+q1 = scx; q2 = scy; q3 = ph; q4 = hu;
+q5 = w1x; q6 = w1y; q7 = a1; q8 = s1;
+q9 = w2x; q10 = w2y; q11 = a2; q12 = s2;
+q13 = w3x; q14 = w3y; q15 = a3; q16 = s3;
+q17 = gc; q18 = pb; q19 = pm; q20 = pt;
+q21 = sb;
+'''
+
+[shader]
+comp = '''
+let sz = u.texsize.xy;
+let asp = sz.x / sz.y;
+// Widths scale with the picture (so a small picture is not brighter).
+let lw = sz.y / 540.0;
+let nt = 9.0;
+let tpx = sz.y / nt;
+let ph = u.q[0].z;
+let hu = u.q[0].w;
+let gc = u.q[4].x;
+let pb = u.q[4].y;
+let pt = min(u.q[4].w, 1.5);
+let sb = min(u.q[5].x, 2.0) * 0.5;
+// The plane, in tiles (y up), scrolling.
+let w = vec2f((uv.x - 0.5) * asp * nt + u.q[0].x, (0.5 - uv.y) * nt - u.q[0].y);
+let cell = floor(w);
+var f = w - cell - vec2f(0.5);
+let tc = cell + vec2f(0.5);
+// The tile's base turn.
+let h0 = (u32(cell.x + 4096.0) * 1973u + u32(cell.y + 4096.0) * 9277u) * 747796405u + 2891336453u;
+let h1 = ((h0 >> ((h0 >> 28u) + 4u)) ^ h0) * 277803737u;
+var par = (h1 >> 7u) & 1u;
+par = par ^ (u32(gc + 0.5) & 1u);
+// The waves: flips done, the spin in progress and the ring of light.
+var spin = 0.0;
+var wl = 0.0;
+for (var k = 0; k < 3; k++) {
+    let wv = u.q[1 + k];
+    let age = wv.z;
+    if (age < 0.85) {
+        let dd = length(tc - wv.xy);
+        let tp = age - dd / 25.0;
+        let pr = clamp(tp / 0.2, 0.0, 1.0);
+        if (pr >= 1.0) {
+            par = par ^ 1u;
+        } else {
+            spin += smoothstep(0.0, 1.0, pr);
+        }
+        // The ring riding the front, measured from the pixel, fading.
+        let dp = length(w - wv.xy) - age * 25.0;
+        wl += exp(-dp * dp / 1.2) * (1.0 - smoothstep(0.4, 0.85, age)) * wv.w;
+    }
+}
+// Spin the tile's contents (a quarter turn is a flip).
+let sa = spin * 1.5707963;
+let cs = cos(sa);
+let sn = sin(sa);
+f = vec2f(cs * f.x - sn * f.y, sn * f.x + cs * f.y);
+if (par == 1u) {
+    f.x = -f.x;
+}
+// The two arcs: round the corners (+,+) and (-,-).
+let v1 = f - vec2f(0.5, 0.5);
+let v2 = f + vec2f(0.5, 0.5);
+let d1 = abs(length(v1) - 0.5);
+let d2 = abs(length(v2) - 0.5);
+let near1 = d1 < d2;
+let d = min(d1, d2);
+// Position along the arc, 0 to 1 (both ends at side middles), its
+// direction alternating like a chessboard so the flow runs on.
+let av = select(v2, v1, near1);
+var ap = atan2(abs(av.y), abs(av.x)) / 1.5707963;
+let chk = (u32(cell.x + 4096.0) + u32(cell.y + 4096.0) + par + select(0u, 1u, near1)) & 1u;
+ap = select(ap, 1.0 - ap, chk == 1u);
+let dpx = d * tpx / lw;
+// The neon colour, drifting across the plane.
+let hh = fract(hu + 0.035 * w.x + 0.02 * w.y);
+let hq = 0.47 + 0.48 * (0.5 + 0.5 * sin(6.2831853 * hh));
+let hc = clamp(abs(fract(vec3f(hq) + vec3f(0.0, 0.6666667, 0.3333333)) * 6.0 - 3.0) - 1.0, vec3f(0.0), vec3f(1.0));
+// The pulses: sharp heads with fading tails along the arc.
+let sw = fract(ap - ph);
+let pulse = (exp(-sw * 5.0) + 0.25 * exp(-sw * 1.5)) * (0.8 + 0.6 * pb);
+// (The glow stays well inside the tile, so no seams show at its edges.)
+let core = exp(-dpx * dpx / 14.0);
+let glow = exp(-dpx / 4.5) * (1.0 - smoothstep(10.0, 18.0, dpx));
+var col = vec3f(0.006, 0.006, 0.018);
+// A faint grid of tile edges.
+let ge = min(0.5 - abs(f.x), 0.5 - abs(f.y)) * tpx / lw;
+col += vec3f(0.03, 0.04, 0.09) * exp(-ge * ge / 1.5) * 0.25 * smoothstep(4.0, 9.0, dpx);
+let tb = 0.55 + 0.3 * sb + 1.2 * wl;
+var tube = hc * (core * 1.0 + glow * 0.6) * tb;
+tube += mix(hc, vec3f(1.0), 0.45) * pulse * (core * 1.2 + glow * 0.5);
+// Where the tiles are only a few pixels across, the tubes fade to their
+// average over the tile (1.57 tile widths of tube, the profiles'
+// integrals in pixels), so they cannot alias into flicker.
+let lod = smoothstep(14.0, 6.0, tpx);
+let tl = 1.57 * lw / tpx;
+let avg = hc * tb * tl * (6.6 + 9.0 * 0.6) + mix(hc, vec3f(1.0), 0.45) * 0.33 * (0.8 + 0.6 * pb) * tl * (6.6 * 1.2 + 9.0 * 0.5);
+col += mix(tube, avg, lod);
+// Treble: glints along the tubes.
+let gk = fract(sin(dot(floor(w * 6.0), vec2f(41.3, 289.1)) + floor(u.time * 15.0) * 3.7) * 43758.5);
+col += vec3f(1.0, 0.95, 1.0) * step(0.96 - 0.1 * pt, gk) * core * pt * 1.5 * smoothstep(150.0, 400.0, sz.y);
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.2, vec3f(0.0));
+return col / (1.0 + 0.4 * col);
+'''

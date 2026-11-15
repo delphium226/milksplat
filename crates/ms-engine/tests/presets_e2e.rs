@@ -54,7 +54,7 @@ const HAT_SEED: u64 = 0x4A75_6E6B_4861_7473;
 const RGBA8: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 
 /// The bundled presets, by file stem. `presets/` must hold exactly these.
-const BUNDLED: [&str; 80] = [
+const BUNDLED: [&str; 81] = [
     "default",
     "ink-bloom",
     "bass-tunnel",
@@ -135,6 +135,7 @@ const BUNDLED: [&str; 80] = [
     "desert-milky-way",
     "mandelbulb",
     "julia-morph",
+    "truchet-maze",
 ];
 
 // ------------------------------------------------------------ synthetic audio
@@ -593,6 +594,7 @@ preset_tests! {
     preset_desert_milky_way => "desert-milky-way",
     preset_mandelbulb => "mandelbulb",
     preset_julia_morph => "julia-morph",
+    preset_truchet_maze => "truchet-maze",
 }
 
 /// `presets/` holds exactly the bundled set (so every file has a test
@@ -625,7 +627,7 @@ fn bundled_set_is_complete() {
 /// runs: a minute for those with long-running state (accumulated phases,
 /// state machines), twenty seconds for the rest (enough for their feedback
 /// to settle; every bundled preset but the gentle default is covered).
-const LONG_RUN: [(&str, usize); 79] = [
+const LONG_RUN: [(&str, usize); 80] = [
     ("ink-bloom", 1200),
     ("bass-tunnel", 1200),
     ("prism-drift", 1200),
@@ -705,6 +707,7 @@ const LONG_RUN: [(&str, usize); 79] = [
     ("desert-milky-way", 3600),
     ("mandelbulb", 3600),
     ("julia-morph", 3600),
+    ("truchet-maze", 3600),
 ];
 
 /// A cheap guard against flashing that only develops over time (for
