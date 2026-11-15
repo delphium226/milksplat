@@ -1,0 +1,246 @@
+# Magnetosphere: a dark blue-green planet in the solar wind, wrapped in
+# its magnetic field. Looping neon field lines, shell inside shell in
+# cyan, violet, green and rose, arc from pole to pole, squeezed flat on
+# the dayside where the wind presses on them and stretched out into a
+# long tail on the nightside, with bright pulses running along them.
+# Streaks of solar-wind particles pour in from the sun's glow on the left
+# and bend round the glowing arc of the bow shock, and over each pole an
+# aurora oval burns green, its curtains rising violet into the dark.
+#
+# Everything is in the composite. The field is a dipole tilted on its
+# axis: a point at radius r and latitude lat lies on the shell
+# L = r / cos^2(lat), and a field line is a contour of L, drawn at shells
+# spaced by a ratio of 1.3. L is stretched with distance from the planet,
+# scaled up on the side facing the sun (so the shells crowd in there) and
+# down on the far side (so they stream away into the tail). The solar
+# wind is flow round a Rankine half-body (uniform flow plus a source at
+# the planet): the particles run in lanes along its streamlines, and the
+# half-body's own outline is the bow shock. The aurorae are ellipses
+# round the magnetic poles, with curtains of noise rays rising from them.
+#
+# The frame code accumulates every phase (the wind, the pulses along the
+# field lines, the aurora's rippling, the planet's turning) and the
+# solar-storm gusts. Bass quickens the wind (smoothed). Each hit of the
+# music is felt at once, through pulses of the bass, mids and treble
+# that rise in a tick or two and die away over a fraction of a second
+# (soft-limited, so a bigger hit still means more): a kick sends a gust
+# front sweeping in from the sun that lights up the wind as it passes,
+# and the moment it strikes the bow shock flares and is driven in; the
+# kick itself squeezes the whole field toward the planet, flares both
+# aurorae and lifts their curtains, and pushes the view in. The mids
+# speed the pulses along the field lines and brighten them; the treble
+# ripples the aurora and twinkles the stars.
+version = 1
+
+[meta]
+name = "Magnetosphere"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+wp = 0; fp = 0; ap = 0; pr = 0; gx = -3; ga = 0; cm = 0; hu = 0; cd = 0;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+ob = pb;
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+// A fresh kick launches a gust front from beyond the sun's edge of the
+// picture; it sweeps across, fading.
+kk = max(pb - ob, 0);
+cd = cd + 1;
+if(kk > 0.1 && cd > 8, cd = 0; gx = -1.25; ga = min(pb, 1.5), 0);
+gx = min(gx + 0.04, 3);
+ga = ga * 0.97;
+// The gust's strike on the bow shock (its nose at about -0.5).
+hs = ga * exp(-sqr((gx + 0.5) / 0.18));
+// The squeeze on the field: the kick at once, then the gust's strike.
+ct = 0.55 * pb + 0.6 * hs;
+cm = cm + (ct - cm) * if(ct > cm, 0.5, 0.08);
+// The phases, all accumulated and wrapped.
+wp = wp + 0.006 + 0.004 * min(sb, 2) + 0.012 * pb;
+wp = wp - 64 * floor(wp / 64);
+fp = fp + 0.012 + 0.05 * pm;
+fp = fp - 6.2831853 * floor(fp / 6.2831853);
+ap = ap + 0.01 + 0.05 * pt;
+ap = ap - 64 * floor(ap / 64);
+pr = pr + 0.0008;
+pr = pr - 6.2831853 * floor(pr / 6.2831853);
+hu = hu + 0.0003 + 0.002 * pm;
+hu = hu - floor(hu);
+q1 = wp; q2 = fp; q3 = ap; q4 = pr;
+q5 = pb; q6 = pm; q7 = pt; q8 = sb;
+q9 = gx; q10 = ga; q11 = cm; q12 = hu;
+q13 = hs;
+'''
+
+[shader]
+comp = '''
+let sz = u.texsize.xy;
+let asp = sz.x / sz.y;
+let px = 1.0 / sz.y;
+let lw = max(0.6, sz.y / 540.0);
+let wp = u.q[0].x;
+let fp = u.q[0].y;
+let ap = u.q[0].z;
+let pr = u.q[0].w;
+let pb = u.q[1].x;
+let pm = u.q[1].y;
+let pt = min(u.q[1].z, 1.5);
+let sb = min(u.q[1].w, 2.0) * 0.5;
+let gx = u.q[2].x;
+let ga = u.q[2].y;
+let cm = u.q[2].z;
+let hu = u.q[2].w;
+let hs = u.q[3].x;
+// A kick pushes the view in.
+let zf = 1.0 / (1.0 + 0.05 * pb);
+let sp = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y) * zf;
+// Relative to the planet, a little right of centre.
+let d = sp - vec2f(0.2, 0.0);
+let R = 0.13;
+let r = max(length(d), 1e-4);
+// The magnetic frame: the axis tilted and nodding with the planet's turn.
+let tl = 0.28 + 0.06 * sin(pr);
+let ct = cos(tl);
+let st = sin(tl);
+let mx = d.x * ct - d.y * st;
+let my = d.x * st + d.y * ct;
+// The field: the dipole shell L = r^3 / x^2, squeezed on the dayside and
+// stretched into the tail on the nightside.
+let s = d.x / r;
+let rr = r / R;
+let day = max(-s, 0.0);
+let ngt = max(s, 0.0);
+let L = r * r * r / max(mx * mx, 1e-7) / R;
+let Le = L * (1.0 + (0.42 + 0.5 * cm) * day * (rr - 1.0) * (0.6 + 0.4 * day)) / (1.0 + 0.3 * ngt * ngt * (rr - 1.0));
+let fu = log(max(Le, 1e-4)) / log(1.3);
+let fwu = max(fwidth(fu), 1e-4);
+// The solar wind: flow round a Rankine half-body with its nose at Rs.
+let Rs = 0.5 - 0.1 * cm;
+let th = atan2(d.y, d.x);
+let sy = select(-1.0, 1.0, d.y >= 0.0);
+let psi = d.y + Rs * (th - 3.14159265 * sy);
+let fpsi = max(fwidth(psi), 1e-5);
+var col = vec3f(0.004, 0.006, 0.014);
+// The sun's glow from the left edge.
+let ex = sp.x + asp * 0.5 * zf;
+col += vec3f(1.0, 0.55, 0.18) * exp(-ex * 2.6) * (0.22 + 0.06 * sb) + vec3f(1.0, 0.85, 0.5) * exp(-ex * 9.0) * 0.25;
+// Stars.
+let cell = floor(uv * sz / lw);
+let h0 = (u32(cell.x) * 1973u + u32(cell.y) * 9277u) * 747796405u + 2891336453u;
+let h1 = ((h0 >> ((h0 >> 28u) + 4u)) ^ h0) * 277803737u;
+let hh = f32((h1 >> 22u) ^ h1) / 4294967296.0;
+col += vec3f(0.75, 0.85, 1.0) * step(0.997, hh) * (0.3 + 0.4 * fract(hh * 911.0)) * (1.0 + 1.2 * pt * step(0.5, fract(hh * 77.0)));
+// The bow shock: the half-body's outline, its distance along the ray.
+let ath = abs(th);
+let rb = Rs * (3.14159265 - ath) / max(sin(ath), 1e-3);
+let outside = psi * sy > 0.0;
+let eb = (r - rb) / (1.0 + 0.6 * (3.14159265 - ath));
+let nz = textureSampleLevel(sampler_noise_lq, s_fw, vec2f(th * 0.8 + wp * 0.05, r * 2.0 - wp * 0.11), 0.0).r;
+let nose = exp(-((3.14159265 - ath) * (3.14159265 - ath)) * 1.4);
+let sk = exp(-((eb / (0.008 * lw + 0.012 * nose)) * (eb / (0.008 * lw + 0.012 * nose)))) * (0.5 + 0.7 * nz) * (0.35 + 0.9 * nose);
+let shk = 1.0 + 2.2 * hs + 0.5 * pb;
+col += vec3f(1.0, 0.62, 0.3) * sk * shk;
+col += vec3f(1.0, 0.4, 0.5) * exp(-abs(eb) / 0.05) * nose * 0.12 * shk;
+// The magnetosheath: hot, turbulent gas between the shock and the field.
+if (!outside && r > R) {
+    let sh = smoothstep(6.5, 8.5, fu);
+    let tn = textureSampleLevel(sampler_noise_hq, s_fw, vec2f(psi * 3.0 + 0.3, d.x * 1.5 - wp * 0.35), 0.0).r;
+    col += vec3f(0.9, 0.35, 0.55) * sh * (0.03 + 0.08 * tn * tn) * (0.4 + 0.6 * nose + 0.3 * day) * (1.0 + hs + 0.5 * pb);
+}
+// The solar-wind particles: streaks in lanes along the streamlines.
+if (outside) {
+    let spc = 0.035;
+    let ln = floor(psi / spc);
+    let fl = fract(psi / spc) - 0.5;
+    let lh = fract(sin(ln * 12.9898 + 4.1) * 43758.5453);
+    let wd = fpsi / spc * 1.2 * lw + 0.02;
+    let lane = exp(-fl * fl / (wd * wd));
+    let tt = fract(d.x * 1.6 + lh * 7.0 - wp * (0.9 + 0.3 * lh));
+    let streak = smoothstep(0.55, 0.97, tt) * (1.0 - smoothstep(0.97, 1.0, tt));
+    let gw = ga * exp(-(((d.x - gx) / 0.08) * ((d.x - gx) / 0.08)));
+    let wc = mix(vec3f(1.0, 0.75, 0.35), vec3f(1.0, 0.95, 0.85), smoothstep(0.85, 1.0, tt));
+    col += wc * lane * streak * (0.22 + 0.25 * sb + 1.6 * gw) * (0.6 + 0.4 * lh) / (1.0 + wd * 3.0);
+    // The gust front itself: a faint sheet of light.
+    col += vec3f(1.0, 0.5, 0.25) * gw * 0.06 * (0.6 + 0.8 * nz);
+}
+// The field lines, outside the planet and inside the magnetopause.
+if (r > R && fu > 0.6) {
+    let idx = floor(fu + 0.5);
+    let fd = (fu - idx) / fwu;
+    let edge = 1.0 - smoothstep(7.2, 8.2, fu);
+    let core = exp(-fd * fd / (1.6 * lw * lw));
+    let halo = exp(-abs(fu - idx) * 4.0) * 0.14;
+    let hh6 = 6.2831853 * (hu + idx * 0.13);
+    var lc = 0.5 + 0.5 * cos(vec3f(hh6, hh6 + 2.1, hh6 + 4.2));
+    lc = lc * lc * 1.4 + vec3f(0.05, 0.1, 0.15);
+    // Pulses running along the line, pole to pole.
+    let lat = atan2(my, abs(mx));
+    let pul = pow(0.5 + 0.5 * sin(lat * 5.0 - fp * 3.0 + idx * 1.7), 6.0);
+    let lb = (0.55 + 0.25 * sb + 0.5 * pm + 0.6 * pb) * (0.7 + 0.9 * pul * (0.6 + pm));
+    col += lc * (core + halo) * lb * edge * smoothstep(R, R * 1.15, r);
+    // The magnetopause: a faint glowing boundary.
+    col += vec3f(0.45, 0.6, 1.0) * exp(-(((fu - 7.7) / 0.35) * ((fu - 7.7) / 0.35))) * 0.12 * (0.5 + day) * (1.0 + 1.5 * hs);
+}
+// The planet: a dark blue-green world lit from the sun's side.
+let pc = d / R;
+let pr2 = dot(pc, pc);
+if (pr2 < 1.0) {
+    let nzv = sqrt(1.0 - pr2);
+    let lon = atan2(pc.x, nzv) + pr;
+    let la = asin(clamp(pc.y, -1.0, 1.0));
+    let tn = textureSampleLevel(sampler_noise_hq, s_fw, vec2f(lon * 0.32, la * 0.45 + 0.2), 0.0).r;
+    let land = smoothstep(0.5, 0.58, tn);
+    let lam = max(dot(vec3f(pc.x, pc.y, nzv), normalize(vec3f(-1.0, 0.15, 0.45))), 0.0);
+    var pcol = mix(vec3f(0.01, 0.07, 0.13), vec3f(0.04, 0.17, 0.12), land);
+    let cl = smoothstep(0.55, 0.75, textureSampleLevel(sampler_noise_lq, s_fw, vec2f(lon * 0.5 + 0.3, la * 0.8), 0.0).r);
+    pcol = mix(pcol, vec3f(0.25, 0.32, 0.36), cl * 0.6);
+    col = pcol * (0.08 + 1.4 * lam);
+    // City lights on the night side.
+    col += vec3f(1.0, 0.7, 0.3) * land * step(0.72, fract(tn * 37.0)) * (1.0 - smoothstep(0.0, 0.15, lam)) * 0.15;
+    // The atmosphere's rim.
+    col += vec3f(0.2, 0.75, 1.0) * pow(1.0 - nzv, 3.0) * (0.25 + 0.8 * lam);
+}
+col += vec3f(0.2, 0.7, 1.0) * exp(-max(sqrt(pr2) - 1.0, 0.0) * R / 0.012) * step(1.0, pr2) * 0.25;
+// The aurorae: ovals round both magnetic poles, curtains rising from them.
+let au = 0.7 + 1.6 * pb + 1.2 * hs;
+let ch = 0.035 + 0.035 * pb + 0.03 * hs;
+for (var i = 0; i < 2; i++) {
+    let sg = select(-1.0, 1.0, i == 0);
+    let ax = 0.5 * R;
+    let ay = 0.12 * R;
+    let py = sg * 0.86 * R;
+    let qy = (my - py) * sg;
+    let ex2 = mx / ax;
+    let er = length(vec2f(ex2, qy / ay));
+    let ring = exp(-(((er - 1.0) * ay / (0.006 + px * lw)) * ((er - 1.0) * ay / (0.006 + px * lw))));
+    let phi = atan2(qy / ay, ex2);
+    let rays = textureSampleLevel(sampler_noise_hq, s_fw, vec2f(phi * 0.9 + ap * 0.07, ap * 0.03 + f32(i) * 0.5), 0.0).r;
+    let rz = 0.4 + 1.2 * rays * rays;
+    // Curtains: above the oval's upper (outer) edge, fading upward.
+    let yt = ay * sqrt(max(1.0 - ex2 * ex2, 0.0));
+    let hgt = qy - yt;
+    let inx = smoothstep(1.0, 0.8, abs(ex2));
+    let cur = select(0.0, exp(-hgt / ch) * inx, hgt > -0.004);
+    let cc = mix(vec3f(0.2, 1.0, 0.45), vec3f(0.85, 0.3, 1.0), clamp(hgt / (ch * 1.5), 0.0, 1.0));
+    col += vec3f(0.3, 1.0, 0.5) * ring * rz * au * 0.9;
+    col += cc * cur * rz * au * 0.8;
+}
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.2, vec3f(0.0));
+return col / (1.0 + 0.4 * col);
+'''
