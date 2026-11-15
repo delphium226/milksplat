@@ -79,8 +79,8 @@ device, so just start your music and run it.
 | **Möbius Ribbon**: a fat neon Möbius strip turning through deep space, chevrons of light chasing round its one side, every kick wrenching its twist and launching a fresh arrow of light round the loop | **Origami Polyhedra**: paper polyhedra under coloured theatre gels folding from icosahedron to dodecahedron to spiky stellated star and back, every kick snapping the next fold and flaring the creases |
 | ![Volcano Lightning](docs/images/volcano-lightning.png) | ![Galaxy Collision](docs/images/galaxy-collision.png) |
 | **Volcano Lightning**: a volcano erupting at night, lava fountains and glowing rivers under a towering ash plume, every kick hurling a burst of lava and forking lightning through the ash | **Galaxy Collision**: two spiral galaxies wheeling round each other in a slow merger, tidal tails flung wide and strung with pink and blue star-forming knots, every kick setting off starbursts in both cores and a ripple through the disks |
-| ![Spirograph Engine](docs/images/spirograph-engine.png) |  |
-| **Spirograph Engine**: four glowing pens on rolling gears tracing neon hypotrochoid and epitrochoid rosettes that build up loop by loop and fade, every kick racing the pens forward and flaring their tips into stars |  |
+| ![Spirograph Engine](docs/images/spirograph-engine.png) | ![Topographic Map](docs/images/topographic-map.png) |
+| **Spirograph Engine**: four glowing pens on rolling gears tracing neon hypotrochoid and epitrochoid rosettes that build up loop by loop and fade, every kick racing the pens forward and flaring their tips into stars | **Topographic Map**: a slow flight over dark mountains drawn as glowing neon contour lines coloured by height, every kick raising a swell that rolls out through the land as the isolines crowd and flare |
 
 These are single frames; every preset moves and changes with the music.
 
