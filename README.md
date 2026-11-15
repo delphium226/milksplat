@@ -87,8 +87,8 @@ device, so just start your music and run it.
 | **Truchet Maze**: a scrolling maze of neon quarter-arc tubes with pulses of light racing along them, each kick sending a wave of tiles spinning to rewire the paths | **Hex Hive**: a vast glowing honeycomb brimming with amber, magenta and cyan nectar as bees of light dart over it, each kick sending a ripple of cells lighting outward |
 | ![Demoscene Plasma](docs/images/demoscene-plasma.png) | ![Impossible Geometry](docs/images/impossible-geometry.png) |
 | **Demoscene Plasma**: a 90s demo-scene homage done hi-fi: a sum-of-sines plasma under a rotozoomed checkerboard, swinging copper bars and a sine dot scroller, each kick punching the zoom and sliding the palette | **Impossible Geometry**: a neon Penrose triangle between two Escher cubes in an isometric void, light running round their edges, each kick snapping them round a twelfth of a turn |
-| ![Clockwork](docs/images/clockwork.png) | |
-| **Clockwork**: an exploded clock movement of brass and neon wheels meshing in parallax layers, a pendulum swinging over the escapement, each kick ticking the whole train on a tooth | |
+| ![Clockwork](docs/images/clockwork.png) | ![Op Art Waves](docs/images/op-art-waves.png) |
+| **Clockwork**: an exploded clock movement of brass and neon wheels meshing in parallax layers, a pendulum swinging over the escapement, each kick ticking the whole train on a tooth | **Op Art Waves**: Riley-style neon bands rippling over black round a Vasarely bulging sphere, each kick swelling the sphere and sending a ring wave through the bands |
 
 These are single frames; every preset moves and changes with the music.
 
