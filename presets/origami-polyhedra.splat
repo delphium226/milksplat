@@ -1,0 +1,292 @@
+# Origami Polyhedra: a paper polyhedron hanging in the dark, lit by
+# coloured theatre gels, that folds from one solid into the next: an
+# icosahedron flattens its points into the icosidodecahedron, which folds
+# shut into a dodecahedron; each pentagon then rises into a star point,
+# a small stellated dodecahedron bristling with spikes, which sink back,
+# and the dodecahedron is cut down through truncated forms to the
+# icosahedron again. Every facet is flat, its colour set by which gels
+# reach it (magenta from the left, cyan from the right, amber from below,
+# a cool white from above), the paper faintly fibrous, and every crease is
+# a fine bright line.
+#
+# Everything is in the composite. The solid is marched as a distance
+# field built by Wythoff's construction: the point is folded by the
+# icosahedral mirrors into one small triangle of directions, where the
+# solid is bounded by planes through one vertex (its place in the
+# triangle picks the solid, so moving it folds one into another) or, for
+# the star, by one plane through a point's apex, an edge and a vertex of
+# the dodecahedron. At the hit the fold is undone on the facet's normal,
+# for its lighting, and the creases are where the facet meets its mirror
+# image or a neighbouring plane. Gel pools glow on the black behind.
+#
+# The fold runs on its own clock (accumulated): each shape rests, then
+# folds. The solid turns (accumulated, faster with the mids). Bass warms
+# the light (smoothed); the mids turn the gels' colours. Each hit of the
+# music is felt at once, through pulses of the bass, mids and treble
+# that rise in a tick or two and die away over a fraction of a second
+# (soft-limited, so a bigger hit still means more): a kick snaps the fold
+# forward, pops the solid toward the camera and flares its creases; the
+# mids spin it; the treble glints along the creases.
+version = 1
+
+[meta]
+name = "Origami Polyhedra"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+mf = 0.2; ya = 0.4; xa = 0.3; hu = 0;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+sm = sm + (min(mid_att, 2.5) - sm) * 0.03;
+st = st + (min(treb_att, 2.5) - st) * 0.1;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+// The fold's clock: a shape every 8 s or so, each kick snapping it on.
+mf = mf + (1 / 8 + 0.9 * pb) / 60;
+mf = mf - 5 * floor(mf / 5);
+// The solid turns, faster with the mids and kicks.
+ya = ya + (6.2831853 / 25 + 0.9 * pm + 0.3 * pb) / 60;
+ya = ya - 6.2831853 * floor(ya / 6.2831853);
+xa = xa + (6.2831853 / 37 + 0.4 * pm) / 60;
+xa = xa - 6.2831853 * floor(xa / 6.2831853);
+hu = hu + (0.006 + 0.02 * min(sm, 2) / 2 + 0.15 * pm) / 60;
+hu = hu - floor(hu);
+// The two small solids circle the large one.
+ob = ob + (6.2831853 / 40 + 0.3 * pm) / 60;
+ob = ob - 6.2831853 * floor(ob / 6.2831853);
+q1 = mf; q2 = ya; q3 = xa; q4 = hu;
+q5 = pb; q6 = pm; q7 = pt; q8 = sb;
+q9 = st; q10 = ob;
+'''
+
+[shader]
+comp = '''
+let sz = u.texsize.xy;
+let asp = sz.x / sz.y;
+let mf = u.q[0].x;
+let ya = u.q[0].y;
+let xa = u.q[0].z;
+let hu = u.q[0].w;
+let pb = u.q[1].x;
+let pm = u.q[1].y;
+let pt = min(u.q[1].z, 1.5);
+let sb = min(u.q[1].w, 2.0) * 0.5;
+let st = max(0.0, min(u.q[2].x, 2.5) - 0.3);
+let ob = u.q[2].y;
+let TAU = 6.2831853;
+let sp = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
+// The icosahedral mirrors and the triangle's corners: a 2-fold, a
+// 5-fold and a 3-fold axis.
+let ncx = -0.5;
+let ncy = -0.809017;
+let ncz = 0.309017;
+let pab = vec3f(0.0, 0.0, 1.0 + 0.0 * mf);
+let pbc = vec3f(0.525731, 0.0, 0.850651 + 0.0 * mf);
+let pca = vec3f(0.0, 0.356822, 0.934172 + 0.0 * mf);
+let MM = pab * 0.934172;
+// Three solids: the large one in the middle and two small ones circling
+// it, each at its own stage of the folding, turning its own way.
+var uus: array<vec3f, 3>;
+var nss: array<vec3f, 3>;
+var sts: array<bool, 3>;
+var rot: array<mat3x3f, 3>;
+var cen: array<vec3f, 3>;
+var scl: array<f32, 3>;
+for (var j = 0; j < 3; j++) {
+    let fj = f32(j);
+    var m = mf + fj * 1.7;
+    m = m - 5.0 * floor(m / 5.0);
+    // Five stages, each resting and then folding into the next.
+    let seg = floor(m);
+    let ff = smoothstep(0.4, 1.0, m - seg);
+    let fe = ff * ff * (3.0 - 2.0 * ff);
+    var ua = pbc;
+    var ub = pab;
+    if (seg == 1.0) {
+        ua = pab;
+        ub = pca;
+    } else if (seg >= 4.0) {
+        ua = pca;
+        ub = pbc;
+    }
+    uus[j] = normalize(mix(ua, ub, fe));
+    sts[j] = seg == 2.0 || seg == 3.0;
+    let hst = select(mix(1.6, 0.7947, fe), mix(0.7947, 1.6, fe), seg == 2.0);
+    let AA = pbc * hst;
+    let ns = normalize(cross(pca - AA, MM - AA));
+    nss[j] = select(ns, -ns, dot(ns, pbc) < 0.0);
+    let ry = ya * (1.0 + 0.6 * fj) + fj * 2.1;
+    let rx = xa * (1.0 - 0.3 * fj) + fj * 1.3;
+    let cx = cos(rx);
+    let sx = sin(rx);
+    let cy = cos(ry);
+    let sy = sin(ry);
+    rot[j] = mat3x3f(vec3f(cy, 0.0, -sy), vec3f(sx * sy, cx, sx * cy), vec3f(cx * sy, -sx, cx * cy));
+    let oa = ob + fj * 3.14159265;
+    cen[j] = select(vec3f(2.35 * cos(oa), 0.35 * sin(oa + 1.0) + 0.25 * (fj - 1.5), 1.6 * sin(oa)), vec3f(0.0), j == 0);
+    scl[j] = select(0.42 * (1.0 + 0.1 * pb), 1.0 + 0.06 * pb, j == 0);
+}
+// The gel colours, turning slowly with the mids.
+let hc = TAU * hu;
+let g1 = mix(vec3f(1.0, 0.1, 0.55), vec3f(0.75, 0.1, 1.0), 0.5 + 0.5 * sin(hc));
+let g2 = mix(vec3f(0.0, 0.85, 1.0), vec3f(0.1, 1.0, 0.55), 0.5 + 0.5 * sin(hc + 2.0));
+let g3 = mix(vec3f(1.0, 0.55, 0.0), vec3f(1.0, 0.25, 0.1), 0.5 + 0.5 * sin(hc + 4.0)) * (0.8 + 0.4 * sb);
+// Black, with soft pools of gel light behind.
+var col = vec3f(0.006, 0.004, 0.012);
+col += g1 * 0.14 * exp(-dot(sp - vec2f(-0.55, 0.15), sp - vec2f(-0.55, 0.15)) * 3.0);
+col += g2 * 0.12 * exp(-dot(sp - vec2f(0.6, -0.1), sp - vec2f(0.6, -0.1)) * 3.0);
+col += g3 * 0.08 * exp(-dot(sp - vec2f(0.0, -0.55), sp - vec2f(0.0, -0.55)) * 4.0);
+// The camera.
+let fz = 1.7;
+let rd = normalize(vec3f(sp.x, sp.y, fz));
+let roz = -5.6 + 0.0 * mf;
+let ro = vec3f(0.0, 0.0, roz);
+let bq = rd.z * roz;
+let cq = roz * roz - 9.5;
+let disc = bq * bq - cq;
+var hit = false;
+var hj = 0;
+var t = 0.0;
+var glow = 0.0;
+if (disc > 0.0) {
+    t = max(-bq - sqrt(disc), 0.0);
+    let t1 = -bq + sqrt(disc);
+    for (var i = 0; i < 90; i++) {
+        let p = ro + rd * t;
+        var d = 1e9;
+        for (var j = 0; j < 3; j++) {
+            var q = rot[j] * (p - cen[j]) / scl[j];
+            for (var k = 0; k < 5; k++) {
+                q = vec3f(abs(q.x), abs(q.y), q.z);
+                let dn = q.x * ncx + q.y * ncy + q.z * ncz;
+                q -= 2.0 * min(0.0, dn) * vec3f(ncx, ncy, ncz);
+            }
+            var dj = 0.0;
+            if (sts[j]) {
+                dj = dot(q - pca, nss[j]);
+            } else {
+                let w = q - uus[j];
+                dj = max(max(dot(w, pab), dot(w, pbc)), dot(w, pca));
+            }
+            dj *= scl[j];
+            if (dj < d) {
+                d = dj;
+                hj = j;
+            }
+        }
+        glow += exp(-max(d, 0.0) * 14.0) * 0.02;
+        if (d < 0.001 * t) {
+            hit = true;
+            break;
+        }
+        t += d * 0.8;
+        if (t > t1) {
+            break;
+        }
+    }
+}
+col += (g1 + g2) * glow * (0.12 + 0.2 * pb);
+if (hit) {
+    let R = rot[hj];
+    let star = sts[hj];
+    let UU = uus[hj];
+    let ns = nss[hj];
+    // Fold again, remembering the reflections.
+    var q = R * (ro + rd * t - cen[hj]) / scl[hj];
+    var fl = 0u;
+    for (var k = 0u; k < 5u; k++) {
+        if (q.x < 0.0) {
+            fl |= 1u << (3u * k);
+            q.x = -q.x;
+        }
+        if (q.y < 0.0) {
+            fl |= 2u << (3u * k);
+            q.y = -q.y;
+        }
+        let dn = q.x * ncx + q.y * ncy + q.z * ncz;
+        if (dn < 0.0) {
+            fl |= 4u << (3u * k);
+            q -= 2.0 * dn * vec3f(ncx, ncy, ncz);
+        }
+    }
+    // The facet's plane and the crease distance.
+    var na = ns;
+    var ed = 1e9;
+    if (!star) {
+        let w = q - UU;
+        let d0 = dot(w, pab);
+        let d1 = dot(w, pbc);
+        let d2 = dot(w, pca);
+        let mx = max(max(d0, d1), d2);
+        na = select(select(pca, pbc, d1 >= mx), pab, d0 >= mx);
+        let s2 = select(select(max(d0, d1), max(d0, d2), d1 >= mx), max(d1, d2), d0 >= mx);
+        ed = (mx - s2) * 1.3;
+    }
+    // Where the facet meets its mirror image.
+    if (abs(na.x) > 0.02) {
+        ed = min(ed, q.x);
+    }
+    if (abs(na.y) > 0.02) {
+        ed = min(ed, q.y);
+    }
+    let nd = na.x * ncx + na.y * ncy + na.z * ncz;
+    if (abs(nd) > 0.02) {
+        ed = min(ed, q.x * ncx + q.y * ncy + q.z * ncz);
+    }
+    ed *= scl[hj];
+    // Undo the fold on the normal, then the solid's turn.
+    var n = na;
+    for (var k = 0; k < 5; k++) {
+        let kk = u32(4 - k);
+        if (((fl >> (3u * kk + 2u)) & 1u) == 1u) {
+            n -= 2.0 * (n.x * ncx + n.y * ncy + n.z * ncz) * vec3f(ncx, ncy, ncz);
+        }
+        if (((fl >> (3u * kk + 1u)) & 1u) == 1u) {
+            n.y = -n.y;
+        }
+        if (((fl >> (3u * kk)) & 1u) == 1u) {
+            n.x = -n.x;
+        }
+    }
+    n = transpose(R) * n;
+    // Lit by the gels: flat facets of saturated colour (magenta from the
+    // left, cyan from the right, amber from below, cool white from above).
+    let e1 = max(dot(n, vec3f(-0.8, 0.28, -0.48)), 0.0);
+    let e2 = max(dot(n, vec3f(0.89, -0.09, -0.45)), 0.0);
+    let e3 = max(dot(n, vec3f(0.09, -0.92, -0.37)), 0.0);
+    let e4 = max(dot(n, vec3f(0.0, 0.995, 0.1)), 0.0);
+    let paper = 0.95 + 0.05 * sin(q.x * 40.0 + sin(q.y * 17.0) * 2.0) * sin(q.y * 29.0 + q.z * 11.0);
+    var c = (g1 * e1 * 1.1 + g2 * e2 * 1.0 + g3 * e3 * 0.9 + vec3f(0.5, 0.55, 0.8) * e4 * 0.2 + vec3f(0.04, 0.02, 0.06)) * paper;
+    let rim = pow(1.0 - abs(dot(n, rd)), 4.0);
+    c += (g1 + g2) * 0.25 * rim;
+    // The creases: fine bright lines, flaring with the kicks, glinting
+    // with the treble.
+    // Thin creases, at least a pixel and a half; the flare is held back where
+    // they are a large share of a small picture.
+    let ew = max(0.006, 1.6 * t / (fz * sz.y));
+    let crease = exp(-ed * ed / (ew * ew));
+    let gh = fract(sin(dot(floor(q * 18.0), vec3f(12.9898, 78.233, 37.719))) * 43758.5453);
+    let tw = 0.5 + 0.5 * sin(u.time * (4.0 + 6.0 * gh) + gh * 30.0);
+    let glint = step(0.75 - 0.15 * pt, gh) * tw * (0.6 * st + 3.5 * pt);
+    c = c * (1.0 - 0.35 * crease) + mix(vec3f(1.0, 0.95, 0.9), g2, 0.3) * crease * (0.5 + 1.4 * pb * min(1.0, sz.y / 720.0 + 0.3) + glint);
+    col = c;
+}
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.45, vec3f(0.0));
+return col / (1.0 + 0.4 * col);
+'''

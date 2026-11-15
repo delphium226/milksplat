@@ -71,6 +71,8 @@ device, so just start your music and run it.
 | **Dyson Swarm**: thousands of collector panels in inclined rings round a blazing star, glinting gold and silhouetted on its face, beaming energy to a distant receiver | **Abyssal Jellyfish**: bioluminescent jellyfish pulsing up through the deep, every kick squeezing their glowing bells, among marine snow and beaded siphonophore chains |
 | ![Klein Bottle](docs/images/klein-bottle.png) | ![Möbius Ribbon](docs/images/mobius-ribbon.png) |
 | **Klein Bottle**: a glowing glass Klein bottle turning in a violet void, its neck plunging back through its own side, iridescent bands flowing round its one surface and every kick racing a pulse through the self-intersection | **Möbius Ribbon**: a fat neon Möbius strip turning through deep space, chevrons of light chasing round its one side, every kick wrenching its twist and launching a fresh arrow of light round the loop |
+| ![Origami Polyhedra](docs/images/origami-polyhedra.png) |  |
+| **Origami Polyhedra**: paper polyhedra under coloured theatre gels folding from icosahedron to dodecahedron to spiky stellated star and back, every kick snapping the next fold and flaring the creases |  |
 
 These are single frames; every preset moves and changes with the music.
 
