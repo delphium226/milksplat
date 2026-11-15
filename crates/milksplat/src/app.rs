@@ -20,8 +20,8 @@ use crossbeam_channel::{Receiver, Sender};
 use ms_render::Gpu;
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalPosition};
-use winit::event::{ElementState, MouseButton, WindowEvent};
-use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
+use winit::event::{DeviceEvent, DeviceId, ElementState, MouseButton, WindowEvent};
+use winit::event_loop::{ActiveEventLoop, ControlFlow, DeviceEvents, EventLoop, EventLoopProxy};
 use winit::keyboard::ModifiersState;
 use winit::monitor::MonitorHandle;
 use winit::window::{Fullscreen, Window, WindowId};
@@ -34,11 +34,14 @@ use crate::hotkeys::{map_key, Action};
 use crate::keepawake::KeepAwake;
 use crate::paths::Paths;
 use crate::render_thread::{run_render_thread, RenderExit, RenderOptions, ToRender};
+use crate::screensaver::{saver_mode, MoveGuard, SaverMode, MOVE_THRESHOLD};
 
 /// How long the main thread waits for the render thread on quit.
 const JOIN_TIMEOUT: Duration = Duration::from_secs(3);
 /// Two left clicks within this make a double-click.
 pub const DOUBLE_CLICK: Duration = Duration::from_millis(400);
+/// Screensaver mode: input in this long after the window opens is ignored.
+const SAVER_GRACE: Duration = Duration::from_millis(1500);
 
 const USAGE: &str = "\
 Usage: milksplat [options]
@@ -62,6 +65,9 @@ pub struct Args {
     /// Hidden `--debug-lose-device <secs>`: destroy the GPU device after
     /// this many seconds of rendering, to exercise recovery.
     pub debug_lose_device: Option<f64>,
+    /// Running as a screensaver (`/s`): fullscreen with no cursor, and any
+    /// input quits (see [`crate::screensaver`]).
+    pub screensaver: bool,
 }
 
 impl Args {
@@ -120,7 +126,25 @@ impl DoubleClick {
 
 /// The app entry point (see `main.rs`).
 pub fn main() -> ExitCode {
-    let args = match Args::parse(std::env::args_os().skip(1)) {
+    crate::screensaver::attach_parent_console();
+    let raw: Vec<String> = std::env::args_os()
+        .skip(1)
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect();
+    let saver = saver_mode(&raw, crate::screensaver::exe_is_scr());
+    let parsed = match saver {
+        Some(SaverMode::Preview) => return ExitCode::SUCCESS,
+        Some(SaverMode::Configure) => {
+            crate::screensaver::show_settings_box();
+            return ExitCode::SUCCESS;
+        }
+        Some(SaverMode::Run) => Ok(Some(Args {
+            screensaver: true,
+            ..Args::default()
+        })),
+        None => Args::parse(std::env::args_os().skip(1)),
+    };
+    let args = match parsed {
         Ok(Some(args)) => args,
         Ok(None) => {
             println!("{USAGE}");
@@ -249,6 +273,12 @@ struct App {
     /// Whether the render thread reports 10 s of silence.
     silent: bool,
     keep_awake: KeepAwake,
+    /// Screensaver mode: how far the mouse has moved.
+    saver_moves: MoveGuard,
+    /// Screensaver mode: when the window was created.
+    saver_started: Option<Instant>,
+    /// Screensaver mode: raw mouse movement since the grace period ended.
+    saver_motion: f64,
 }
 
 impl App {
@@ -276,6 +306,9 @@ impl App {
             crashed: MarkerIds::default(),
             silent: false,
             keep_awake: KeepAwake::default(),
+            saver_moves: MoveGuard::default(),
+            saver_started: None,
+            saver_motion: 0.0,
         }
     }
 
@@ -295,6 +328,13 @@ impl App {
                 .create_window(attrs)
                 .map_err(|e| format!("cannot create the window: {e}"))?,
         );
+        if self.args.screensaver {
+            window.set_cursor_visible(false);
+            window.focus_window();
+            // Raw input arrives even if Windows kept the focus elsewhere.
+            event_loop.listen_device_events(DeviceEvents::Always);
+            self.saver_started = Some(Instant::now());
+        }
         let instance = Gpu::create_instance();
         let surface = instance
             .create_surface(Arc::clone(&window))
@@ -329,6 +369,7 @@ impl App {
                 let _ = silence_proxy.send_event(UserEvent::Silence(silent));
             }),
             safe: self.args.safe,
+            screensaver: self.args.screensaver,
             store,
             marker: self.marker.clone(),
             current_preset: Arc::clone(&self.current_preset),
@@ -345,6 +386,24 @@ impl App {
         )
         .map_err(|e| format!("cannot start the render thread: {e}"))?;
         self.render = Some(handle);
+        // The screensaver goes fullscreen once rendering has started, like a
+        // fullscreen toggle (no always-on-top level: on DX12 that can make
+        // every swapchain creation fail).
+        if self.args.screensaver {
+            // The configured fullscreen monitor if connected, else the
+            // primary one.
+            let monitor = self
+                .cfg
+                .fullscreen_monitor
+                .as_ref()
+                .and_then(|name| {
+                    event_loop
+                        .available_monitors()
+                        .find(|m| m.name().as_ref() == Some(name))
+                })
+                .or_else(|| event_loop.primary_monitor());
+            window.set_fullscreen(Some(Fullscreen::Borderless(monitor)));
+        }
         self.window = Some(window);
         Ok(())
     }
@@ -359,6 +418,57 @@ impl App {
             Ok(surface) => self.send(ToRender::NewSurface(surface)),
             Err(e) => tracing::error!("cannot create a new window surface: {e}"),
         }
+    }
+
+    /// Screensaver mode: `None` if `event` is not input, else whether it
+    /// ends the screensaver (a key press, button press or wheel, or the
+    /// mouse moving past the threshold). Nothing ends it during the first
+    /// [`SAVER_GRACE`], when Windows may still deliver stray input (a
+    /// modifier press as the window takes focus, say).
+    fn saver_input(&mut self, event: &WindowEvent) -> Option<bool> {
+        let settled = self
+            .saver_started
+            .is_some_and(|t| t.elapsed() >= SAVER_GRACE);
+        let ends = match event {
+            WindowEvent::KeyboardInput {
+                event,
+                is_synthetic,
+                ..
+            } => !is_synthetic && event.state == ElementState::Pressed,
+            WindowEvent::MouseInput { state, .. } => *state == ElementState::Pressed,
+            WindowEvent::MouseWheel { .. } => true,
+            WindowEvent::CursorMoved { position, .. } => {
+                if !settled {
+                    // Measure movement from where the cursor settles.
+                    self.saver_moves = MoveGuard::default();
+                }
+                self.saver_moves.moved(position.x, position.y)
+            }
+            _ => return None,
+        };
+        Some(ends && settled)
+    }
+
+    /// Screensaver mode: whether raw input (from any window, focused or
+    /// not) ends it, by the same rules as [`App::saver_input`].
+    fn saver_raw_input_ends(&mut self, event: &DeviceEvent) -> bool {
+        let settled = self
+            .saver_started
+            .is_some_and(|t| t.elapsed() >= SAVER_GRACE);
+        let ends = match event {
+            DeviceEvent::Key(key) => key.state == ElementState::Pressed,
+            DeviceEvent::Button { state, .. } => *state == ElementState::Pressed,
+            DeviceEvent::MouseWheel { .. } => true,
+            DeviceEvent::MouseMotion { delta: (dx, dy) } => {
+                if !settled {
+                    self.saver_motion = 0.0;
+                }
+                self.saver_motion += dx.hypot(*dy);
+                self.saver_motion > MOVE_THRESHOLD
+            }
+            _ => false,
+        };
+        ends && settled
     }
 
     fn send(&self, msg: ToRender) {
@@ -496,7 +606,9 @@ impl App {
             .window
             .as_ref()
             .is_some_and(|w| w.fullscreen().is_some());
-        let on = fullscreen && !self.silent && self.quit_deadline.is_none();
+        // A screensaver leaves the display's power-off timer alone.
+        let on =
+            fullscreen && !self.silent && self.quit_deadline.is_none() && !self.args.screensaver;
         self.keep_awake.update(on);
     }
 
@@ -521,6 +633,17 @@ impl App {
                 );
                 self.failed = true;
             }
+        }
+        // The screensaver's fullscreen window says nothing about the
+        // normal window's size and place.
+        if self.args.screensaver {
+            self.instance = None;
+            self.window = None;
+            return if self.failed || self.crash.is_some() {
+                ExitCode::FAILURE
+            } else {
+                ExitCode::SUCCESS
+            };
         }
         self.track_window();
         if let Some(store) = &self.store {
@@ -569,6 +692,18 @@ impl ApplicationHandler<UserEvent> for App {
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+        if self.args.screensaver {
+            match self.saver_input(&event) {
+                Some(true) => {
+                    tracing::info!("screensaver: input ends it");
+                    self.begin_quit(event_loop);
+                    return;
+                }
+                // Input never reaches the hotkeys in screensaver mode.
+                Some(false) => return,
+                None => {}
+            }
+        }
         match event {
             WindowEvent::CloseRequested => self.begin_quit(event_loop),
             WindowEvent::Resized(size) => {
@@ -599,6 +734,13 @@ impl ApplicationHandler<UserEvent> for App {
                 ..
             } if self.clicks.press(Instant::now()) => self.toggle_fullscreen(event_loop),
             _ => {}
+        }
+    }
+
+    fn device_event(&mut self, event_loop: &ActiveEventLoop, _id: DeviceId, event: DeviceEvent) {
+        if self.args.screensaver && self.saver_raw_input_ends(&event) {
+            tracing::info!("screensaver: input ends it");
+            self.begin_quit(event_loop);
         }
     }
 

@@ -1123,6 +1123,7 @@ dependencies = [
  "ms-render",
  "notify",
  "notify-debouncer-mini",
+ "pollster",
  "serde",
  "toml",
  "tracing",

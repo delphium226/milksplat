@@ -93,8 +93,17 @@ impl GpuState {
         })
     }
 
-    /// Configures the surface for `size` (both sides non-zero).
-    pub(super) fn configure(&self, size: [u32; 2]) {
+    /// Configures the surface for `size` (both sides non-zero). `false` if
+    /// it failed (DXGI can refuse a swapchain for a moment, for example
+    /// while a window changes mode); the caller retries on a later frame,
+    /// since acquiring from an unconfigured surface panics.
+    pub(super) fn configure(&self, size: [u32; 2], log: bool) -> bool {
+        // wgpu 30 error scopes are thread-local: this only sees the
+        // configure below.
+        let scope = self
+            .gpu
+            .device
+            .push_error_scope(wgpu::ErrorFilter::Validation);
         self.surface.configure(
             &self.gpu.device,
             &wgpu::SurfaceConfiguration {
@@ -109,6 +118,15 @@ impl GpuState {
                 view_formats: Vec::new(),
             },
         );
+        match pollster::block_on(scope.pop()) {
+            None => true,
+            Some(e) => {
+                if log {
+                    tracing::warn!("surface configuration failed; retrying: {e}");
+                }
+                false
+            }
+        }
     }
 
     /// Whether frames are presented with Mailbox (which does not pace them).

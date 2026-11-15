@@ -230,3 +230,44 @@ fn known_folders_resolve() {
         assert!(d.documents.is_some_and(|p| p.is_absolute()));
     }
 }
+
+#[test]
+fn screensaver_switches() {
+    use milksplat::screensaver::{saver_mode, SaverMode as M};
+    let mode = |args: &[&str], scr: bool| {
+        let v: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+        saver_mode(&v, scr)
+    };
+    assert_eq!(mode(&["/s"], true), Some(M::Run));
+    assert_eq!(mode(&["/S"], false), Some(M::Run));
+    assert_eq!(mode(&["-s"], true), Some(M::Run));
+    assert_eq!(mode(&["/p", "1234"], true), Some(M::Preview));
+    assert_eq!(mode(&["/p:1234"], true), Some(M::Preview));
+    assert_eq!(mode(&["/c"], true), Some(M::Configure));
+    assert_eq!(mode(&["/c:5678"], true), Some(M::Configure));
+    assert_eq!(mode(&[], true), Some(M::Configure), "a double-clicked .scr");
+    assert_eq!(mode(&[], false), None, "a plain run of the exe");
+    for normal in [
+        &["--safe"][..],
+        &["--log-fps"],
+        &["-h"],
+        &["/x"],
+        &["/sx"],
+        &["--s"],
+    ] {
+        assert_eq!(mode(normal, true), None, "{normal:?}");
+    }
+}
+
+#[test]
+fn screensaver_ignores_small_mouse_moves() {
+    use milksplat::screensaver::MoveGuard;
+    let mut g = MoveGuard::default();
+    assert!(
+        !g.moved(500.0, 300.0),
+        "the first position only sets the origin"
+    );
+    assert!(!g.moved(505.0, 305.0));
+    assert!(!g.moved(510.0, 300.0));
+    assert!(g.moved(520.0, 300.0));
+}

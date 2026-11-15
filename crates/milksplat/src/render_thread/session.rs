@@ -34,7 +34,7 @@ impl RenderThread {
         let silent = self.hist.silent_for(wall) >= SILENCE_S;
         if silent != self.silent {
             self.silent = silent;
-            self.overlay.no_audio = silent;
+            self.overlay.no_audio = silent && !self.screensaver;
             (self.on_silence)(silent);
         }
     }

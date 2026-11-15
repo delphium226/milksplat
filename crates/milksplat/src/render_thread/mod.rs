@@ -175,6 +175,8 @@ pub struct RenderOptions {
     /// `--safe`: the built-in default preset only, no user shaders, the
     /// default audio device, no hot reload.
     pub safe: bool,
+    /// Running as a screensaver: no no-audio hint.
+    pub screensaver: bool,
     /// The live config, saved by its own thread.
     pub store: ConfigStore,
     /// The run marker, told which preset is on screen.
@@ -343,6 +345,7 @@ fn run(
         first_frame: None,
         quit: false,
         safe: opts.safe,
+        screensaver: opts.screensaver,
         watch,
         session_skip,
         store: opts.store,
@@ -515,6 +518,8 @@ struct RenderThread {
     first_frame: Option<f64>,
     quit: bool,
     safe: bool,
+    /// Running as a screensaver: no no-audio hint.
+    screensaver: bool,
     /// The hot-reload watcher (none in safe mode).
     watch: Option<Watch>,
     /// Presets skipped this session only (the one a crash was blamed on).
@@ -665,7 +670,12 @@ impl RenderThread {
     /// skips this frame.
     fn acquire(&mut self, gs: &GpuState) -> Option<wgpu::SurfaceTexture> {
         if self.surface_dirty {
-            gs.configure(self.size);
+            // Log only the first failure of a streak.
+            if !gs.configure(self.size, self.fail_streak == 0) {
+                self.fail_streak = self.fail_streak.saturating_add(1);
+                self.backoff();
+                return None;
+            }
             self.surface_dirty = false;
         }
         let why = match gs.surface.get_current_texture() {

@@ -13,3 +13,4 @@ pub mod keepawake;
 pub mod logging;
 pub mod paths;
 pub mod render_thread;
+pub mod screensaver;

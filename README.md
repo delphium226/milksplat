@@ -130,6 +130,15 @@ Command line options: `--presets <dir>` uses another preset folder,
 `--safe` starts in safe mode, `--exit-after <seconds>` quits after a delay and
 `--log-fps` logs the frame rate.
 
+## Screensaver
+
+The release includes `milksplat.scr`, the same program as a Windows screensaver.
+
+1. Keep it in the unzipped folder, next to `milksplat.exe` and `presets\`.
+2. Right-click `milksplat.scr` and choose **Install**. Screen Saver Settings opens with Milksplat selected.
+
+It runs fullscreen with the same presets and settings as `milksplat.exe`, including each preset's saved reactivity, and reacts to whatever audio is playing. Any key, mouse click or real mouse movement ends it. The Settings… button has nothing to set, and the small preview stays blank. Unlike the app, it does not keep the display awake: your power settings still turn the screen off.
+
 ## Hotkeys
 
 | Key | Action |
