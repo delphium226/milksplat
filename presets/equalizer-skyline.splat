@@ -1,0 +1,258 @@
+# Equalizer Skyline: a city at night whose towers are the live spectrum.
+# Forty towers stand along a river under a dark violet sky, the bass on
+# the left and the highs on the right, and each one is a level meter:
+# its windows light up floor by floor from the street, magenta, rose,
+# gold, green and cyan across the city, rising and falling with its band
+# of the music, with a bright peak floor that lingers and sinks back
+# slowly. Behind them a lower city of dark blocks with a few warm windows
+# fills the gaps, searchlights sweep the sky from beyond the skyline,
+# red beacons blink on the tallest roofs, and the whole city hangs
+# upside down in the rippling river below.
+#
+# The meters live in the fp16 feedback buffer, one texel a tower in its
+# top left corner (forty, or the buffer's width if smaller): each tick
+# the warp shader reads the 512-bin spectrum texture on a log scale of
+# frequency for each tower's band, measures it against that band's own
+# average over the last second or two (blue), and keeps its level (red,
+# quick to rise, slower to fall) and its peak (green, sinking slowly). A resized
+# buffer just restarts them. The composite draws the rest: the sky,
+# beams, back blocks, towers, windows and beacons, and for the river it
+# draws the same scene at the mirrored height, shifted sideways by the
+# ripples, dimmed and tinted.
+#
+# Each hit of the music is felt at once, through pulses of the bass,
+# mids and treble that rise in a tick or two and die away over a
+# fraction of a second (soft-limited, so a bigger hit still means more):
+# a kick throws the searchlights into a fast sweep (the speed piles up
+# on a run of kicks and coasts back) and brightens them, and sends a
+# ripple of beacon flashes out across the rooftops from a random tower;
+# the mids drift the window colours (accumulated); the treble glints the
+# river. Bass quickens the ripples (smoothed).
+version = 1
+
+[meta]
+name = "Equalizer Skyline"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+feedback_format = "fp16"
+decay = 1.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+ph = 0; sv = 0; xk = 0.5; kr = 9; ka = 0; hu = 0; wph = 0; cd = 0;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+st = st + (min(treb_att, 2.5) - st) * 0.1;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+ob = pb;
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+kk = max(pb - ob, 0);
+// The searchlights: a slow sweep, thrown faster by each kick's rise.
+sv = sv * 0.95 + 0.05 * kk;
+ph = ph + 0.006 + sv;
+ph = ph - 6283.1853 * floor(ph / 6283.1853);
+// A fresh kick sends a ripple of beacon flashes out from a random tower.
+cd = cd + 1;
+if(kk > 0.1 && cd > 8, cd = 0; xk = rand(1000) / 1000; kr = 0; ka = min(pb, 1.5), 0);
+kr = min(kr + 0.03, 9);
+ka = ka * 0.965;
+hu = hu + 0.0004 + 0.004 * pm;
+hu = hu - floor(hu);
+wph = wph + 0.03 + 0.03 * min(sb, 2);
+wph = wph - 6283.1853 * floor(wph / 6283.1853);
+q1 = min(40, pixelsx); q2 = ph; q3 = pb; q4 = pm;
+q5 = pt; q6 = sb; q7 = xk; q8 = kr;
+q9 = ka; q10 = hu; q11 = wph; q12 = st;
+q13 = sv;
+'''
+
+[shader]
+warp = '''
+let sz = u.texsize.xy;
+let nb = u.q[0].x;
+let c = floor(uv_orig * sz);
+if (c.y > 0.5 || c.x >= nb) {
+    return vec3f(0.0);
+}
+// This tower's band: the spectrum on a log scale of frequency, a little
+// tilted up toward the highs, averaged over a few bins.
+let uu = c.x / max(nb - 1.0, 1.0);
+let bin = 1.5 * pow(250.0, uu);
+let spread = 0.5 + bin * 0.06;
+var s = 0.0;
+for (var k = -1; k <= 1; k++) {
+    let b = clamp(bin + f32(k) * spread, 0.5, 511.5);
+    s += textureSampleLevel(sampler_spectrum, s_fc, vec2f(b / 512.0, 0.5), 0.0).r;
+}
+s = s / 3.0 * (0.65 + 1.25 * uu);
+let here = clamp(textureLoad(sampler_main, vec2i(c), 0).rgb, vec3f(0.0), vec3f(8.0));
+// Measured against the band's own average over the last second or two
+// (blue), so every tower dances whatever the mix; silence is dark.
+let avg = here.b + (s - here.b) * 0.015;
+let lv = clamp(0.75 * s / max(avg, 0.12) - 0.2, 0.0, 1.0);
+// Quick to rise, slower to fall; the peak sinks slowly.
+let l = min(here.r, 1.0) + (lv - min(here.r, 1.0)) * select(0.08, 0.55, lv > here.r);
+let pk = max(l, min(here.g, 1.0) - 0.006);
+return vec3f(l, pk, avg);
+'''
+comp = '''
+let sz = u.texsize.xy;
+let asp = sz.x / sz.y;
+let nb = u.q[0].x;
+let ph = u.q[0].y;
+let pb = u.q[0].z;
+let pm = u.q[0].w;
+let pt = min(u.q[1].x, 1.5);
+let sb = min(u.q[1].y, 2.0) * 0.5;
+let xk = u.q[1].z;
+let kr = u.q[1].w;
+let ka = u.q[2].x;
+let hu = u.q[2].y;
+let wph = u.q[2].z;
+let st = max(0.0, min(u.q[2].w, 2.5) - 0.3);
+let sv = u.q[3].x;
+// The river bank's line, 70% down the picture.
+let hz = 0.7;
+let wet = uv.y > hz;
+let dw = max(uv.y - hz, 0.0);
+// The river: the same scene at the mirrored height, shifted sideways by
+// the ripples (bigger further down).
+let rn = textureSampleLevel(sampler_noise_lq, s_fw, vec2f(uv.x * 0.35, dw * 2.5 - wph * 0.004), 0.0).r - 0.5;
+let rip = select(0.0, (sin(dw * 900.0 / (1.0 + dw * 12.0) - wph + rn * 4.0) * 0.003 + rn * 0.006) * (0.3 + dw * 5.0), wet);
+let x = (uv.x - 0.5) * asp + rip;
+let y = select(hz - uv.y, dw * 1.1, wet);
+// The sky: deep violet, with a hazy city glow over the horizon.
+var col = mix(vec3f(0.24, 0.07, 0.3), vec3f(0.012, 0.014, 0.05), smoothstep(0.0, 0.55, y));
+col += vec3f(1.0, 0.32, 0.35) * exp(-y / 0.08) * 0.35;
+let lw = max(0.6, sz.y / 540.0);
+let cell = floor(uv * sz / lw);
+let h0 = (u32(cell.x) * 1973u + u32(cell.y) * 9277u) * 747796405u + 2891336453u;
+let h1 = ((h0 >> ((h0 >> 28u) + 4u)) ^ h0) * 277803737u;
+let hh = f32((h1 >> 22u) ^ h1) / 4294967296.0;
+col += vec3f(0.8, 0.85, 1.0) * step(0.9975, hh) * smoothstep(0.2, 0.45, y) * (0.3 + 0.4 * fract(hh * 911.0)) * select(1.0, 0.0, wet);
+// The searchlights, from beyond the skyline: thrown into a sweep and
+// brightened by the kicks.
+for (var k = 0; k < 4; k++) {
+    let fk = f32(k);
+    let ox = (-0.75 + 0.5 * fk) * asp * 0.5;
+    let ba = 0.5 * sin(ph * (0.9 + 0.17 * fk) + fk * 2.1) + 0.12 * sin(ph * 0.31 + fk);
+    let vx = x - ox;
+    let vy = y + 0.03;
+    let da = atan2(vx, vy) - ba;
+    let ln = length(vec2f(vx, vy));
+    let wd = 0.03 + 0.005 * fk;
+    let beam = exp(-da * da / (wd * wd)) * exp(-ln * 1.4) * smoothstep(0.0, 0.1, vy);
+    let bc = select(vec3f(0.55, 0.78, 1.0), vec3f(0.85, 0.55, 1.0), k == 1 || k == 3);
+    col += bc * beam * (0.4 + 0.45 * pb + 4.0 * sv);
+}
+// The low city behind: dark blocks with a few warm windows.
+let cw2 = asp / (nb * 0.62);
+let f2 = (x + asp * 0.5 + 0.37) / cw2;
+let b2 = floor(f2);
+let l2 = f2 - b2;
+let g2 = fract(sin(b2 * 91.7 + 1.3) * 43758.5453);
+let H2 = 0.05 + 0.12 * g2;
+if (y < H2 && l2 > 0.04 && l2 < 0.96) {
+    col = vec3f(0.018, 0.016, 0.035) + vec3f(0.05, 0.02, 0.06) * exp(-y / 0.04);
+    let wc2 = vec2f(l2 * cw2 / 0.012, y / 0.017);
+    let wf2 = fract(wc2);
+    let wh2 = fract(sin(dot(floor(wc2) + vec2f(b2 * 7.0, 0.0), vec2f(12.9898, 78.233))) * 43758.5453);
+    let win2 = step(0.25, wf2.x) * step(wf2.x, 0.75) * step(0.3, wf2.y) * step(wf2.y, 0.7);
+    let wmix = smoothstep(2.0, 4.0, 0.012 * sz.y);
+    col += vec3f(1.0, 0.65, 0.3) * step(0.82, wh2) * mix(0.25, win2, wmix) * 0.35;
+}
+// The towers: each a level meter for its band.
+let cw = asp / nb;
+let fx = (x + asp * 0.5) / cw;
+let bi = floor(fx);
+let lx = fx - bi;
+let wpx = 0.011 * sz.y;
+let wmx = smoothstep(2.0, 4.5, wpx);
+var bcn = vec3f(0.0);
+for (var j = -1; j <= 1; j++) {
+    let bj = bi + f32(j);
+    if (bj < 0.0 || bj >= nb) {
+        continue;
+    }
+    let uu = bj / max(nb - 1.0, 1.0);
+    let ha = fract(sin(bj * 127.1 + 3.7) * 43758.5453);
+    let hb = fract(sin(bj * 311.7 + 1.9) * 43758.5453);
+    let hc = fract(sin(bj * 74.7 + 5.3) * 43758.5453);
+    // A downtown in the middle, lower blocks toward the edges.
+    let H = (0.12 + 0.3 * ha * ha + 0.06 * hb) * (0.7 + 0.5 * exp(-((uu - 0.48) / 0.3) * ((uu - 0.48) / 0.3)));
+    let bl = 0.05 + 0.1 * hb;
+    let br = 0.95 - 0.1 * hc;
+    let spire = H > 0.2;
+    let tip = H + select(0.0, 0.035, spire);
+    let xc = (bj + 0.5) * cw - asp * 0.5;
+    if (j == 0) {
+        // The setback: the top quarter narrower on some towers.
+        let nar = select(0.0, 0.18, hc > 0.45 && y > H * 0.78);
+        if (lx > bl + nar && lx < br - nar && y < H) {
+            let lv = textureLoad(sampler_main, vec2i(i32(bj), 0), 0).rg;
+            col = vec3f(0.014, 0.017, 0.036) + vec3f(0.08, 0.04, 0.12) * exp(-y / 0.05);
+            // The windows: lit floor by floor up to the level.
+            let ncol = max(floor((br - bl) * cw / 0.011), 2.0);
+            let wx = (lx - bl) / (br - bl) * ncol;
+            let wy = y / 0.016;
+            let fw = fract(vec2f(wx, wy));
+            let win = mix(0.3, smoothstep(0.18, 0.26, fw.x) * smoothstep(0.82, 0.74, fw.x) * smoothstep(0.22, 0.3, fw.y) * smoothstep(0.78, 0.7, fw.y), wmx);
+            let ry = (floor(wy) + 0.5) * 0.016;
+            let fill = clamp(lv.r * 1.05, 0.0, 1.0) * H;
+            let lit = smoothstep(ry - 0.016, ry, fill);
+            let pkr = 1.0 - smoothstep(0.0, 0.016, abs(ry - lv.g * H));
+            let hh6 = 6.2831853 * (hu + 0.82 * uu + 0.85);
+            var wc = 0.5 + 0.5 * cos(vec3f(hh6, hh6 - 2.094, hh6 + 2.094));
+            wc = wc * wc * 1.7 + vec3f(0.08);
+            let wr = fract(sin(dot(floor(vec2f(wx, wy)), vec2f(41.3, 289.1)) + bj) * 43758.5453);
+            col += wc * win * lit * (0.75 + 0.5 * wr) * (0.9 + 0.6 * (1.0 - ry / H));
+            col += wc * lit * 0.12;
+            col += (wc * 0.6 + vec3f(0.55)) * win * pkr * step(0.02, lv.g) * 1.3;
+            // Dim, unlit windows with a few odd lights on.
+            col += vec3f(0.5, 0.45, 0.6) * win * (1.0 - lit) * (0.035 + 0.3 * step(0.93, wr));
+            // A thin rim of light on the tower's edges.
+            col += wc * 0.25 * (1.0 - smoothstep(0.0, 0.03, min(lx - bl - nar, br - nar - lx))) * lv.r;
+        }
+        if (spire && abs(lx - 0.5) * cw < 0.0015 + 0.5 / sz.y && y >= H && y < tip) {
+            col = vec3f(0.03, 0.03, 0.05);
+        }
+    }
+    // The beacon on a spire: a slow red blink, and the kicks' flashes
+    // rippling out across the roofs.
+    if (spire) {
+        let bx = x - xc;
+        let by = y - tip;
+        let dd = bx * bx + by * by;
+        let blink = 0.35 + 0.65 * smoothstep(0.6, 0.9, sin(u.time * 2.2 + ha * 30.0));
+        let ux = (bj + 0.5) / nb;
+        let fl = ka * exp(-((abs(ux - xk) - kr) / 0.06) * ((abs(ux - xk) - kr) / 0.06));
+        let r0 = 0.0035 + 0.8 / sz.y;
+        bcn += vec3f(1.0, 0.15, 0.12) * exp(-dd / (r0 * r0)) * (blink + 2.5 * fl);
+        bcn += mix(vec3f(1.0, 0.2, 0.15), vec3f(1.0, 0.75, 0.9), min(fl, 1.0)) * exp(-sqrt(dd) / (0.012 + 0.02 * fl)) * (0.12 * blink + 0.9 * fl);
+    }
+}
+col += bcn;
+if (wet) {
+    // Water: dimmer, bluer, darker further down, with glints on the treble.
+    col = col * vec3f(0.55, 0.62, 0.85) * (1.0 - dw * 1.3);
+    let gn = textureSampleLevel(sampler_noise_hq, s_fw, vec2f(uv.x * 3.0, dw * 40.0 - wph * 0.03), 0.0).r;
+    col += vec3f(0.6, 0.75, 1.0) * smoothstep(0.8, 0.95, gn) * (0.02 + 0.08 * st + 0.4 * pt) * (1.0 - dw * 2.0);
+    // The bank's dark edge.
+    col *= smoothstep(0.0, 0.006, dw);
+}
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.15, vec3f(0.0));
+return col / (1.0 + 0.35 * col);
+'''
