@@ -1,0 +1,287 @@
+# Laser Cathedral: a vast, dark gothic hall at night, its nave filled
+# with haze. Rows of tall columns march away on either side under a
+# pointed vault ribbed with arches, and at the far end a great rose
+# window glows in jewel colours. From a stage beneath it, coloured laser
+# beams sweep out through the haze over the heads of the crowd, slicing
+# it into bright lines, splashing hot spots where they strike the
+# columns and walls, and now and then a laser fan opens: a sheet of light
+# made of many fine rays, scanning across the hall.
+#
+# Everything is in the composite. Each ray is marched through a distance
+# field of the hall (walls, floor, a pointed vault with transverse ribs,
+# and the columns, repeated down the nave) to find the stone it sees.
+# The beams are lines from the stage: each one's glow is its distance of
+# closest approach to the view ray (only in front of the stone), dimmed
+# with distance from the stage and broken up by drifting haze from the
+# 3D noise texture. The fans are planes through the stage: the view ray
+# meets each in one point, lit if that point lies within the fan's
+# spread, striped into fine rays, and brighter the more edge-on the sheet
+# is seen. The rose window is tracery in polar coordinates, petals and
+# glass cells of hashed colours, with a soft shaft of its light down the
+# nave.
+#
+# Bass thickens the haze (smoothed). Each hit of the music is felt at
+# once, through pulses of the bass, mids and treble that rise in a tick
+# or two and die away over a fraction of a second (soft-limited, so a
+# bigger hit still means more): a kick fires a laser fan that opens and
+# scans across the hall (two can be open at once), swings the beams on
+# along their sweep (accumulated) and brightens them; the mids move the
+# beams' colours round the wheel (accumulated); the treble scintillates
+# the haze in the beams. The light is always in the beams and sheets, a
+# part of the frame: the hall never flashes.
+version = 1
+
+[meta]
+name = "Laser Cathedral"
+author = "Milksplat"
+license = "MIT OR Apache-2.0"
+
+[params]
+decay = 0.0
+zoom = 1.0
+warp = 0.0
+wave_a = 0.0
+mesh = [8, 6]
+
+[code]
+init = '''
+sw = 0; hu = 0; f1 = 9; f2 = 9; sl = 0; cd = 0; dr = 0;
+'''
+frame = '''
+sb = sb + (min(bass_att, 2.5) - sb) * 0.03;
+st = st + (min(treb_att, 2.5) - st) * 0.1;
+// The per-hit pulses: fast attack, slower decay, soft-limited.
+xb = max(bass - 1, 0); xb = xb / (1 + 0.5 * xb);
+ob = pb;
+pb = pb + (xb - pb) * if(xb > pb, 0.6, 0.1);
+xm = max(mid - 1, 0); xm = xm / (1 + 0.5 * xm);
+pm = pm + (xm - pm) * if(xm > pm, 0.6, 0.1);
+xt = max(treb - 1, 0); xt = xt / (1 + 0.5 * xt);
+pt = pt + (xt - pt) * if(xt > pt, 0.6, 0.1);
+// The beams sweep, swung on by each kick (accumulated).
+sw = sw + 0.35 / 60 + 0.035 * pb;
+sw = sw - 6283.1853 * floor(sw / 6283.1853);
+// The colours turn round the wheel, quicker with the mids.
+hu = hu + (0.01 + 0.25 * pm) / 60;
+hu = hu - floor(hu);
+// The haze drifts.
+dr = dr + 0.15 / 60;
+dr = dr - 64 * floor(dr / 64);
+// A fresh kick fires a fan, in the next of two slots: it opens and scans
+// across the hall over a second or so, fading.
+kk = max(pb - ob, 0);
+cd = cd + 1;
+if(kk > 0.1 && cd > 10,
+  cd = 0; sl = (sl + 1) % 2;
+  if(sl == 0, f1 = 0; a1 = min(pb, 1); d1 = if(rand(2) > 0.5, 1, -1); o1 = rand(1000) / 1000, 0);
+  if(sl == 1, f2 = 0; a2 = min(pb, 1); d2 = if(rand(2) > 0.5, 1, -1); o2 = rand(1000) / 1000, 0),
+  0);
+f1 = min(f1 + 1 / 60, 9); f2 = min(f2 + 1 / 60, 9);
+q1 = sw; q2 = hu; q3 = dr; q4 = sb;
+q5 = pb; q6 = pm; q7 = pt; q8 = st;
+q9 = f1; q10 = a1; q11 = d1; q12 = o1;
+q13 = f2; q14 = a2; q15 = d2; q16 = o2;
+'''
+
+[shader]
+comp = '''
+let sz = u.texsize.xy;
+let asp = sz.x / sz.y;
+let sw = u.q[0].x;
+let hu = u.q[0].y;
+let dr = u.q[0].z;
+let sb = min(u.q[0].w, 2.0) * 0.5;
+let pb = u.q[1].x;
+let pm = u.q[1].y;
+let pt = u.q[1].z;
+let st = max(0.0, min(u.q[1].w, 2.5) - 0.3);
+let lw = max(1.0, sz.y / 540.0);
+let sp = vec2f((uv.x - 0.5) * asp, 0.5 - uv.y);
+// The camera: in the nave, at the back of the crowd, looking up toward
+// the window.
+let cam = vec3f(0.0, 2.2, 0.0);
+let rd = normalize(vec3f(sp.x, sp.y + 0.16, 1.3));
+// March the hall.
+var t = 0.0;
+var hit = false;
+var mat = 0;
+for (var i = 0; i < 96; i++) {
+    let P = cam + rd * t;
+    let ax = abs(P.x);
+    let dfloor = P.y;
+    // The walls rise to 11, then a pointed vault: two arcs, each centred
+    // beyond the far wall, meeting at the crown (about 21.8 high).
+    let dvault = 11.5 - length(vec2f(ax + 4.0, max(P.y - 11.0, 0.0)));
+    let dend = 44.0 - P.z;
+    // The columns: every 5.5 down the nave, at 5.2 either side.
+    let zc = P.z - 5.5 * clamp(floor(P.z / 5.5 + 0.5), 1.0, 7.0);
+    let dcol = length(vec2f(ax - 5.2, zc)) - 0.5;
+    // Transverse ribs across the vault over the columns.
+    let drib = max(length(vec2f(dvault + 0.25, zc)) - 0.22, -dvault);
+    var d = min(dfloor, min(dvault, dend));
+    var m = 0;
+    if (dcol < d) {
+        d = dcol;
+        m = 1;
+    }
+    if (drib < d) {
+        d = drib;
+        m = 2;
+    }
+    if (dend <= d) {
+        m = 3;
+    }
+    if (d < 0.0006 * t + 0.001) {
+        hit = true;
+        mat = m;
+        break;
+    }
+    t += d * 0.9;
+    if (t > 60.0) {
+        break;
+    }
+}
+// The hall is closed: a ray that ran out of steps is as good as there.
+let th = min(t, 60.0);
+hit = true;
+let Ph = cam + rd * th;
+// The stone: very dark, a faint cool light from above, warmer toward
+// the window.
+var col = vec3f(0.0);
+let fog = exp(-th * 0.03);
+if (hit) {
+    let wl = exp(-(44.0 - Ph.z) * 0.06);
+    col = vec3f(0.018, 0.02, 0.035) * (0.6 + 0.4 * smoothstep(0.0, 14.0, Ph.y)) + vec3f(0.06, 0.03, 0.05) * wl;
+    if (mat == 1) {
+        col *= 1.4;
+    }
+    if (mat == 2) {
+        col *= 1.8;
+    }
+    // The floor: a faint sheen of the window down the nave.
+    if (Ph.y < 0.05) {
+        col += vec3f(0.09, 0.04, 0.12) * exp(-abs(Ph.x) * 0.5) * smoothstep(5.0, 40.0, Ph.z) * 0.6;
+    }
+    // The rose window, centred high on the end wall.
+    if (mat == 3) {
+        let wc = vec2f(Ph.x, Ph.y - 11.5);
+        let wr = length(wc);
+        let wa = atan2(wc.y, wc.x);
+        if (wr < 4.6) {
+            let nseg = 12.0;
+            let sa = wa / 6.2831853 * nseg;
+            let seg = floor(sa);
+            let fa = fract(sa) - 0.5;
+            let ring = floor(wr / 1.15);
+            let fr = fract(wr / 1.15) - 0.5;
+            // Tracery: dark bars between the glass cells.
+            let bar = max(smoothstep(0.42, 0.5, abs(fa) * (0.4 + wr * 0.25) / 0.6), smoothstep(0.4, 0.5, abs(fr)));
+            let petal = smoothstep(0.08, 0.0, abs(length(vec2f(fa * wr * 0.52, fr * 1.15)) - 0.32));
+            let hc = fract(sin(seg * 17.3 + ring * 41.9) * 43758.5453);
+            let gh = 6.2831853 * (hc * 0.7 + 0.55);
+            var glass = 0.55 + 0.45 * vec3f(cos(gh), cos(gh - 2.094), cos(gh + 2.094));
+            glass = glass * glass;
+            let hub = smoothstep(0.75, 0.55, wr);
+            col = glass * (1.0 - bar) * 0.95 + vec3f(1.0, 0.75, 0.4) * hub * 0.9 + vec3f(0.6, 0.3, 0.15) * petal * 0.4;
+            col *= smoothstep(4.6, 4.4, wr);
+        }
+        col += vec3f(0.5, 0.2, 0.35) * exp(-max(wr - 4.6, 0.0) * 1.2) * 0.12 * step(4.6, wr);
+    }
+    col *= mix(1.0, fog, 0.5);
+}
+// The haze: a dim glow everywhere, thicker low down and toward the
+// window, and a soft shaft of the window's light down the nave.
+let wdir = normalize(vec3f(0.0, 11.5, 44.0) - cam);
+let wcos = max(dot(rd, wdir), 0.0);
+col += vec3f(0.06, 0.045, 0.1) * (1.0 - fog) * (0.8 + 0.6 * sb) + vec3f(0.03, 0.02, 0.05) * (1.0 - rd.y);
+col += vec3f(0.5, 0.25, 0.4) * pow(wcos, 60.0) * 0.25 + vec3f(0.25, 0.12, 0.25) * pow(wcos, 6.0) * 0.14;
+// The beams, from the stage under the window.
+let stage = vec3f(0.0, 1.6, 38.0);
+let gain = 0.85 + 0.4 * pb / (1.0 + 0.3 * pb);
+for (var k = 0; k < 9; k++) {
+    let fk = f32(k);
+    let src = stage + vec3f((fk - 4.0) * 0.7, 0.0, 0.0);
+    // Each beam swings in its own pattern.
+    let yaw = 0.42 * sin(sw * (0.7 + 0.13 * fk) + fk * 1.7) + (fk - 4.0) * 0.06;
+    // Always rising over the crowd (well above the camera).
+    let pit = 0.18 + 0.09 * sin(sw * (0.5 + 0.07 * fk) + fk * 2.3) + 0.025 * abs(fk - 4.0);
+    let bd = normalize(vec3f(sin(yaw) * cos(pit), sin(pit), -cos(yaw) * cos(pit)));
+    // Closest approach of the view ray and the beam.
+    let w0 = cam - src;
+    let b = dot(rd, bd);
+    let dd = dot(rd, w0);
+    let ee = dot(bd, w0);
+    // 1 - b^2 taken from the cross product: exact even when the view ray
+    // runs nearly along the beam.
+    let cr = cross(rd, bd);
+    let den = max(dot(cr, cr), 1e-6);
+    let tc = (b * ee - dd) / den;
+    let sc = (ee - b * dd) / den;
+    if (tc > 0.0 && tc < th + 1.0 && sc > 0.0) {
+        let pq = src + bd * sc;
+        let dist = abs(dot(w0, cr)) / sqrt(den);
+        let wdt = 0.03 + 0.003 * sc;
+        let hz = textureSampleLevel(sampler_noisevol_lq, s_fw, pq * 0.09 + vec3f(dr, dr * 0.5, 0.0), 0.0).x;
+        let sci = textureSampleLevel(sampler_noisevol_lq, s_fw, pq * 0.6 + vec3f(u.time * 0.4, 0.0, u.time * 0.3), 0.0).x;
+        let haze = (0.45 + 0.9 * hz) * (1.0 + (0.4 * st + 2.0 * pt) * pow(sci, 4.0) * 3.0);
+        let bh = 6.2831853 * (hu + fk * 0.11);
+        let bc = 0.5 + 0.5 * vec3f(cos(bh), cos(bh - 2.094), cos(bh + 2.094));
+        let bcol = normalize(bc * bc + vec3f(0.02)) * 1.2;
+        // Faded softly where the stone cuts it off, so it never bands.
+        let atten = exp(-sc * 0.035) * smoothstep(th + 1.0, th - 1.5, tc);
+        col += bcol * (exp(-dist * dist / (wdt * wdt)) * 0.9 + exp(-dist / (wdt * 8.0)) * 0.16) * haze * atten * gain;
+    }
+    // Where the beam strikes the stone the view ray sees: a hot spot.
+    if (hit) {
+        let v = Ph - src;
+        let along = dot(v, bd);
+        if (along > 0.0) {
+            let dl = length(v - bd * along);
+            let bh = 6.2831853 * (hu + fk * 0.11);
+            let bc = 0.5 + 0.5 * vec3f(cos(bh), cos(bh - 2.094), cos(bh + 2.094));
+            col += bc * exp(-dl * dl * 14.0) * 0.6 * gain * exp(-along * 0.03);
+        }
+    }
+}
+// The fans: sheets through the stage, scanning across the hall.
+for (var k = 0; k < 2; k++) {
+    let fq = u.q[2 + k];
+    let age = fq.x;
+    let amp = fq.y * smoothstep(0.0, 0.18, age) * exp(-age * 2.0);
+    if (amp > 0.002) {
+        let dir = fq.z;
+        let off = fq.w;
+        // The sheet tilts up from the stage, stands steeply on edge and turns
+        // as it scans.
+        let roll = dir * (0.45 + 1.1 * smoothstep(0.0, 1.4, age)) + (off - 0.5) * 0.4;
+        let elev = 0.2 + 0.15 * off;
+        let fwd = normalize(vec3f(0.0, sin(elev), -cos(elev)));
+        let side = vec3f(cos(roll), sin(roll) * cos(elev), sin(roll) * sin(elev));
+        let nrm = normalize(cross(fwd, side));
+        let src = stage + vec3f(0.0, 0.4, 0.0);
+        let dn = dot(rd, nrm);
+        let tp = dot(src - cam, nrm) / select(dn, 1e-4, abs(dn) < 1e-4);
+        if (tp > 0.0 && tp < th) {
+            let P = cam + rd * tp;
+            let v = P - src;
+            let along = dot(v, fwd);
+            let acr = dot(v, side);
+            let a = atan2(acr, along);
+            let spread = 0.75 * smoothstep(0.0, 0.25, age);
+            let inside = smoothstep(spread, spread - 0.05, abs(a)) * step(0.0, along);
+            let rays = pow(0.5 + 0.5 * cos(a * 26.0), 40.0) * 1.6 + 0.06;
+            let edge = min(1.0 / max(abs(dn), 0.25), 4.0);
+            let hz = textureSampleLevel(sampler_noisevol_lq, s_fw, P * 0.09 + vec3f(dr, dr * 0.5, 0.0), 0.0).x;
+            let fh = 6.2831853 * (hu + 0.5 + f32(k) * 0.33);
+            let fc = 0.5 + 0.5 * vec3f(cos(fh), cos(fh - 2.094), cos(fh + 2.094));
+            col += normalize(fc * fc + vec3f(0.02)) * inside * rays * edge * amp * 0.26 * (0.5 + hz) * exp(-length(v) * 0.03);
+        }
+    }
+}
+// The stage: a glow of the lasers' sources.
+let sdir = normalize(stage - cam);
+col += vec3f(0.6, 0.4, 0.9) * pow(max(dot(rd, sdir), 0.0), 900.0) * 0.8 * gain;
+let lm = dot(col, vec3f(0.3, 0.5, 0.2));
+col = max(vec3f(lm) + (col - vec3f(lm)) * 1.2, vec3f(0.0));
+return col / (1.0 + 0.4 * col);
+'''
