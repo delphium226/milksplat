@@ -2,3 +2,7 @@
 *.actual.png
 
 /dist
+
+# Test recordings (never committed) and check outputs
+/.test-audio
+/.claude/worktrees

@@ -1,5 +1,7 @@
 # Builds the portable release zip: dist/milksplat-<version>-win64.zip
 # Works under Windows PowerShell 5.1 and pwsh.
+# -SkipTests skips `cargo test --workspace` (when the tests have just run).
+param([switch]$SkipTests)
 $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $PSScriptRoot
@@ -20,9 +22,11 @@ if (-not $version) { throw 'could not find the milksplat package version' }
 $name = "milksplat-$version-win64"
 Write-Host "Packaging $name"
 
-Write-Host '== cargo test --workspace'
-cargo test --workspace
-if ($LASTEXITCODE -ne 0) { throw 'cargo test failed' }
+if (-not $SkipTests) {
+    Write-Host '== cargo test --workspace'
+    cargo test --workspace
+    if ($LASTEXITCODE -ne 0) { throw 'cargo test failed' }
+}
 
 Write-Host '== cargo build --release -p milksplat'
 cargo build --release -p milksplat
@@ -38,6 +42,8 @@ Get-ChildItem -Path $dist -Filter "$name*" -ErrorAction SilentlyContinue |
 New-Item -ItemType Directory -Force -Path $stage | Out-Null
 $exe = Join-Path $root 'target\release\milksplat.exe'
 Copy-Item $exe $stage
+# The screensaver is the same exe renamed.
+Copy-Item $exe (Join-Path $stage 'milksplat.scr')
 New-Item -ItemType Directory -Force -Path (Join-Path $stage 'presets') | Out-Null
 Get-ChildItem (Join-Path $root 'presets') -File |
     Where-Object { $_.Name -ne 'default.splat' } |
@@ -47,7 +53,8 @@ foreach ($f in 'LICENSE-MIT', 'LICENSE-APACHE', 'README.md') {
     Copy-Item (Join-Path $root $f) $stage
 }
 
-Compress-Archive -Path $stage -DestinationPath $zip -CompressionLevel Optimal
+# The files sit at the top level of the zip (the README says so).
+Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip -CompressionLevel Optimal
 Write-Host ("Created {0} ({1:N1} MB)" -f $zip, ((Get-Item $zip).Length / 1MB))
 
 # Static CRT check: the exe must not depend on the VC++ runtime DLLs.
